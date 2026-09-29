@@ -1,0 +1,22 @@
+# ok-zzz 运行依赖（Windows / Python 3.12）
+# ok-script 由框架提供 UI、截图(WGC/BitBlt)、输入(PostMessage/Pynput)、OCR(onnxocr)能力
+ok-script[qt,ocr]>=2.0.0,<3
+
+# ok-script 不自动选择 OpenCV 变体，项目统一使用 contrib 完整版
+opencv-contrib-python>=4.9,<5
+
+# 自动战斗 YOLO 识别（DirectML GPU 推理）
+onnxruntime-directml>=1.20
+
+# 闪避音频识别（一条龙移植）
+soundcard>=0.4.6
+librosa>=0.11
+scipy>=1.13
+scikit-learn>=1.5
+
+# 后台模式虚拟手柄（需另行安装 ViGEm 驱动）
+vgamepad>=0.1.0; sys_platform == 'win32'
+
+# i18n 编译与测试
+polib>=1.2
+pytest>=8.0

@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.venv/
+configs/
+screenshots/
+logs/
+*.log
+.install/
+.runtime/
+debug/
