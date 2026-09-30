@@ -85,41 +85,35 @@ config = {
     'gui_title': 'ok-zzz',
     'version': version,
     'my_app': ['src.globals', 'Globals'],
+    # 触发器任务（常驻勾选，帧循环驱动）：ok-ww 式战斗/闪避挂机
+    'trigger_tasks': [
+        ["src.tasks.auto_combat_task", "AutoCombatTask"],
+        ["src.tasks.auto_combat_task", "DodgeAssistantTriggerTask"],
+    ],
+    # 一次性任务：一条龙日常为大入口，独立任务只保留大型玩法与工具
     'onetime_tasks': [
-        ["src.tasks.battle_demo_task", "BattleDemoTask"],
-        ["ok", "DiagnosisTask"],
-        # 一条龙全部应用（由 tools/gen_app_tasks.py 生成，细则选项见各任务）
-        ["src.tasks.app_tasks", "App_AutoBattle"],
-        ["src.tasks.app_tasks", "App_DodgeAssistant"],
-        ["src.tasks.app_tasks", "App_ChargePlan"],
-        ["src.tasks.app_tasks", "App_CityFund"],
-        ["src.tasks.app_tasks", "App_Coffee"],
-        ["src.tasks.app_tasks", "App_CommissionAssistant"],
-        ["src.tasks.app_tasks", "App_DailySignin"],
-        ["src.tasks.app_tasks", "App_OperationDebug"],
-        ["src.tasks.app_tasks", "App_ScreenshotHelper"],
-        ["src.tasks.app_tasks", "App_DriveDiscDismantle"],
-        ["src.tasks.app_tasks", "App_Email"],
-        ["src.tasks.app_tasks", "App_EngagementReward"],
-        ["src.tasks.app_tasks", "App_MouseSensitivityChecker"],
-        ["src.tasks.app_tasks", "App_PredefinedTeamChecker"],
-        ["src.tasks.app_tasks", "App_LostVoid"],
-        ["src.tasks.app_tasks", "App_WitheredDomain"],
-        ["src.tasks.app_tasks", "App_HouHouBakery"],
-        ["src.tasks.app_tasks", "App_IntelBoard"],
-        ["src.tasks.app_tasks", "App_LifeOnLine"],
-        ["src.tasks.app_tasks", "App_Notify"],
-        ["src.tasks.app_tasks", "App_NotoriousHunt"],
-        ["src.tasks.app_tasks", "App_RandomPlay"],
-        ["src.tasks.app_tasks", "App_RedemptionCode"],
-        ["src.tasks.app_tasks", "App_RiduWeekly"],
-        ["src.tasks.app_tasks", "App_ScratchCard"],
-        ["src.tasks.app_tasks", "App_ShiyuDefense"],
-        ["src.tasks.app_tasks", "App_SuibianTemple"],
-        ["src.tasks.app_tasks", "App_TrigramsCollection"],
-        ["src.tasks.app_tasks", "App_WorldPatrol"],
-        # 一条龙队列
-        ["src.tasks.app_runner_task", "OneDragonTask"],
-        ["src.tasks.app_runner_task", "AppRunnerTask"],
+        # —— 日常 ——
+        ["src.tasks.daily_task", "OneDragonDailyTask"],       # 🐉 一条龙
+        # —— 独立玩法（大型）——
+        ["src.tasks.app_tasks", "App_ChargePlan"],            # ⚡ 体力刷本
+        ["src.tasks.app_tasks", "App_NotoriousHunt"],         # 🐲 恶名狩猎
+        ["src.tasks.app_tasks", "App_ShiyuDefense"],          # 🛡️ 式舆防卫战
+        ["src.tasks.app_tasks", "App_WitheredDomain"],        # 🕳️ 枯萎之都
+        ["src.tasks.app_tasks", "App_LostVoid"],              # 🌌 迷失之地
+        ["src.tasks.app_tasks", "App_WorldPatrol"],           # 🌍 锄大地
+        ["src.tasks.app_tasks", "App_SuibianTemple"],         # 🏪 随便观
+        ["src.tasks.app_tasks", "App_IntelBoard"],            # 📋 情报板
+        ["src.tasks.app_tasks", "App_CommissionAssistant"],   # 🤝 委托助手
+        ["src.tasks.app_tasks", "App_RandomPlay"],            # 🎬 录像店营业
+        ["src.tasks.app_tasks", "App_LifeOnLine"],            # 🎮 真拿命验收
+        ["src.tasks.app_tasks", "App_DriveDiscDismantle"],    # 💎 驱动盘拆解
+        ["src.tasks.app_tasks", "App_RedemptionCode"],        # 🎫 兑换码
+        # —— 校准/开发工具 ——
+        ["src.tasks.app_tasks", "App_MouseSensitivityChecker"],      # 鼠标灵敏度
+        ["src.tasks.app_tasks", "App_PredefinedTeamChecker"],        # 预备编队识别
+        ["src.tasks.app_tasks", "App_OperationDebug"],               # 指令调试
+        ["src.tasks.app_tasks", "App_ScreenshotHelper"],             # 闪避截图
+        ["src.tasks.battle_demo_task", "BattleDemoTask"],            # 战斗演示
+        ["ok", "DiagnosisTask"],                                     # 诊断
     ],
 }
