@@ -153,6 +153,19 @@ class ZContext(ContextEventBus):
                                  self.run_context.get_application_name_map()))
 
     @property
+    def push_service(self):
+        """推送服务（24 渠道，配置见 notify.yml）。"""
+        return self._get_or_create('push_service', lambda: self._new_push_service())
+
+    def _new_push_service(self):
+        from onedragon.base.push.push_service import PushService
+        try:
+            return PushService(self)
+        except Exception as e:
+            log.warning(f'推送服务初始化失败（已停用）: {e}')
+            return None
+
+    @property
     def ocr(self) -> OkOcrMatcher | None:
         if self._ocr is None and self._get_ocr_lib is not None:
             self._ocr = OkOcrMatcher(self._get_ocr_lib)

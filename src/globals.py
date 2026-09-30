@@ -54,3 +54,20 @@ class Globals:
         """游戏启动后的完整初始化（画面区域等）。"""
         self.context.init_for_application()
         return self.context
+
+    def ensure_overlay(self):
+        """游戏内悬浮窗（识别框/HUD/日志面板，热键 o 开关）；失败静默。"""
+        if self._context is None:
+            return None
+        if getattr(self, '_overlay_manager', None) is not None:
+            return self._overlay_manager
+        try:
+            from onedragon.qt.overlay.overlay_manager import OverlayManager
+            self._overlay_manager = OverlayManager(self._context)
+            self._overlay_manager.start()
+            logger.info('Overlay 已启动（热键 o 开关）')
+            return self._overlay_manager
+        except Exception as e:
+            logger.warning(f'Overlay 启动失败（不影响核心功能）: {e}')
+            self._overlay_manager = None
+            return None

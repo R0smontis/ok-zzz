@@ -39,7 +39,6 @@ EXCLUDE_PREFIXES = (
     'one_dragon/launcher/',
     'one_dragon_qt/',   # P11 单独移植 overlay
     'onnxocr/',         # OCR 走 ok-script[ocr]
-    'one_dragon/base/operation/application_factory_manager.py',  # 插件发现 P11 移植
     'one_dragon/base/operation/application/application_run_context.py',  # 自建精简版
     'one_dragon/base/operation/application/application_group_manager.py',  # 并入自建 RunContext
     'one_dragon/base/operation/one_dragon_context.py',   # ok-zzz ZContext 替代
@@ -47,7 +46,6 @@ EXCLUDE_PREFIXES = (
     'one_dragon/base/operation/one_dragon_app.py',      # 队列重建
     'one_dragon/base/operation/application/group_application.py',
     'one_dragon/base/operation/operation_notify.py',    # 通知点 P11；用 stub
-    'one_dragon/base/push/',   # P11 移植
 )
 
 APP_SETTING_SUFFIX = '_app_setting.py'
@@ -130,6 +128,16 @@ def collect_files():
         'one_dragon.base.web.common_downloader',
         'one_dragon.base.web.zip_downloader',
     ]
+    # 定向移植：overlay 悬浮窗包及其专用 widgets（one_dragon_qt 下自包含子集）
+    overlay_deps = ['one_dragon_qt/widgets/overlay_text_widget.py']
+    for rel in overlay_deps:
+        queue.append(rel[:-3].replace('/', '.'))
+    overlay_root = os.path.join(SRC, 'one_dragon_qt', 'overlay')
+    for dirpath, _dirs, files in os.walk(overlay_root):
+        for f in files:
+            if f.endswith('.py'):
+                rel = os.path.relpath(os.path.join(dirpath, f), SRC).replace(os.sep, '/')
+                queue.append(rel[:-3].replace('/', '.'))
     while queue:
         mod = queue.pop()
         if mod in visited:
@@ -148,12 +156,18 @@ def collect_files():
 
 
 def to_dst_rel(rel):
+    if rel.startswith('one_dragon_qt/widgets/'):
+        return 'onedragon/qt/widgets/' + rel[len('one_dragon_qt/widgets/'):]
+    if rel.startswith('one_dragon_qt/overlay/'):
+        return 'onedragon/qt/overlay/' + rel[len('one_dragon_qt/overlay/'):]
     if rel.startswith('one_dragon/'):
         return 'onedragon/' + rel[len('one_dragon/'):]
     return rel
 
 
 def excluded(rel):
+    if rel.startswith('one_dragon_qt/overlay/') or rel.startswith('one_dragon_qt/widgets/'):
+        return False  # 定向移植豁免
     if any(rel.startswith(p) or rel == p.rstrip('/') for p in EXCLUDE_PREFIXES):
         return True
     if os.path.basename(rel).endswith(APP_SETTING_SUFFIX):
@@ -207,6 +221,14 @@ if _TC:
         ('def __init__(self, od_ctx: OneDragonContext):',
          "def __init__(self, od_ctx: 'OneDragonContext'):"),
     ],
+    # factory_manager 只需要类型引用；剥掉对总上下文/应用插件的运行时导入
+    'one_dragon/base/operation/application_factory_manager.py': [
+        ('from one_dragon.base.operation.one_dragon_context import OneDragonContext',
+         '''from typing import TYPE_CHECKING as _TC, Any as _Any
+
+if _TC:
+    OneDragonContext = _Any  # ok-zzz: 鸭子类型'''),
+    ],
     # basic_model_config 的 OCR 下载元数据改走 compat（不引入 onnx_ocr_matcher）
     'one_dragon/base/config/basic_model_config.py': [
         ("""from one_dragon.base.matcher.ocr.onnx_ocr_matcher import (
@@ -228,6 +250,11 @@ if _TC:
 
 
 def apply_patches(rel, content):
+    if rel.startswith('one_dragon_qt/overlay/'):
+        content = content.replace('from one_dragon_qt.overlay.',
+                                  'from onedragon.qt.overlay.')
+        content = content.replace('from one_dragon_qt.',
+                                  'from onedragon.qt.')
     for old, new in PATCHES.get(rel, []):
         if old in content:
             content = content.replace(old, new)

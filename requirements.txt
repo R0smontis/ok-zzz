@@ -20,3 +20,6 @@ vgamepad>=0.1.0; sys_platform == 'win32'
 # i18n 编译与测试
 polib>=1.2
 pytest>=8.0
+
+# P11 推送渠道依赖
+requests>=2.31

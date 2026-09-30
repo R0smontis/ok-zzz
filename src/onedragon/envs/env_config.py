@@ -405,14 +405,6 @@ class EnvConfig(YamlConfig):
         self.update('copy_screenshot', new_value)
 
     @property
-    def is_debug(self) -> bool:
-        return self.get('is_debug', False)
-
-    @is_debug.setter
-    def is_debug(self, new_value: bool) -> None:
-        self.update('is_debug', new_value)
-
-    @property
     def screenshot_method(self) -> str:
         """
         截图方法
