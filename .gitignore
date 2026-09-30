@@ -8,3 +8,6 @@ logs/
 .install/
 .runtime/
 debug/
+build/
+dist/
+*.spec.bak
