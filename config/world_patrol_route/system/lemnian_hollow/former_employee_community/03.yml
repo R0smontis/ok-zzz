@@ -1,0 +1,24 @@
+idx: 3
+op_list:
+- data:
+  - '1383'
+  - '1558'
+  op_type: move
+- data:
+  - '1315'
+  - '1565'
+  op_type: move
+- data:
+  - '1289'
+  - '1510'
+  op_type: move
+- data:
+  - '1246'
+  - '1506'
+  op_type: move
+- data:
+  - '1271'
+  - '1544'
+  op_type: move
+tp_area_id: former_employee_community
+tp_name: 职工宿舍南区

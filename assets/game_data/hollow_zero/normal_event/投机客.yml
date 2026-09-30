@@ -1,0 +1,52 @@
+- entry_name: "投机客"
+  event_name: "投机客"
+  options:
+    - option_name: "借2699齿轮硬币"
+    - option_name: "借2488齿轮硬币"
+    - option_name: "借1899齿轮硬币"
+    - option_name: "借1688齿轮硬币"
+    - option_name: "借999齿轮硬币"
+    - option_name: "借888齿轮硬币"
+    - option_name: "不需要借款"
+
+    - option_name: "超级物资"
+      desc: "获得2枚已催化S级鸣徽"
+
+    - option_name: "侵蚀钱袋"
+      desc: "承受2个侵蚀症状，获得7000齿轮硬币"
+
+    - option_name: "物资大礼包"
+      desc: "获得4枚鸣徽"
+
+    - option_name: "消费返利"
+      desc: "获得齿轮硬币"
+
+    - option_name: "净化侵蚀"
+      desc: "消除1个侵蚀症状"
+
+    - option_name: "身体康复训练"
+      desc: "回复20%生命值"
+
+    - option_name: "特别援助"
+      desc: "获得2个低级邦布插件"
+
+    - option_name: "清除压力"
+      desc: "压力值-20"
+    - option_name: "恢复身体"
+      desc: "回复10%生命值"
+
+    - option_name: "催化剂"
+      desc: "催化1枚鸣徽"
+
+    - option_name: "离开"
+    - option_name: "享受更多帮助"
+
+    - option_name: "全部还款"
+    - option_name: "我只能还齿轮硬币"
+
+- entry_name: "投机客"
+  event_name: "投机客的提醒"
+  options:
+    - option_name: "全部还款"
+    - option_name: "我只能还齿轮硬币"
+    - option_name: "不需要"

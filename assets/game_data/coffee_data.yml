@@ -1,0 +1,123 @@
+coffee_list:
+  - coffee_name: "新艾利都特调"
+  - coffee_name: "汀曼特调"
+  - coffee_name: "沙罗特调"
+    extra: true
+  - coffee_name: "沙罗特调（淡）"
+    extra: true
+  - coffee_name: "沙罗特调（浓）"
+    extra: true
+
+  - coffee_name: "参汤黑咖"
+    tab_name: "训练"
+    category_name: "区域巡防"
+
+  - coffee_name: "浓缩咖啡"
+    tab_name: "训练"
+    category_name: "实战模拟室"
+    mission_type_name: "通用"
+    mission_name: "通用"
+
+  - coffee_name: "薄荷黑咖"
+    tab_name: "训练"
+    category_name: "实战模拟室"
+    mission_type_name: "基础材料"
+    mission_name: "镀剂专项"
+
+  - coffee_name: "红茶拿提"
+    tab_name: "训练"
+    category_name: "实战模拟室"
+    mission_type_name: "代理人晋升"
+    mission_name: "强攻演练"
+
+  - coffee_name: "红茶拿提（淡）"
+    tab_name: "训练"
+    category_name: "实战模拟室"
+    mission_type_name: "代理人晋升"
+    mission_name: "击破演练"
+
+  - coffee_name: "红茶拿提（浓）"
+    tab_name: "训练"
+    category_name: "实战模拟室"
+    mission_type_name: "代理人晋升"
+    mission_name: "异常演练"
+
+
+  - coffee_name: "麦草拿提"
+    tab_name: "训练"
+    category_name: "实战模拟室"
+    mission_type_name: "代理人技能"
+    mission_name: "刚性测试"
+
+  - coffee_name: "麦草拿提（淡）"
+    tab_name: "训练"
+    category_name: "实战模拟室"
+    mission_type_name: "代理人技能"
+    mission_name: "升温测试"
+
+  - coffee_name: "麦草拿提（浓）"
+    tab_name: "训练"
+    category_name: "实战模拟室"
+    mission_type_name: "代理人技能"
+    mission_name: "冰结测试"
+
+
+  - coffee_name: "空泡摩咔"
+    tab_name: "训练"
+    category_name: "实战模拟室"
+    mission_type_name: "音擎改装"
+    mission_name: "支援分频试验"
+
+  - coffee_name: "空泡摩咔（淡）"
+    tab_name: "训练"
+    category_name: "实战模拟室"
+    mission_type_name: "音擎改装"
+    mission_name: "防护音圈试验"
+
+  - coffee_name: "果泡拿提"
+    tab_name: "训练"
+    category_name: "实战模拟室"
+    mission_type_name: "代理人晋升"
+    mission_name: "支援演练"
+
+  - coffee_name: "果泡拿提（淡）"
+    tab_name: "训练"
+    category_name: "实战模拟室"
+    mission_type_name: "代理人晋升"
+    mission_name: "防护演练"
+
+
+  - coffee_name: "月壤摩咔"
+    tab_name: "训练"
+    category_name: "实战模拟室"
+    mission_type_name: "音擎改装"
+    mission_name: "强攻极片试验"
+
+  - coffee_name: "月壤摩咔（淡）"
+    tab_name: "训练"
+    category_name: "实战模拟室"
+    mission_type_name: "音擎改装"
+    mission_name: "击破振膜试验"
+
+  - coffee_name: "月壤摩咔（浓）"
+    tab_name: "训练"
+    category_name: "实战模拟室"
+    mission_type_name: "音擎改装"
+    mission_name: "异常磁体试验"
+
+
+  - coffee_name: "胡椒拿提"
+    tab_name: "训练"
+    category_name: "实战模拟室"
+    mission_type_name: "代理人技能"
+    mission_name: "电流测试"
+
+  - coffee_name: "胡椒拿提（淡）"
+    tab_name: "训练"
+    category_name: "实战模拟室"
+    mission_type_name: "代理人技能"
+    mission_name: "共鸣测试"
+
+schedule:
+  - days: [ 1, 2, 3, 4, 5, 6, 7 ]
+    coffee_list: [ "浓缩咖啡", "汀曼特调" ]

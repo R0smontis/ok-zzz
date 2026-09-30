@@ -27,6 +27,10 @@ ASSET_SPECS = [
     ('config/auto_battle_operation', 'config/auto_battle_operation', True),
     ('config/auto_battle_state_handler', 'config/auto_battle_state_handler', True),
     ('config/dodge', 'config/dodge', True),
+    ('config/hollow_zero_challenge', 'config/hollow_zero_challenge', True),
+    ('config/lost_void_challenge', 'config/lost_void_challenge', True),
+    ('config/world_patrol_route', 'config/world_patrol_route', True),
+    ('config/world_patrol_route_list', 'config/world_patrol_route_list', True),
     ('assets/image_analysis_pipelines', 'assets/image_analysis_pipelines', True),
     ('assets/template', 'assets/template', False),  # 按 template_subs 复制子目录
 ]
@@ -121,8 +125,9 @@ def main():
                     shutil.rmtree(dst_rel)
                 n = copy_dir(src_dir, dst_rel)
             else:
+                subs = None if args.all else args.template_subs
                 n = 0
-                for sub in args.template_subs:
+                for sub in (os.listdir(src_dir) if subs is None else subs):
                     sub_dir = os.path.join(src_dir, sub)
                     if os.path.isdir(sub_dir):
                         n += copy_dir(sub_dir, os.path.join(dst_rel, sub))

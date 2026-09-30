@@ -1,0 +1,44 @@
+idx: 3
+op_list:
+- data:
+  - '798'
+  - '814'
+  op_type: move
+- data:
+  - '798'
+  - '750'
+  op_type: move
+- data:
+  - '832'
+  - '716'
+  op_type: move
+- data:
+  - '832'
+  - '601'
+  op_type: move
+- data:
+  - '863'
+  - '560'
+  op_type: move
+- data:
+  - '863'
+  - '521'
+  op_type: move
+- data:
+  - '789'
+  - '521'
+  op_type: move
+- data:
+  - '674'
+  - '534'
+  op_type: move
+- data:
+  - '597'
+  - '598'
+  op_type: move
+- data:
+  - '579'
+  - '634'
+  op_type: move
+tp_area_id: production_area_building_east_side
+tp_name: 制造平台

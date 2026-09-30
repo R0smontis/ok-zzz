@@ -1,0 +1,36 @@
+idx: 4
+op_list:
+- data:
+  - '465'
+  - '751'
+  op_type: move
+- data:
+  - '474'
+  - '785'
+  op_type: move
+- data:
+  - '474'
+  - '841'
+  op_type: move
+- data:
+  - '492'
+  - '841'
+  op_type: move
+- data:
+  - '514'
+  - '867'
+  op_type: move
+- data:
+  - '540'
+  - '858'
+  op_type: move
+- data:
+  - '577'
+  - '872'
+  op_type: move
+- data:
+  - '577'
+  - '817'
+  op_type: move
+tp_area_id: production_area_building_east_side
+tp_name: 大楼东侧
