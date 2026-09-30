@@ -4,7 +4,6 @@
 # 路径: one_dragon/base/cv_process/cv_service.py
 # 本文件随 ok-zzz 以 GPL-3.0 继续分发。
 import os
-from typing import TYPE_CHECKING
 
 import numpy as np
 import yaml
@@ -39,10 +38,10 @@ from onedragon.base.debug.debug_trace_bus import (
     TimelineTraceItem,
     VisionTraceItem,
 )
-if TYPE_CHECKING:
-    from typing import Any
+from typing import TYPE_CHECKING as _TC, Any as _Any
 
-    OneDragonContext = Any  # ok-zzz: 不引入 one_dragon 总上下文，鸭子类型即可
+if _TC:
+    OneDragonContext = _Any  # ok-zzz: 鸭子类型，不引入总上下文
 from onedragon.utils import os_utils, yaml_utils
 
 

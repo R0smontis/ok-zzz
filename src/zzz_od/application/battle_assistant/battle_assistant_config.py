@@ -1,16 +1,24 @@
 # -*- coding: utf-8 -*-
-"""战斗助手配置 — 精简移植版。
+# 移植自 ZenlessZoneZero-OneDragon (GPL-3.0)
+# 来源: https://github.com/OneDragon-Anything/ZenlessZoneZero-OneDragon
+# 路径: zzz_od/application/battle_assistant/battle_assistant_config.py
+# 本文件随 ok-zzz 以 GPL-3.0 继续分发。
+from onedragon.base.config.yaml_config import YamlConfig
+from zzz_od.config.game_config import GamepadTypeEnum
 
-移植自 ZenlessZoneZero-OneDragon (GPL-3.0)
-src/zzz_od/application/battle_assistant/battle_assistant_config.py。
-"""
-from onedragon.base.config.lean_yaml_config import LeanYamlConfig
 
+class BattleAssistantConfig(YamlConfig):
 
-class BattleAssistantConfig(LeanYamlConfig):
+    def __init__(self, instance_idx: int):
+        YamlConfig.__init__(self, 'battle_assistant', instance_idx=instance_idx)
 
-    def __init__(self, dir_path: str | None = None):
-        LeanYamlConfig.__init__(self, 'battle_assistant', dir_path=dir_path)
+    @property
+    def dodge_assistant_config(self) -> str:
+        return self.get('dodge_assistant_config', '闪避')
+
+    @dodge_assistant_config.setter
+    def dodge_assistant_config(self, new_value: str) -> None:
+        self.update('dodge_assistant_config', new_value)
 
     @property
     def screenshot_interval(self) -> float:
@@ -22,7 +30,14 @@ class BattleAssistantConfig(LeanYamlConfig):
 
     @property
     def background_mode(self) -> bool:
-        return self.get('background_mode', False)
+        old_control_method = self.get('control_method', None)
+        return self.get(
+            'background_mode',
+            old_control_method in [
+                GamepadTypeEnum.XBOX.value.value,
+                GamepadTypeEnum.DS4.value.value,
+            ],
+        )
 
     @background_mode.setter
     def background_mode(self, new_value: bool) -> None:

@@ -1,0 +1,109 @@
+# -*- coding: utf-8 -*-
+# 移植自 ZenlessZoneZero-OneDragon (GPL-3.0)
+# 来源: https://github.com/OneDragon-Anything/ZenlessZoneZero-OneDragon
+# 路径: zzz_od/application/trigrams_collection/trigrams_collection_app.py
+# 本文件随 ok-zzz 以 GPL-3.0 继续分发。
+import time
+
+from onedragon.base.geometry.point import Point
+from onedragon.base.geometry.rectangle import Rect
+from onedragon.base.matcher.ocr import ocr_utils
+from onedragon.base.operation.operation_edge import node_from
+from onedragon.base.operation.operation_node import operation_node
+from onedragon.base.operation.operation_notify import NotifyTiming, node_notify
+from onedragon.base.operation.operation_round_result import OperationRoundResult
+from zzz_od.application.trigrams_collection import trigrams_collection_const
+from zzz_od.application.zzz_application import ZApplication
+from zzz_od.context.zzz_context import ZContext
+from zzz_od.operation.back_to_normal_world import BackToNormalWorld
+from zzz_od.operation.transport import Transport
+
+
+class TrigramsCollectionApp(ZApplication):
+
+    """卦象集录:每日占卜玩法(与刮刮卡/吼吼饼铺共享每日一次,三选一)。日签类、无消耗。"""
+
+    def __init__(self, ctx: ZContext):
+        ZApplication.__init__(
+            self,
+            ctx=ctx,
+            app_id=trigrams_collection_const.APP_ID,
+            op_name=trigrams_collection_const.APP_NAME,
+        )
+        self.claim_reward: bool = False  # 是否已获取卦象
+
+    @operation_node(name='传送', is_start_node=True)
+    def transport(self) -> OperationRoundResult:
+        op = Transport(self.ctx, '澄辉坪', '阿朔', wait_at_last=True)
+        return self.round_by_op_result(op.execute())
+
+    @node_from(from_name='传送')
+    @operation_node(name='移动交互')
+    def move_and_interact(self) -> OperationRoundResult:
+        """
+        传送之后 往前移动一下 方便交互
+        :return:
+        """
+        # self.ctx.controller.move_w(press=True, press_time=1, release=True)
+
+        time.sleep(1) # 防止交互无效 issue #2405 #2395 #2328
+        self.ctx.controller.interact(press=True, press_time=0.2, release=True)
+
+        return self.round_success(wait=3)
+
+    @node_from(from_name='移动交互')
+    @node_notify(when=NotifyTiming.CURRENT_DONE)
+    @operation_node(name='获取卦象', node_max_retry_times=10)
+    def get_trigram(self) -> OperationRoundResult:
+        # ocr加速: 只识别下半部分屏幕
+        offset: Point = Point(0, self.ctx.controller.standard_height // 2)
+        ocr_result_map = self.ctx.ocr.crop_and_run_ocr(
+            self.last_screenshot,
+            Rect(0,
+                 self.ctx.controller.standard_height // 2,
+                 self.ctx.controller.standard_width,
+                 self.ctx.controller.standard_height))
+
+        target_word_list: list[str] = [
+            '卦象集录',  # 外层还没开卦象的时候
+            '滑动屏幕以获取卦象',  # 需要有这个词 防止画面出现"已领取"也匹配到"领取"
+            '确认',  # 获取卦象后 or 已完成同类活动 issue #1027
+        ]
+        word, mrl = ocr_utils.match_word_list_by_priority(ocr_result_map, target_word_list)
+        if word == '卦象集录':
+            if self.claim_reward:
+                return self.round_success(status=word)
+            else:
+                self.round_by_click_area('卦象集录', '区域-获取卦象')
+                return self.round_wait(status=word, wait=1)
+        elif word == '滑动屏幕以获取卦象':
+            start = Point(self.ctx.controller.standard_width - 100, 100)
+            end = Point(100, self.ctx.controller.standard_height - 100)
+            self.ctx.controller.drag_to(start=start, end=end, duration=1)  # 这里是越慢拖动越多
+            self.ctx.controller.drag_to(start=end, end=start, duration=1)
+            return self.round_wait(status=word)
+        elif word == '确认':
+            self.claim_reward = True
+            area: Point = mrl.max.center
+            area = area.__add__(offset)
+            self.ctx.controller.click(area)
+            return self.round_wait(status=word, wait=1)
+
+        return self.round_retry(status='未识别目标文本', wait=1)
+
+    @node_from(from_name='获取卦象')
+    @operation_node(name='结束后返回')
+    def back_at_last(self) -> OperationRoundResult:
+        op = BackToNormalWorld(self.ctx)
+        return self.round_by_op_result(op.execute())
+
+
+def __debug():
+    ctx = ZContext()
+    ctx.init()
+    app = TrigramsCollectionApp(ctx)
+    app.execute()
+
+
+if __name__ == '__main__':
+    __debug()

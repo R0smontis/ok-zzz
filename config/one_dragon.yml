@@ -1,0 +1,6 @@
+instance_list:
+- idx: 1
+  name: '01'
+  active: true
+  active_in_od: true
+  force_login_before_run: false

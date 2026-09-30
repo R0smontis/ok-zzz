@@ -1,0 +1,30 @@
+# -*- coding: utf-8 -*-
+# 移植自 ZenlessZoneZero-OneDragon (GPL-3.0)
+# 来源: https://github.com/OneDragon-Anything/ZenlessZoneZero-OneDragon
+# 路径: zzz_od/application/game_config_checker/mouse_sensitivity_checker/mouse_sensitivity_checker_factory.py
+# 本文件随 ok-zzz 以 GPL-3.0 继续分发。
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from onedragon.base.operation.application.application_factory import ApplicationFactory
+from onedragon.base.operation.application_base import Application
+from zzz_od.application.game_config_checker.mouse_sensitivity_checker import (
+    mouse_sensitivity_checker_const,
+)
+from zzz_od.application.game_config_checker.mouse_sensitivity_checker.mouse_sensitivity_checker import (
+    MouseSensitivityChecker,
+)
+
+if TYPE_CHECKING:
+    from zzz_od.context.zzz_context import ZContext
+
+
+class MouseSensitivityCheckerFactory(ApplicationFactory):
+
+    def __init__(self, ctx: ZContext):
+        ApplicationFactory.__init__(self, mouse_sensitivity_checker_const)
+        self.ctx: ZContext = ctx
+
+    def create_application(self, instance_idx: int, group_id: str) -> Application:
+        return MouseSensitivityChecker(self.ctx)

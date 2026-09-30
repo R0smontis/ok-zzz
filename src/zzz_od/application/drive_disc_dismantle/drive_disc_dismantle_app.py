@@ -1,0 +1,131 @@
+# -*- coding: utf-8 -*-
+# 移植自 ZenlessZoneZero-OneDragon (GPL-3.0)
+# 来源: https://github.com/OneDragon-Anything/ZenlessZoneZero-OneDragon
+# 路径: zzz_od/application/drive_disc_dismantle/drive_disc_dismantle_app.py
+# 本文件随 ok-zzz 以 GPL-3.0 继续分发。
+from onedragon.base.operation.application import application_const
+from onedragon.base.operation.operation_edge import node_from
+from onedragon.base.operation.operation_node import operation_node
+from onedragon.base.operation.operation_notify import NotifyTiming, node_notify
+from onedragon.base.operation.operation_round_result import OperationRoundResult
+from zzz_od.application.drive_disc_dismantle import drive_disc_dismantle_const
+from zzz_od.application.drive_disc_dismantle.drive_disc_dismantle_config import (
+    DriveDiscDismantleConfig,
+)
+from zzz_od.application.drive_disc_dismantle.drive_disc_dismantle_run_record import (
+    DriveDiscDismantleRunRecord,
+)
+from zzz_od.application.zzz_application import ZApplication
+from zzz_od.context.zzz_context import ZContext
+from zzz_od.operation.back_to_normal_world import BackToNormalWorld
+
+
+class DriveDiscDismantleApp(ZApplication):
+
+    """驱动盘分解:按配置批量分解驱动盘。销毁道具(不可逆),务必核对配置。"""
+
+    def __init__(self, ctx: ZContext):
+        ZApplication.__init__(
+            self,
+            ctx=ctx,
+            app_id=drive_disc_dismantle_const.APP_ID,
+            op_name=drive_disc_dismantle_const.APP_NAME,
+        )
+
+        self.config: DriveDiscDismantleConfig = self.ctx.run_context.get_config(
+            app_id=drive_disc_dismantle_const.APP_ID,
+            instance_idx=self.ctx.current_instance_idx,
+            group_id=application_const.DEFAULT_GROUP_ID,
+        )
+        self.run_record: DriveDiscDismantleRunRecord = self.ctx.run_context.get_run_record(
+            instance_idx=self.ctx.current_instance_idx,
+            app_id=drive_disc_dismantle_const.APP_ID,
+        )
+
+    @operation_node(name='开始前返回', is_start_node=True)
+    def back_at_first(self) -> OperationRoundResult:
+        op = BackToNormalWorld(self.ctx)
+        return self.round_by_op_result(op.execute())
+
+    @node_from(from_name='开始前返回')
+    @operation_node(name='前往分解画面')
+    def goto_salvage(self) -> OperationRoundResult:
+        return self.round_by_goto_screen(screen_name='仓库-驱动仓库-驱动盘拆解')
+
+    @node_from(from_name='前往分解画面')
+    @operation_node(name='快速选择')
+    def click_filter(self) -> OperationRoundResult:
+        return self.round_by_find_and_click_area(self.last_screenshot, '仓库-驱动仓库-驱动盘拆解', '按钮-快速选择',
+                                                 success_wait=1, retry_wait=1)
+
+    @node_from(from_name='快速选择')
+    @operation_node(name='选择等级')
+    def choose_level(self) -> OperationRoundResult:
+        return self.round_by_find_and_click_area(
+            self.last_screenshot, '仓库-驱动仓库-驱动盘拆解', f'按钮-{self.config.dismantle_level}',
+            success_wait=1, retry_wait=1
+        )
+
+    @node_from(from_name='选择等级')
+    @operation_node(name='选择弃置')
+    def choose_abandon(self) -> OperationRoundResult:
+        if self.config.dismantle_abandon:
+            return self.round_by_find_and_click_area(self.last_screenshot, '仓库-驱动仓库-驱动盘拆解', '按钮-全选已弃置',
+                                                     success_wait=1, retry_wait=1)
+        else:
+            return self.round_success('无需选择')
+
+    @node_from(from_name='选择等级', success=False)
+    @node_from(from_name='选择弃置')
+    @node_from(from_name='选择弃置', success=False)
+    @operation_node(name='快速选择确认')
+    def click_filter_confirm(self) -> OperationRoundResult:
+        return self.round_by_find_and_click_area(self.last_screenshot, '仓库-驱动仓库-驱动盘拆解', '按钮-快速选择-确认',
+                                                 success_wait=1, retry_wait=1)
+
+    @node_from(from_name='快速选择确认')
+    @operation_node(name='点击拆解')
+    def click_salvage(self) -> OperationRoundResult:
+        return self.round_by_find_and_click_area(self.last_screenshot, '仓库-驱动仓库-驱动盘拆解', '按钮-拆解',
+                                                 success_wait=1, retry_wait=1)
+
+    @node_from(from_name='点击拆解')
+    @operation_node(name='点击拆解确认')
+    def click_salvage_confirm(self) -> OperationRoundResult:
+        return self.round_by_find_and_click_area(self.last_screenshot, '仓库-驱动仓库-驱动盘拆解', '按钮-拆解-确认',
+                                                 success_wait=1, retry_wait=1)
+
+    @node_from(from_name='点击拆解确认')
+    @operation_node(name='确认获得')
+    def confirm_obtained(self) -> OperationRoundResult:
+        return self.round_by_find_and_click_area(self.last_screenshot, '道具处理-获得', '按钮-确认',
+                                                 success_wait=1, retry_wait=1)
+
+    @node_from(from_name='确认获得')
+    @node_from(from_name='确认获得', success=False)
+    @node_from(from_name='点击拆解确认', success=False)  # 可能没有需要拆解的
+    @node_notify(when=NotifyTiming.CURRENT_SUCCESS)
+    @operation_node(name='返回驱动仓库')  # issue #2701
+    def back_to_storage(self) -> OperationRoundResult:
+        result = self.round_by_find_area(self.last_screenshot, '仓库-驱动仓库-驱动盘拆解', '标题-驱动盘拆解')
+        if not result.is_success:
+            return result
+        return self.round_by_find_and_click_area(self.last_screenshot, '画面-通用', '返回',
+                                                 success_wait=1, retry_wait=1)
+
+    @node_from(from_name='返回驱动仓库')
+    @operation_node(name='返回大世界')
+    def back_at_last(self) -> OperationRoundResult:
+        op = BackToNormalWorld(self.ctx)
+        return self.round_by_op_result(op.execute())
+
+
+def __debug():
+    ctx = ZContext()
+    ctx.init()
+    app = DriveDiscDismantleApp(ctx)
+    app.execute()
+
+
+if __name__ == '__main__':
+    __debug()

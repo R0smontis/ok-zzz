@@ -1,15 +1,14 @@
 # -*- coding: utf-8 -*-
-"""绝区零游戏配置（键位等）— 精简移植版。
-
-移植自 ZenlessZoneZero-OneDragon (GPL-3.0) src/zzz_od/config/game_config.py，
-以 LeanYamlConfig 替代 BasicGameConfig/YamlConfig 栈（剥除 Qt 适配器与
-多实例目录逻辑），配置键名与一条龙完全兼容。
-"""
+# 移植自 ZenlessZoneZero-OneDragon (GPL-3.0)
+# 来源: https://github.com/OneDragon-Anything/ZenlessZoneZero-OneDragon
+# 路径: zzz_od/config/game_config.py
+# 本文件随 ok-zzz 以 GPL-3.0 继续分发。
 from enum import Enum
 
-from onedragon.base.config.lean_yaml_config import LeanYamlConfig
+from onedragon.base.config.basic_game_config import BasicGameConfig
 from onedragon.base.config.config_item import ConfigItem
-from zzz_od.controller.gamepad import Ds4ButtonEnum, XboxButtonEnum
+from onedragon.base.controller.pc_button.ds4_button_controller import Ds4ButtonEnum
+from onedragon.base.controller.pc_button.xbox_button_controller import XboxButtonEnum
 
 
 class GamepadTypeEnum(Enum):
@@ -19,7 +18,11 @@ class GamepadTypeEnum(Enum):
 
 
 class GamepadActionEnum(Enum):
-    """后台模式下用手柄按键替代点击的逻辑动作。"""
+    """后台模式下用手柄按键替代点击的逻辑动作。
+
+    value 是 ConfigItem(显示名, 存储值)。
+    screen 区域的 gamepad_key 引用存储值。
+    """
 
     MENU = ConfigItem('菜单', 'menu')
     MAP = ConfigItem('地图', 'map')
@@ -129,13 +132,13 @@ _ACTION_KEY_DEFAULTS: dict[str, dict[str, list[str]]] = {
 def _with_key_properties(cls):
     """根据 _KEY_DEFAULTS 和 _ACTION_KEY_DEFAULTS 动态生成按键 property"""
 
-    def _create_getter(name: str, default_value):
-        def getter(self):
+    def _create_getter(name: str, default_value: str):
+        def getter(self) -> str:
             return self.get(name, default_value)
         return getter
 
     def _create_setter(name: str):
-        def setter(self, new_value) -> None:
+        def setter(self, new_value: str) -> None:
             self.update(name, new_value)
         return setter
 
@@ -157,10 +160,42 @@ def _with_key_properties(cls):
 
 
 @_with_key_properties
-class GameConfig(LeanYamlConfig):
+class GameConfig(BasicGameConfig):
 
-    def __init__(self, dir_path: str | None = None):
-        LeanYamlConfig.__init__(self, 'game', dir_path=dir_path)
+    # 旧数字索引 → 新描述性键名映射（兼容旧版配置）
+    _LEGACY_GAMEPAD_KEYS: dict[str, str] = {
+        **{f'xbox_{i}': k for i, k in enumerate([
+            'xbox_a', 'xbox_b', 'xbox_x', 'xbox_y',
+            'xbox_lt', 'xbox_rt', 'xbox_lb', 'xbox_rb',
+            'xbox_ls_up', 'xbox_ls_down', 'xbox_ls_left', 'xbox_ls_right',
+            'xbox_l_thumb', 'xbox_r_thumb',
+        ])},
+        **{f'ds4_{i}': k for i, k in enumerate([
+            'ds4_cross', 'ds4_circle', 'ds4_square', 'ds4_triangle',
+            'ds4_l2', 'ds4_r2', 'ds4_l1', 'ds4_r1',
+            'ds4_ls_up', 'ds4_ls_down', 'ds4_ls_left', 'ds4_ls_right',
+            'ds4_l_thumb', 'ds4_r_thumb',
+        ])},
+    }
+
+    def __init__(self, instance_idx: int):
+        BasicGameConfig.__init__(self, instance_idx)
+        # TODO 迁移旧配置 2026-9 删除
+        self._migrate_legacy_gamepad_keys()
+
+    def _migrate_legacy_gamepad_keys(self) -> None:
+        """初始化时一次性迁移所有旧数字格式的手柄按键配置。"""
+        for prefix in ('xbox_key', 'ds4_key'):
+            for action in GameKeyAction:
+                prop = f'{prefix}_{action.value.value}'
+                value = self.get(prop, '')
+                if not value:
+                    continue
+                migrated = '+'.join(
+                    self._LEGACY_GAMEPAD_KEYS.get(p, p) for p in value.split('+')
+                )
+                if migrated != value:
+                    self.update(prop, migrated)
 
     @property
     def xbox_key_press_time(self) -> float:
@@ -240,6 +275,14 @@ class GameConfig(LeanYamlConfig):
             if value:
                 result[action_name] = value
         return result
+
+    @property
+    def original_hdr_value(self) -> str:
+        return self.get('original_hdr_value', '')
+
+    @original_hdr_value.setter
+    def original_hdr_value(self, new_value: str) -> None:
+        self.update('original_hdr_value', new_value)
 
     @property
     def turn_dx(self) -> float:

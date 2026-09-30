@@ -1,0 +1,54 @@
+# -*- coding: utf-8 -*-
+# 移植自 ZenlessZoneZero-OneDragon (GPL-3.0)
+# 来源: https://github.com/OneDragon-Anything/ZenlessZoneZero-OneDragon
+# 路径: zzz_od/application/random_play/random_play_config.py
+# 本文件随 ok-zzz 以 GPL-3.0 继续分发。
+
+from enum import Enum
+
+from onedragon.base.operation.application.application_config import ApplicationConfig
+from zzz_od.game_data.map_area import TransportPoint
+
+RANDOM_AGENT_NAME = '随机'
+
+
+class RandomPlayTransportPoint(Enum):
+
+    POINT_1 = TransportPoint('录像店', '柜台')
+    POINT_2 = TransportPoint('澄辉坪', '录像店营业点')
+    POINT_3 = TransportPoint('布亚斯特城区', '录像店营业点')
+
+
+class RandomPlayConfig(ApplicationConfig):
+
+    def __init__(self, instance_idx: int, group_id: str):
+        ApplicationConfig.__init__(
+            self,
+            app_id='random_play',
+            instance_idx=instance_idx,
+            group_id=group_id,
+        )
+
+    @property
+    def transport_point(self) -> str:
+        return self.get('transport_point', RandomPlayTransportPoint.POINT_1.value.value)
+
+    @transport_point.setter
+    def transport_point(self, new_value: str) -> None:
+        self.update('transport_point', new_value)
+
+    @property
+    def agent_name_1(self) -> str:
+        return self.get('agent_name_1', RANDOM_AGENT_NAME)
+
+    @agent_name_1.setter
+    def agent_name_1(self, new_value: str) -> None:
+        self.update('agent_name_1', new_value)
+
+    @property
+    def agent_name_2(self) -> str:
+        return self.get('agent_name_2', RANDOM_AGENT_NAME)
+
+    @agent_name_2.setter
+    def agent_name_2(self, new_value: str) -> None:
+        self.update('agent_name_2', new_value)

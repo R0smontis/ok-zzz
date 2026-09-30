@@ -1,0 +1,102 @@
+# -*- coding: utf-8 -*-
+# 移植自 ZenlessZoneZero-OneDragon (GPL-3.0)
+# 来源: https://github.com/OneDragon-Anything/ZenlessZoneZero-OneDragon
+# 路径: zzz_od/application/city_fund/city_fund_app.py
+# 本文件随 ok-zzz 以 GPL-3.0 继续分发。
+from onedragon.base.operation.operation_edge import node_from
+from onedragon.base.operation.operation_node import operation_node
+from onedragon.base.operation.operation_notify import node_notify, NotifyTiming
+from onedragon.base.operation.operation_round_result import OperationRoundResult
+from zzz_od.application.city_fund import city_fund_const
+from zzz_od.application.zzz_application import ZApplication
+from zzz_od.context.zzz_context import ZContext
+from zzz_od.operation.back_to_normal_world import BackToNormalWorld
+from zzz_od.operation.goto.goto_menu import GotoMenu
+
+
+class CityFundApp(ZApplication):
+
+    """丽都城募:领取成长任务/等级回馈奖励(随版本周期开放,含每日刷新任务)。无消耗。"""
+
+    def __init__(self, ctx: ZContext):
+        """
+        领取大月卡
+        """
+        ZApplication.__init__(
+            self,
+            ctx=ctx,
+            app_id=city_fund_const.APP_ID,
+            op_name=city_fund_const.APP_NAME,
+        )
+
+    @operation_node(name='打开菜单', is_start_node=True)
+    def open_menu(self) -> OperationRoundResult:
+        op = GotoMenu(self.ctx)
+        return self.round_by_op_result(op.execute())
+
+    @node_from(from_name='打开菜单')
+    @operation_node(name='点击丽都城募')
+    def click_fund(self) -> OperationRoundResult:
+        area = self.ctx.screen_loader.get_area('菜单', '底部列表')
+        return self.round_by_ocr_and_click(self.last_screenshot, '丽都城募', area=area,
+                                           success_wait=1, retry_wait=1)
+
+    @node_from(from_name='点击丽都城募')
+    @node_from(from_name='点击成长任务', status='按钮-确认')
+    @operation_node(name='点击成长任务')
+    def click_task(self) -> OperationRoundResult:
+        result = self.round_by_find_and_click_area(self.last_screenshot, '丽都城募', '开启丽都城募')
+        if result.is_success:
+            return self.round_wait(status=result.status, wait=1)
+
+        result = self.round_by_find_and_click_area(self.last_screenshot, '丽都城募', '按钮-确认')
+        if result.is_success:
+            return self.round_success(status=result.status, wait=1)
+
+        return self.round_by_find_and_click_area(self.last_screenshot, '丽都城募', '成长任务',
+                                                 success_wait=1, retry_wait=1)
+
+    @node_from(from_name='点击成长任务')
+    @operation_node(name='任务全部领取')
+    def click_task_claim(self) -> OperationRoundResult:
+        return self.round_by_find_and_click_area(self.last_screenshot, '丽都城募', '任务-全部领取',
+                                                 success_wait=1, retry_wait=1)
+
+    @node_from(from_name='任务全部领取')
+    @operation_node(name='点击等级回馈')
+    def click_level(self) -> OperationRoundResult:
+        return self.round_by_find_and_click_area(self.last_screenshot, '丽都城募', '等级回馈',
+                                                 success_wait=1, retry_wait=1)
+
+    @node_from(from_name='点击等级回馈')
+    @node_notify(when=NotifyTiming.CURRENT_SUCCESS)
+    @operation_node(name='等级全部领取')
+    def click_level_claim(self) -> OperationRoundResult:
+        # 2.6版本更新，等级回馈领取，已领取过全部领取按钮是会消失的
+        for screen_name, area_name in [
+            ('丽都城募', '等级-全部领取'),
+            ('丽都城募', '按钮-确认'),
+        ]:
+            result = self.round_by_find_and_click_area(self.last_screenshot, screen_name, area_name, success_wait=1)
+            if result.is_success:
+                return self.round_retry(status=result.status, wait=1)
+
+        return self.round_success()  # 两个按钮都未找到，说明已领取完毕
+
+    @node_from(from_name='等级全部领取')
+    @node_from(from_name='等级全部领取', success=False)
+    @operation_node(name='返回大世界')
+    def back_to_world(self) -> OperationRoundResult:
+        op = BackToNormalWorld(self.ctx)
+        return self.round_by_op_result(op.execute())
+
+
+def __debug():
+    ctx = ZContext()
+    ctx.init()
+    app = CityFundApp(ctx)
+    app.execute()
+
+
+if __name__ == '__main__':
+    __debug()

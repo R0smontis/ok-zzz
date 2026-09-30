@@ -1,0 +1,31 @@
+# -*- coding: utf-8 -*-
+# 移植自 ZenlessZoneZero-OneDragon (GPL-3.0)
+# 来源: https://github.com/OneDragon-Anything/ZenlessZoneZero-OneDragon
+# 路径: one_dragon/envs/project_config.py
+# 本文件随 ok-zzz 以 GPL-3.0 继续分发。
+from onedragon.base.config.yaml_config import YamlConfig
+
+
+class ProjectConfig(YamlConfig):
+
+    def __init__(self, prefer_bundled_config: bool = False) -> None:
+        YamlConfig.__init__(
+            self,
+            module_name='project',
+            prefer_bundled_config=prefer_bundled_config,
+        )
+
+        self.project_name = self.get('project_name')
+        self.python_version = self.get('python_version')
+        self.github_homepage = self.get('github_homepage')
+        self.env_archive_name = f'{self.project_name}-Environment.zip'
+        self.game_executable_name = self.get('game_executable_name', '')
+
+        self.screen_standard_width = int(self.get('screen_standard_width'))
+        self.screen_standard_height = int(self.get('screen_standard_height'))
+
+        self.notice_url = self.get('notice_url')
+        self.qq_link = self.get('qq_link')
+        self.quick_start_link = self.get('quick_start_link')  # 链接 - 快速开始
+        self.home_page_link = self.get('home_page_link')  # 链接 - 主页
+        self.doc_link = self.get('doc_link')  # 链接 - 文档

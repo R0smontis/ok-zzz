@@ -1,0 +1,140 @@
+# -*- coding: utf-8 -*-
+# 移植自 ZenlessZoneZero-OneDragon (GPL-3.0)
+# 来源: https://github.com/OneDragon-Anything/ZenlessZoneZero-OneDragon
+# 路径: zzz_od/application/scratch_card/scratch_card_app.py
+# 本文件随 ok-zzz 以 GPL-3.0 继续分发。
+import time
+
+from onedragon.base.operation.operation_edge import node_from
+from onedragon.base.operation.operation_node import operation_node
+from onedragon.base.operation.operation_notify import NotifyTiming, node_notify
+from onedragon.base.operation.operation_round_result import OperationRoundResult
+from zzz_od.application.scratch_card import scratch_card_const
+from zzz_od.application.zzz_application import ZApplication
+from zzz_od.context.zzz_context import ZContext
+from zzz_od.operation.back_to_normal_world import BackToNormalWorld
+from zzz_od.operation.transport import Transport
+from zzz_od.operation.wait_normal_world import WaitNormalWorld
+
+
+class ScratchCardApp(ZApplication):
+
+    """刮刮卡:每日签到刮刮卡玩法(与卦象集录/吼吼饼铺共享每日一次,三选一)。无消耗。"""
+
+    def __init__(self, ctx: ZContext):
+        ZApplication.__init__(
+            self,
+            ctx=ctx,
+            app_id=scratch_card_const.APP_ID,
+            op_name=scratch_card_const.APP_NAME,
+        )
+
+    @operation_node(name='传送', is_start_node=True)
+    def transport(self) -> OperationRoundResult:
+        op = Transport(self.ctx, '六分街', '报刊亭', wait_at_last=False)
+        return self.round_by_op_result(op.execute())
+
+    @node_from(from_name='传送')
+    @operation_node(name='等待加载', node_max_retry_times=60)
+    def wait_world(self) -> OperationRoundResult:
+        result = self.round_by_find_area(self.last_screenshot, '报刊亭', '刮刮卡')
+        if result.is_success:
+            return self.round_success(result.status)
+
+        op = WaitNormalWorld(self.ctx, check_once=True)
+        result = self.round_by_op_result(op.execute())
+        if result.is_success:
+            return self.round_success(result.status)
+
+        return self.round_retry(status=result.status, wait=1)
+
+    @node_from(from_name='等待加载')
+    @operation_node(name='移动交互')
+    def move_and_interact(self) -> OperationRoundResult:
+        """
+        传送之后 往前移动一下 方便交互
+        :return:
+        """
+        self.ctx.controller.move_w(press=True, press_time=1, release=True)
+
+        time.sleep(1) # 防止交互无效 issue #2405 #2395 #2328
+        self.ctx.controller.interact(press=True, press_time=0.2, release=True)
+
+        return self.round_success(wait=3)
+
+    @node_from(from_name='等待加载', status='刮刮卡')
+    @node_from(from_name='移动交互')
+    @operation_node(name='点击刮刮卡', node_max_retry_times=20)
+    def click_scratch_card(self) -> OperationRoundResult:
+        result = self.round_by_find_area(self.last_screenshot, '报刊亭', '每日可刮取一次')
+        if result.is_success:
+            return self.round_success(status=result.status, wait=1)
+
+        result = self.round_by_find_area(self.last_screenshot, '报刊亭', '按钮-同类型确认')
+        if result.is_success:
+            return self.round_success(status=result.status, wait=1)
+
+        result = self.round_by_find_and_click_area(self.last_screenshot, '报刊亭', '刮刮卡')
+        if result.is_success:
+            return self.round_wait(status=result.status, wait=1)
+
+        area = self.ctx.screen_loader.get_area('报刊亭', '对话选项')
+
+        result = self.round_by_ocr_and_click(self.last_screenshot, '叫醒他', area=area)
+        if result.is_success:
+            return self.round_wait(status=result.status, wait=1)
+
+        result = self.round_by_ocr_and_click(self.last_screenshot, '叫醒嗷呜', area=area)
+        if result.is_success:
+            return self.round_wait(status=result.status, wait=1)
+
+        result = self.round_by_ocr_and_click(self.last_screenshot, '只是来看刮刮卡和报纸', area=area)
+        if result.is_success:
+            return self.round_wait(status=result.status, wait=1)
+
+        result = self.round_by_find_and_click_area(self.last_screenshot, '报刊亭', '嗷呜被你叫醒了')
+        if result.is_success:
+            return self.round_wait(status=result.status, wait=1)
+
+        result = self.round_by_click_area('报刊亭', '嗷呜标题')
+
+        return self.round_retry(status=result.status, wait=1)
+
+    @node_from(from_name='点击刮刮卡')
+    @operation_node(name='刮刮')
+    def scratch(self) -> OperationRoundResult:
+        result = self.round_by_find_area(self.last_screenshot, '报刊亭', '每日可刮取一次')
+        if not result.is_success:
+            return self.round_retry(status=result.status, wait=1)
+
+        areas = [
+            self.ctx.screen_loader.get_area('报刊亭', f'刮层-{i}')
+            for i in range(1, 4)
+        ]
+
+        for area in areas:
+            start = area.rect.left_top
+            end = area.rect.right_bottom
+            self.ctx.controller.drag_to(start=start, end=end, duration=1.5)
+            time.sleep(1)
+
+        return self.round_success()
+
+    @node_from(from_name='点击刮刮卡', status='按钮-同类型确认')
+    @node_from(from_name='刮刮')
+    @node_notify(when=NotifyTiming.PREVIOUS_DONE)
+    @operation_node(name='返回大世界')
+    def back_to_world(self) -> OperationRoundResult:
+        op = BackToNormalWorld(self.ctx)
+        return self.round_by_op_result(op.execute())
+
+
+def __debug():
+    ctx = ZContext()
+    ctx.init()
+    app = ScratchCardApp(ctx)
+    app.execute()
+
+
+if __name__ == '__main__':
+    __debug()

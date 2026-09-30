@@ -1,0 +1,40 @@
+# -*- coding: utf-8 -*-
+# 移植自 ZenlessZoneZero-OneDragon (GPL-3.0)
+# 来源: https://github.com/OneDragon-Anything/ZenlessZoneZero-OneDragon
+# 路径: zzz_od/application/commission_assistant/commission_assistant_app_factory.py
+# 本文件随 ok-zzz 以 GPL-3.0 继续分发。
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from onedragon.base.operation.application.application_config import ApplicationConfig
+from onedragon.base.operation.application.application_factory import ApplicationFactory
+from onedragon.base.operation.application_base import Application
+from zzz_od.application.commission_assistant import commission_assistant_const
+from zzz_od.application.commission_assistant.commission_assistant_app import (
+    CommissionAssistantApp,
+)
+from zzz_od.application.commission_assistant.commission_assistant_config import (
+    CommissionAssistantConfig,
+)
+
+if TYPE_CHECKING:
+    from zzz_od.context.zzz_context import ZContext
+
+
+class CommissionAssistantAppFactory(ApplicationFactory):
+
+    def __init__(self, ctx: ZContext):
+        ApplicationFactory.__init__(self, commission_assistant_const)
+        self.ctx: ZContext = ctx
+
+    def create_application(self, instance_idx: int, group_id: str) -> Application:
+        return CommissionAssistantApp(self.ctx)
+
+    def create_config(
+        self, instance_idx: int, group_id: str
+    ) -> ApplicationConfig:
+        return CommissionAssistantConfig(
+            instance_idx=instance_idx,
+            group_id=group_id,
+        )
