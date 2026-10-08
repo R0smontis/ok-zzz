@@ -1,0 +1,55 @@
+{
+  "id": "83a3afc1c1f446aa8bcecafda888c44d",
+  "state": "done",
+  "submitted_at": 1791241489.001526,
+  "result": {
+    "frame": {
+      "id": 2253,
+      "hwnd": 31656440,
+      "captured_at": 1791241488.62941,
+      "source_size": [
+        2560,
+        1440
+      ],
+      "geometry": [
+        0,
+        0,
+        2560,
+        1440
+      ],
+      "age_seconds": 0.418,
+      "coordinate_size": [
+        1920,
+        1080
+      ]
+    },
+    "attack_hud_visible": false,
+    "enemy_detection_skipped": true,
+    "enemy_panel": null,
+    "enemy_arrow": null,
+    "chain_timer_visible": false,
+    "ocr": [
+      {
+        "text": "奖励预览",
+        "confidence": 0.9974514245986938,
+        "rect": [
+          1675,
+          33,
+          118,
+          47
+        ]
+      },
+      {
+        "text": "开始1/1",
+        "confidence": 0.9925934076309204,
+        "rect": [
+          896,
+          911,
+          174,
+          54
+        ]
+      }
+    ]
+  },
+  "finished_at": 1791241489.0470402
+}

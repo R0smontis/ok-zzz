@@ -1,0 +1,105 @@
+{
+  "id": "5000ac288c3940da9a81feaef1cb61d7",
+  "state": "done",
+  "submitted_at": 1791304432.8813002,
+  "result": {
+    "frame": {
+      "id": 1877,
+      "hwnd": 2884158,
+      "captured_at": 1791304432.8592987,
+      "source_size": [
+        2560,
+        1440
+      ],
+      "geometry": [
+        0,
+        0,
+        2560,
+        1440
+      ],
+      "age_seconds": 0.101,
+      "coordinate_size": [
+        1920,
+        1080
+      ]
+    },
+    "attack_hud_visible": false,
+    "enemy_detection_skipped": true,
+    "enemy_panel": null,
+    "enemy_arrow": null,
+    "chain_timer_visible": true,
+    "ocr": [
+      {
+        "text": "NEW!",
+        "confidence": 0.8816863894462585,
+        "rect": [
+          1265,
+          118,
+          72,
+          30
+        ]
+      },
+      {
+        "text": "目标",
+        "confidence": 0.9944299459457397,
+        "rect": [
+          767,
+          145,
+          63,
+          36
+        ]
+      },
+      {
+        "text": "日常",
+        "confidence": 0.997115969657898,
+        "rect": [
+          955,
+          145,
+          63,
+          37
+        ]
+      },
+      {
+        "text": "训练",
+        "confidence": 0.9988985657691956,
+        "rect": [
+          1143,
+          144,
+          63,
+          37
+        ]
+      },
+      {
+        "text": "作战",
+        "confidence": 0.9996721744537354,
+        "rect": [
+          1332,
+          143,
+          59,
+          33
+        ]
+      },
+      {
+        "text": "战术",
+        "confidence": 0.9998033046722412,
+        "rect": [
+          1514,
+          142,
+          68,
+          40
+        ]
+      },
+      {
+        "text": "RE",
+        "confidence": 0.7296698689460754,
+        "rect": [
+          1656,
+          150,
+          23,
+          26
+        ]
+      }
+    ]
+  },
+  "finished_at": 1791304432.960167
+}

@@ -8,6 +8,7 @@ def test_trigger_tasks_registered():
     triggers = [t[1] for t in config['trigger_tasks']]
     assert 'AutoCombatTask' in triggers
     assert 'DodgeAssistantTriggerTask' in triggers
+    assert 'AutoDialogueTriggerTask' in triggers
 
 
 def test_onetime_tasks_concise():

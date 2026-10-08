@@ -1,0 +1,85 @@
+{
+  "id": "33d744e9e4544920b1932169076d3687",
+  "state": "done",
+  "submitted_at": 1791328566.9378006,
+  "result": {
+    "frame": {
+      "id": 746,
+      "hwnd": 2884158,
+      "captured_at": 1791328566.5180264,
+      "source_size": [
+        2560,
+        1440
+      ],
+      "geometry": [
+        0,
+        0,
+        2560,
+        1440
+      ],
+      "age_seconds": 0.492,
+      "coordinate_size": [
+        1920,
+        1080
+      ]
+    },
+    "attack_hud_visible": false,
+    "enemy_detection_skipped": true,
+    "enemy_panel": null,
+    "enemy_arrow": null,
+    "chain_timer_visible": false,
+    "ocr": [
+      {
+        "text": "是否准备营业?",
+        "confidence": 0.9558133482933044,
+        "rect": [
+          854,
+          502,
+          198,
+          44
+        ]
+      },
+      {
+        "text": "取消",
+        "confidence": 0.9991302490234375,
+        "rect": [
+          800,
+          611,
+          54,
+          30
+        ]
+      },
+      {
+        "text": "确认",
+        "confidence": 0.9979850053787231,
+        "rect": [
+          1104,
+          609,
+          52,
+          32
+        ]
+      },
+      {
+        "text": "A",
+        "confidence": 0.941852867603302,
+        "rect": [
+          926,
+          699,
+          20,
+          18
+        ]
+      },
+      {
+        "text": "选择",
+        "confidence": 0.9976948499679565,
+        "rect": [
+          964,
+          697,
+          40,
+          22
+        ]
+      }
+    ]
+  },
+  "finished_at": 1791328567.010218
+}

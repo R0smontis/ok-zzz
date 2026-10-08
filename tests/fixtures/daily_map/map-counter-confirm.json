@@ -1,0 +1,115 @@
+{
+  "id": "ff2e5e0adb64454fb033930146b78f5e",
+  "state": "done",
+  "submitted_at": 1791322112.3013878,
+  "result": {
+    "frame": {
+      "id": 1048,
+      "hwnd": 2884158,
+      "captured_at": 1791322112.1480865,
+      "source_size": [
+        2560,
+        1440
+      ],
+      "geometry": [
+        0,
+        0,
+        2560,
+        1440
+      ],
+      "age_seconds": 0.231,
+      "coordinate_size": [
+        1920,
+        1080
+      ]
+    },
+    "attack_hud_visible": false,
+    "enemy_detection_skipped": true,
+    "enemy_panel": null,
+    "enemy_arrow": null,
+    "chain_timer_visible": false,
+    "ocr": [
+      {
+        "text": "holaw",
+        "confidence": 0.5422582626342773,
+        "rect": [
+          67,
+          59,
+          492,
+          148
+        ]
+      },
+      {
+        "text": "【城郊幻境】",
+        "confidence": 0.9530670642852783,
+        "rect": [
+          66,
+          232,
+          114,
+          28
+        ]
+      },
+      {
+        "text": "「神之迷宫」帕帕戈空洞的南侧区域，混杂了拟态野火",
+        "confidence": 0.9855650067329407,
+        "rect": [
+          68,
+          260,
+          464,
+          26
+        ]
+      },
+      {
+        "text": "镇、外环工业园区、绮梦度假村等城郊区域的幻境。北",
+        "confidence": 0.9946992993354797,
+        "rect": [
+          66,
+          286,
+          476,
+          26
+        ]
+      },
+      {
+        "text": "侧的拟态海面上弥漫着诡异的大雾，让人难以判断海对",
+        "confidence": 0.9966557621955872,
+        "rect": [
+          64,
+          310,
+          476,
+          30
+        ]
+      },
+      {
+        "text": "面的情况",
+        "confidence": 0.998456597328186,
+        "rect": [
+          66,
+          339,
+          108,
+          26
+        ]
+      },
+      {
+        "text": "NEW!",
+        "confidence": 0.968618631362915,
+        "rect": [
+          823,
+          480,
+          96,
+          43
+        ]
+      },
+      {
+        "text": "RosSA",
+        "confidence": 0.689909815788269,
+        "rect": [
+          794,
+          697,
+          360,
+          284
+        ]
+      }
+    ]
+  },
+  "finished_at": 1791322112.3791323
+}

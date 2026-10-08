@@ -5,6 +5,7 @@ import sys
 import time
 
 import pytest
+import numpy as np
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(PROJECT_ROOT, 'src'))
@@ -15,11 +16,16 @@ os.chdir(PROJECT_ROOT)
 def ctx():
     """共享 ZzzContext（无 OCR、无帧源，供引擎/识别层测试）。"""
     from zzz_od.context.zzz_context import ZContext
-    context = ZContext(get_ocr_lib=None, frame_provider=lambda: (time.time(), None))
+    frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
+    context = ZContext(get_ocr_lib=None, frame_provider=lambda: (time.time(), frame))
     context.init_for_application()
     yield context
     try:
         context.auto_battle_context.after_app_shutdown()
+        # 等待已开始的模板加载完成，避免测试捕获流关闭后后台线程继续写日志。
+        future = context.auto_battle_context.dodge_context._audio_template_future
+        if future is not None and not future.cancelled():
+            future.result(timeout=15)
     except Exception:
         pass
 

@@ -1,0 +1,125 @@
+{
+  "id": "faa4c6fdf91d49be969f181beda7f0a8",
+  "state": "done",
+  "submitted_at": 1791232142.3236785,
+  "result": {
+    "frame": {
+      "id": 523,
+      "hwnd": 31656440,
+      "captured_at": 1791232142.2125807,
+      "source_size": [
+        2560,
+        1440
+      ],
+      "geometry": [
+        0,
+        0,
+        2560,
+        1440
+      ],
+      "age_seconds": 0.206,
+      "coordinate_size": [
+        1920,
+        1080
+      ]
+    },
+    "attack_hud_visible": false,
+    "enemy_detection_skipped": true,
+    "enemy_panel": null,
+    "enemy_arrow": null,
+    "chain_timer_visible": false,
+    "ocr": [
+      {
+        "text": "请选择1项",
+        "confidence": 0.9943119287490845,
+        "rect": [
+          910,
+          156,
+          99,
+          24
+        ]
+      },
+      {
+        "text": "已选择",
+        "confidence": 0.9862382411956787,
+        "rect": [
+          939,
+          212,
+          64,
+          24
+        ]
+      },
+      {
+        "text": "HULUN",
+        "confidence": 0.6535376310348511,
+        "rect": [
+          820,
+          261,
+          137,
+          37
+        ]
+      },
+      {
+        "text": "RESONIUM",
+        "confidence": 0.9186616539955139,
+        "rect": [
+          878,
+          293,
+          74,
+          14
+        ]
+      },
+      {
+        "text": "零号业绩",
+        "confidence": 0.9998905062675476,
+        "rect": [
+          922,
+          565,
+          75,
+          21
+        ]
+      },
+      {
+        "text": "获得225点零号业绩。有小概率",
+        "confidence": 0.9979203343391418,
+        "rect": [
+          825,
+          619,
+          261,
+          20
+        ]
+      },
+      {
+        "text": "获得一次鸣徽。",
+        "confidence": 0.9379542469978333,
+        "rect": [
+          824,
+          637,
+          125,
+          27
+        ]
+      },
+      {
+        "text": "Q HOLLOW",
+        "confidence": 0.8517733812332153,
+        "rect": [
+          816,
+          716,
+          123,
+          24
+        ]
+      },
+      {
+        "text": "确定",
+        "confidence": 0.9990359544754028,
+        "rect": [
+          944,
+          828,
+          60,
+          34
+        ]
+      }
+    ]
+  },
+  "finished_at": 1791232142.4180837
+}

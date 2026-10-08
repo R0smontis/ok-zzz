@@ -1,0 +1,95 @@
+{
+  "id": "3c81f3a4c92841dbb99e5cdca4446620",
+  "state": "done",
+  "submitted_at": 1791229166.339617,
+  "result": {
+    "frame": {
+      "id": 367,
+      "hwnd": 31656440,
+      "captured_at": 1791229166.1655633,
+      "source_size": [
+        3200,
+        1440
+      ],
+      "geometry": [
+        0,
+        0,
+        3200,
+        1440
+      ],
+      "age_seconds": 0.264,
+      "coordinate_size": [
+        1920,
+        1080
+      ]
+    },
+    "attack_hud_visible": false,
+    "enemy_detection_skipped": true,
+    "enemy_panel": null,
+    "enemy_arrow": null,
+    "chain_timer_visible": false,
+    "ocr": [
+      {
+        "text": "服务器连接超时，",
+        "confidence": 0.9922066926956177,
+        "rect": [
+          713,
+          508,
+          220,
+          35
+        ]
+      },
+      {
+        "text": "是否继续尝试连接？",
+        "confidence": 0.9564621448516846,
+        "rect": [
+          942,
+          509,
+          253,
+          33
+        ]
+      },
+      {
+        "text": "重新登录",
+        "confidence": 0.998645544052124,
+        "rect": [
+          775,
+          611,
+          105,
+          32
+        ]
+      },
+      {
+        "text": "继续连接",
+        "confidence": 0.9987140893936157,
+        "rect": [
+          1077,
+          611,
+          107,
+          32
+        ]
+      },
+      {
+        "text": "A",
+        "confidence": 0.9884247779846191,
+        "rect": [
+          926,
+          698,
+          16,
+          19
+        ]
+      },
+      {
+        "text": "选择",
+        "confidence": 0.9979459047317505,
+        "rect": [
+          966,
+          698,
+          39,
+          21
+        ]
+      }
+    ]
+  },
+  "finished_at": 1791229166.4294953
+}

@@ -1,0 +1,155 @@
+[
+  {
+    "name": "near_enemy",
+    "file": "near_enemy.png",
+    "x": 830,
+    "y": 370,
+    "enemy": true,
+    "source": "frames/0027-27.78s.jpg",
+    "recording": "20261002-145237-e8e7b4"
+  },
+  {
+    "name": "far_enemy",
+    "file": "far_enemy.png",
+    "x": 690,
+    "y": 400,
+    "enemy": true,
+    "source": "frames/0023-23.61s.jpg",
+    "recording": "20261002-145237-e8e7b4"
+  },
+  {
+    "name": "partial_enemy",
+    "file": "partial_enemy.png",
+    "x": 1500,
+    "y": 360,
+    "enemy": true,
+    "source": "frames/0032-33.09s.jpg",
+    "recording": "20261002-145237-e8e7b4"
+  },
+  {
+    "name": "enemy_during_pause",
+    "file": "enemy_during_pause.png",
+    "x": 270,
+    "y": 410,
+    "enemy": true,
+    "source": "frames/0030-30.91s.jpg",
+    "recording": "20261002-145237-e8e7b4"
+  },
+  {
+    "name": "bangboo_ring",
+    "file": "bangboo_ring.png",
+    "x": 525,
+    "y": 480,
+    "enemy": false,
+    "source": "frames/0024-24.66s.jpg",
+    "recording": "20261002-145237-e8e7b4"
+  },
+  {
+    "name": "objective_marker",
+    "file": "objective_marker.png",
+    "x": 710,
+    "y": 255,
+    "enemy": false,
+    "source": "frames/0050-51.81s.jpg",
+    "recording": "20261002-145237-e8e7b4"
+  },
+  {
+    "name": "green_scenery",
+    "file": "green_scenery.png",
+    "x": 1500,
+    "y": 230,
+    "enemy": false,
+    "source": "frames/0048-49.72s.jpg",
+    "recording": "20261002-145237-e8e7b4"
+  },
+  {
+    "name": "green_rail",
+    "file": "green_rail.png",
+    "x": 810,
+    "y": 270,
+    "enemy": false,
+    "source": "frames/0049-50.77s.jpg",
+    "recording": "20261002-145237-e8e7b4"
+  },
+  {
+    "name": "stair_rails",
+    "file": "stair_rails.png",
+    "x": 580,
+    "y": 625,
+    "enemy": false,
+    "source": "frames/0057-59.09s.jpg",
+    "recording": "20261002-145237-e8e7b4"
+  },
+  {
+    "name": "empty_room",
+    "file": "empty_room.png",
+    "x": 90,
+    "y": 180,
+    "enemy": false,
+    "source": "frames/0021-21.53s.jpg",
+    "recording": "20261002-145237-e8e7b4"
+  },
+  {
+    "name": "video_red_effect",
+    "file": "video_red_effect.png",
+    "x": 90,
+    "y": 180,
+    "enemy": false,
+    "source": "video.mp4@54.8s",
+    "recording": "20261002-145237-e8e7b4"
+  },
+  {
+    "name": "video_objective_text",
+    "file": "video_objective_text.png",
+    "x": 90,
+    "y": 180,
+    "enemy": false,
+    "source": "video.mp4@59.3s",
+    "recording": "20261002-145237-e8e7b4"
+  },
+  {
+    "name": "blue_badge_enemy",
+    "file": "blue_badge_enemy.png",
+    "x": 1430,
+    "y": 350,
+    "enemy": true,
+    "source": "frames/0044-46.48s.jpg",
+    "recording": "20261002-214643-8c5757"
+  },
+  {
+    "name": "translucent_enemy",
+    "file": "translucent_enemy.png",
+    "x": 1400,
+    "y": 350,
+    "enemy": true,
+    "source": "frames/0046-48.48s.jpg",
+    "recording": "20261002-214643-8c5757"
+  },
+  {
+    "name": "low_health_enemy",
+    "file": "low_health_enemy.png",
+    "x": 1150,
+    "y": 360,
+    "enemy": true,
+    "source": "frames/0118-124.14s.jpg",
+    "recording": "20261002-214643-8c5757"
+  },
+  {
+    "name": "tiny_health_enemy",
+    "file": "tiny_health_enemy.png",
+    "x": 1160,
+    "y": 330,
+    "enemy": true,
+    "source": "frames/0169-177.36s.jpg",
+    "recording": "20261002-214643-8c5757"
+  },
+  {
+    "name": "distant_latest_enemy",
+    "file": "distant_latest_enemy.png",
+    "x": 200,
+    "y": 265,
+    "enemy": true,
+    "source": "frames/0057-59.77s.jpg",
+    "recording": "20261002-214643-8c5757"
+  }
+]
