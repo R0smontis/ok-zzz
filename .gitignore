@@ -11,3 +11,9 @@ debug/
 build/
 dist/
 *.spec.bak
+.log/
+.pytest_cache/
+cache/
+# Per-instance runtime state written by the app and tests.
+config/[0-9][0-9]/
+config/model.yml

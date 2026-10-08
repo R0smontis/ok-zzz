@@ -1,5 +1,0 @@
-app_list:
-- app_id: email
-  enabled: true
-- app_id: city_fund
-  enabled: true
