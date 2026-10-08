@@ -136,7 +136,7 @@ class ApplicationGroupConfig(YamlOperator):
                 self.save_app_list()
                 return
 
-    def set_app_enable(self, app_id: str, enabled: bool) -> None:
+    def set_app_enable(self, app_id: str, enabled: bool, save: bool = True) -> None:
         """
         设置应用是否启用
 
@@ -155,7 +155,7 @@ class ApplicationGroupConfig(YamlOperator):
                     item.enabled = enabled
                 break
 
-        if changed:
+        if changed and save:
             self.save_app_list()
 
     def remove_app(self, app_id: str) -> None:

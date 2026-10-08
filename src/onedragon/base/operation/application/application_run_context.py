@@ -97,8 +97,6 @@ class ApplicationRunContext:
         self.event_bus: ContextEventBus = ContextEventBus()
 
         self._application_factory_map: dict[str, ApplicationFactory] = {}
-        self._config_map: dict[tuple, ApplicationConfig] = {}
-        self._run_record_map: dict[tuple, AppRunRecord] = {}
         self._group_config_map: dict[tuple, ApplicationGroupConfig] = {}
         self._map_lock = threading.Lock()
 
@@ -106,7 +104,7 @@ class ApplicationRunContext:
 
         self._run_state = ApplicationRunStateEnum.STOPPED
         self.current_app_id: str | None = None
-        self.current_instance_idx: int = 0
+        self.current_instance_idx: int = getattr(ctx, 'current_instance_idx', 0)
         self.current_group_id: str = DEFAULT_GROUP_ID
         self.current_application: Application | None = None
 
@@ -152,12 +150,17 @@ class ApplicationRunContext:
     def get_group_config(self, instance_idx: int | None = None,
                          group_id: str = DEFAULT_GROUP_ID) -> ApplicationGroupConfig:
         if instance_idx is None:
-            instance_idx = self.current_instance_idx
+            instance_idx = getattr(self.ctx, 'current_instance_idx', self.current_instance_idx)
         key = (instance_idx, group_id)
         with self._map_lock:
             if key not in self._group_config_map:
                 self._group_config_map[key] = ApplicationGroupConfig(
                     instance_idx=instance_idx, group_id=group_id)
+            if group_id == DEFAULT_GROUP_ID:
+                # Every account needs the registered default applications, including
+                # cached empty groups and accounts selected after registration.
+                self._group_config_map[key].update_full_app_list(
+                    [factory.app_id for factory in self.default_group_apps])
             return self._group_config_map[key]
 
     def get_group_app_ids(self, instance_idx: int | None = None,
@@ -172,20 +175,13 @@ class ApplicationRunContext:
 
     def get_config(self, app_id: str, instance_idx: int,
                    group_id: str = DEFAULT_GROUP_ID) -> ApplicationConfig:
-        key = (app_id, instance_idx, group_id)
+        # 工厂创建运行记录时也会获取配置，必须共用工厂缓存，避免完成判定读取旧设置。
         with self._map_lock:
-            if key not in self._config_map:
-                self._config_map[key] = self.get_factory(app_id).create_config(
-                    instance_idx, group_id)
-            return self._config_map[key]
+            return self.get_factory(app_id).get_config(instance_idx, group_id)
 
     def get_run_record(self, app_id: str, instance_idx: int) -> AppRunRecord:
-        key = (app_id, instance_idx)
         with self._map_lock:
-            if key not in self._run_record_map:
-                self._run_record_map[key] = self.get_factory(app_id).create_run_record(
-                    instance_idx)
-            return self._run_record_map[key]
+            return self.get_factory(app_id).get_run_record(instance_idx)
 
     def is_app_need_notify(self, app_id: str) -> bool:
         try:
@@ -280,13 +276,15 @@ class ApplicationRunContext:
         try:
             self.last_application_result = app.execute()
             success = getattr(self.last_application_result, 'success', False)
-            self._finish_running(
-                RunFinishReason.COMPLETED if success else RunFinishReason.FAILED)
+            if not self.is_context_stop:
+                self._finish_running(
+                    RunFinishReason.COMPLETED if success else RunFinishReason.FAILED)
             log.info(f'应用运行结束 {app.op_name} 成功={success}')
         except Exception as e:
             log.error(f'应用运行异常 {app.op_name}', exc_info=e)
             self.last_application_result = None
-            self._finish_running(RunFinishReason.FAILED)
+            if not self.is_context_stop:
+                self._finish_running(RunFinishReason.FAILED)
         finally:
             self.current_application = None
 

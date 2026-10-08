@@ -66,6 +66,7 @@ class ConditionalOperator(ConditionalOperatorLoader):
 
         self._inited: bool = False
         self._task_lock: Lock = Lock()
+        self._run_generation = 0
 
     def init(self) -> None:
         """
@@ -127,21 +128,26 @@ class ConditionalOperator(ConditionalOperatorLoader):
             return False
 
         self.is_running = True
+        self._run_generation += 1
         self.running_executor_cnt.set(0)  # 每次重置计数器 防止有bug导致无法正常运行
 
         if self.normal_scene is not None:
-            future: Future = _od_conditional_op_executor.submit(self._normal_scene_loop)
+            future: Future = _od_conditional_op_executor.submit(self._normal_scene_loop, self._run_generation)
             future.add_done_callback(thread_utils.handle_future_result)
 
         return True
 
-    def _normal_scene_loop(self) -> None:
+    def _normal_scene_loop(self, generation) -> None:
         """
         主循环
         :return:
         """
         normal_scene_id = id(self.normal_scene)
-        while self.is_running:
+        while self.is_running and generation == self._run_generation:
+            permission = getattr(self, 'execution_allowed', None)
+            if permission is not None and not permission():
+                time.sleep(0.02)
+                continue
             if self.running_executor_cnt.get() > 0:
                 # 有其它场景在运行 等待
                 time.sleep(0.02)
@@ -152,7 +158,7 @@ class ConditionalOperator(ConditionalOperatorLoader):
 
             # 上锁后确保运行状态不会被篡改
             with self._task_lock:
-                if not self.is_running:
+                if not self.is_running or generation != self._run_generation:
                     # 已经被stop_running中断了 不继续
                     break
 
@@ -177,11 +183,13 @@ class ConditionalOperator(ConditionalOperatorLoader):
                         self.running_executor = OperationExecutor(
                             op_list=new_execution_info.op_list,
                             trigger_time=trigger_time,
+                            input_guard=self._make_input_guard(),
                         )
                         self.last_trigger_time[normal_scene_id] = trigger_time
                         self.running_executor_cnt.inc()
                         future = self.running_executor.run_async()
-                        future.add_done_callback(self._on_task_done)
+                        future.add_done_callback(
+                            lambda done, gen=generation: self._on_task_done(done, gen))
 
             if to_sleep is not None:
                 # 等待时间不能写在锁里 要尽快释放锁
@@ -189,7 +197,7 @@ class ConditionalOperator(ConditionalOperatorLoader):
             else:  # 没有命中的状态 或者 提交执行了 那就自旋等待
                 time.sleep(0.02)
 
-    def _trigger_scene(self, state_name: str) -> None:
+    def _trigger_scene(self, state_name: str, generation=None) -> None:
         """
         触发对应的场景
         :param state_name: 触发的状态
@@ -202,8 +210,12 @@ class ConditionalOperator(ConditionalOperatorLoader):
 
         # 上锁后确保运行状态不会被篡改
         with self._task_lock:
-            if not self.is_running:
+            if not self.is_running or (generation is not None and generation != self._run_generation):
                 # 已经被stop_running中断了 不继续
+                return
+
+            permission = getattr(self, 'execution_allowed', None)
+            if permission is not None and not permission():
                 return
 
             trigger_time: float = time.time()  # 这里不应该使用事件发生时间 而是应该使用当前的实际操作时间
@@ -244,10 +256,12 @@ class ConditionalOperator(ConditionalOperatorLoader):
 
             new_execution_info.trigger = state_name
             self.current_execution_info = new_execution_info
-            self.running_executor = OperationExecutor(new_execution_info.op_list, trigger_time)
+            self.running_executor = OperationExecutor(new_execution_info.op_list, trigger_time,
+                                                      input_guard=self._make_input_guard())
             self.last_trigger_time[trigger_scene_id] = trigger_time
             future = self.running_executor.run_async()
-            future.add_done_callback(self._on_task_done)
+            future.add_done_callback(
+                lambda done, gen=self._run_generation: self._on_task_done(done, gen))
 
     def stop_running(self) -> None:
         """
@@ -257,7 +271,12 @@ class ConditionalOperator(ConditionalOperatorLoader):
         # 上锁后停止 上锁后确保运行状态不会被篡改
         with self._task_lock:
             self.is_running = False
+            self._run_generation += 1
             self._stop_running_task()
+
+    def _make_input_guard(self):
+        factory = getattr(self, 'execution_guard_factory', None)
+        return factory() if factory is not None else None
 
     def _stop_running_task(self) -> None:
         """
@@ -273,11 +292,13 @@ class ConditionalOperator(ConditionalOperatorLoader):
                 self.running_executor_cnt.dec()
             self.running_executor = None
 
-    def _on_task_done(self, future: Future) -> None:
+    def _on_task_done(self, future: Future, generation=None) -> None:
         """
         一系列指令任务完成后
         """
         with self._task_lock:  # 上锁 保证_running_trigger_cnt安全
+            if generation is not None and generation != self._run_generation:
+                return
             try:
                 result = future.result()
                 if result:  # 顺利执行完毕
@@ -344,7 +365,8 @@ class ConditionalOperator(ConditionalOperatorLoader):
 
         # 触发具体的场景 由自己的线程处理
         if top_priority_state is not None:
-            future: Future = _od_conditional_op_executor.submit(self._trigger_scene, top_priority_state)
+            future: Future = _od_conditional_op_executor.submit(self._trigger_scene, top_priority_state,
+                                                               self._run_generation)
             future.add_done_callback(thread_utils.handle_future_result)
         else:
             # 没有场景需要触发 看是否需要打断当前操作
@@ -372,6 +394,10 @@ class ConditionalOperator(ConditionalOperatorLoader):
         status: str,
         execution_info: ExecutionInfo,
     ) -> None:
+        from src.diagnostics import recorder, record_event
+        if recorder.active:
+            record_event('battle_decision', trigger=trigger, expression=expression, status=status,
+                         operations=self._op_list_summary(execution_info))
         bus = self._get_debug_trace_bus()
         if bus is None or not bus.enabled:
             return

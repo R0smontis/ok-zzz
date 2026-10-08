@@ -8,11 +8,13 @@ from ctypes.wintypes import RECT
 
 import pyautogui
 import win32ui
+import win32gui
 from pygetwindow import Win32Window
 
 from onedragon.base.geometry.point import Point
 from onedragon.base.geometry.rectangle import Rect
 from onedragon.utils.log_utils import log
+from src.frame_geometry import FrameGeometry
 
 
 class PcGameWindow:
@@ -27,6 +29,7 @@ class PcGameWindow:
 
         self._win: Win32Window | None = None
         self._hWnd = None
+        self.window_provider = None
 
     def _clear_cached_window(self) -> None:
         self._win = None
@@ -37,6 +40,17 @@ class PcGameWindow:
         初始化窗口
         :return:
         """
+        if self.window_provider is not None:
+            # ok-script is authoritative: capture and input must use the same
+            # selected handle, including after the game restarts.
+            hwnd = self.window_provider()
+            if not hwnd or not ctypes.windll.user32.IsWindow(hwnd):
+                self._clear_cached_window()
+                return
+            if hwnd != self._hWnd:
+                self._win = Win32Window(hwnd)
+                self._hWnd = hwnd
+            return
         if self.win_title is None:
             return
 
@@ -64,12 +78,12 @@ class PcGameWindow:
         self.init_win()
 
     def get_win(self) -> Win32Window | None:
-        if self._win is None:
+        if self.window_provider is not None or self._win is None:
             self.init_win()
         return self._win
 
     def get_hwnd(self) -> int:
-        if self._hWnd is None:
+        if self.window_provider is not None or self._hWnd is None:
             self.init_win()
         return self._hWnd
 
@@ -104,8 +118,8 @@ class PcGameWindow:
         是否当前激活的窗口
         :return:
         """
-        win = self.get_win()
-        return win.isActive if win is not None else False
+        hwnd = self.get_hwnd()
+        return bool(hwnd and win32gui.GetForegroundWindow() == hwnd)
 
     @property
     def is_win_scale(self) -> bool:
@@ -181,15 +195,7 @@ class PcGameWindow:
                 return None
             got_rect, client_rect = self._try_get_client_rect(hwnd)
 
-        if not self._is_valid_client_rect(got_rect, client_rect) and ctypes.windll.user32.IsIconic(hwnd):
-            # 最小化窗口时客户区可能为 0
-            try:
-                win.restore()
-            except Exception:
-                log.debug('win.restore 失败，尝试 ShowWindow 兜底', exc_info=True)
-                ctypes.windll.user32.ShowWindow(hwnd, 4)  # SW_SHOWNOACTIVATE
-            got_rect, client_rect = self._try_get_client_rect(hwnd)
-
+        # 查询坐标不恢复最小化窗口；没有客户区时等待有效截图。
         if not self._is_valid_client_rect(got_rect, client_rect):
             return None
 
@@ -207,10 +213,10 @@ class PcGameWindow:
         rect = self.win_rect
         if win is None or rect is None:
             return None
-        xs = 1 if rect.width == self.standard_width else rect.width * 1.0 / self.standard_width
-        ys = 1 if rect.height == self.standard_height else rect.height * 1.0 / self.standard_height
-        s_pos = Point(game_pos.x * xs, game_pos.y * ys)
-        return s_pos if self.is_valid_game_pos(game_pos, self.standard_game_rect) else None
+        if not self.is_valid_game_pos(game_pos, self.standard_game_rect) or rect.width <= 0 or rect.height <= 0:
+            return None
+        transform = FrameGeometry(rect.width, rect.height, self.standard_width, self.standard_height)
+        return Point(*transform.to_client(game_pos.x, game_pos.y))
 
     def is_valid_game_pos(self, s_pos: Point, rect: Rect = None) -> bool:
         """

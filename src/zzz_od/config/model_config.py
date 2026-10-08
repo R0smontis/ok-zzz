@@ -16,6 +16,25 @@ _BACKUP_LOST_VOID_DET = 'yolov8n-736-lost-void-det-20250921'
 
 class ModelConfig(BasicModelConfig):
 
+    def __init__(self, repo_config):
+        super().__init__(repo_config)
+        if not self.get('_gpu_runtime_version', 0):
+            for key in ('flash_classifier_gpu', 'hollow_zero_event_gpu', 'lost_void_det_gpu', 'ocr_use_gpu'):
+                self.update(key, True)
+            self.update('_gpu_runtime_version', 1)
+
+    def _gpu_enabled(self, key):
+        from src.inference import gpu_requested
+        return gpu_requested() and self.get(key, True)
+
+    @property
+    def ocr_use_gpu(self):
+        return self._gpu_enabled('ocr_use_gpu')
+
+    @ocr_use_gpu.setter
+    def ocr_use_gpu(self, value):
+        self.update('ocr_use_gpu', value)
+
     @property
     def flash_classifier(self) -> str:
         """
@@ -38,7 +57,7 @@ class ModelConfig(BasicModelConfig):
 
     @property
     def flash_classifier_gpu(self) -> bool:
-        return self.get('flash_classifier_gpu', False)
+        return self._gpu_enabled('flash_classifier_gpu')
 
     @flash_classifier_gpu.setter
     def flash_classifier_gpu(self, new_value: bool) -> None:
@@ -66,7 +85,7 @@ class ModelConfig(BasicModelConfig):
 
     @property
     def hollow_zero_event_gpu(self) -> bool:
-        return self.get('hollow_zero_event_gpu', False)
+        return self._gpu_enabled('hollow_zero_event_gpu')
 
     @hollow_zero_event_gpu.setter
     def hollow_zero_event_gpu(self, new_value: bool) -> None:
@@ -94,7 +113,7 @@ class ModelConfig(BasicModelConfig):
 
     @property
     def lost_void_det_gpu(self) -> bool:
-        return self.get('lost_void_det_gpu', False)
+        return self._gpu_enabled('lost_void_det_gpu')
 
     @lost_void_det_gpu.setter
     def lost_void_det_gpu(self, new_value: bool) -> None:

@@ -28,8 +28,13 @@ def turn_to_angle(
         return operation.round_retry(status='识别朝向失败', wait=1)
 
     angle_diff = cal_utils.angle_delta(current_angle, target_angle)
+    if getattr(operation.ctx.controller, 'background_mode', False):
+        # A full-stick tap below one game frame cannot reliably resolve the
+        # mouse-oriented two-degree tolerance. Eight degrees stays within
+        # daily NPC interaction range without endless tiny turn requests.
+        angle_threshold = max(angle_threshold, 8.0)
     if abs(angle_diff) > angle_threshold:
         operation.turn_compensator.turn_from_angle(current_angle, angle_diff)
-        return operation.round_retry(status=turn_status, wait=turn_wait)
+        return operation.round_retry(status=f'{turn_status}：当前 {current_angle:.1f}°，目标 {target_angle:.1f}°，偏差 {angle_diff:.1f}°', wait=turn_wait)
 
     return operation.round_success()

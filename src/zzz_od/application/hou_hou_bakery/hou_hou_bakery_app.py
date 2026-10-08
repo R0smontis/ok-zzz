@@ -37,6 +37,11 @@ class HouHouBakeryApp(ZApplication):
             op_name=hou_hou_bakery_const.APP_NAME,
         )
         self.claimed: bool = False  # 本次运行是否已点击领取卡片
+        self._background_box_open = False
+
+    def handle_init(self):
+        self.claimed = False
+        self._background_box_open = False
 
     @operation_node(name='传送', is_start_node=True)
     def transport(self) -> OperationRoundResult:
@@ -79,6 +84,22 @@ class HouHouBakeryApp(ZApplication):
         if result.is_success:
             status = '领取成功' if self.claimed else '今日已领取'
             return self.round_success(status=status, wait=1)
+
+        if getattr(self.ctx.controller, 'background_mode', False):
+            # Controller A selects/reveals the box and confirms its card. The
+            # next frame must still reach the real already-claimed message.
+            words = ('确定', '确认', '查看今天', '每日可领取一次', '每日可领取一份')
+            if getattr(self, '_background_box_open', False):
+                words += ('继续',)
+            for word in words:
+                if self.round_by_ocr(self.last_screenshot, word).is_success:
+                    key = 'ds4_cross' if self.ctx.game_config.background_gamepad_type == 'ds4' else 'xbox_a'
+                    self.ctx.controller.btn_press(key, press_time=.12)
+                    if word in ('确定', '确认'):
+                        self.claimed = True
+                    self._background_box_open = True
+                    return self.round_retry(f'手柄领取零食盲盒：{word}，等待实际结果', wait=1)
+            return self.round_retry('未识别饼铺领奖事件，未操作', wait=1)
 
         # 卡片揭示 -> 点击确定
         for confirm_word in ['确定', '确认']:

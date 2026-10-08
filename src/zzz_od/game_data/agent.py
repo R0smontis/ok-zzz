@@ -131,6 +131,7 @@ class AgentStateDef:
 
         # 模板匹配
         self.template_threshold: float = template_threshold
+        self.clear_on_zero: bool = clear_on_zero
 
 
 class CommonAgentStateEnum(Enum):
@@ -582,5 +583,7 @@ class AgentEnum(Enum):
                        AgentStateDef('克拉蕾-猩红铭刻', AgentStateCheckWay.FOREGROUND_COLOR_RANGE_LENGTH,
                                      template_id='claret',
                                      lower_color=(150, 0, 0), upper_color=(255, 90, 50),
-                                     max_length=100, min_value_trigger_state=5),
+                                     max_length=100, min_value_trigger_state=5, clear_on_zero=True),
                    ])
+
+    ROXY = Agent('roxy', '洛克茜', RareTypeEnum.S, AgentTypeEnum.STUN, DmgTypeEnum.WIND, ['roxy'])

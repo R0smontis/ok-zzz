@@ -42,10 +42,24 @@ class MapTransport(ZOperation):
         self._area_search_count: int = 0
         # 当前是否已经在某次区域选择内，避免同一次搜索过程被重复计数。
         self._area_search_started: bool = False
+        for key in ('_background_region_search', '_background_point_steps',
+                    '_background_map_velocity', '_background_map_motion', '_background_go_requests', '_background_map_zooms',
+                    '_background_region_direction', '_background_region_reversed', '_background_area_passes'):
+            self.__dict__.pop(key, None)
 
     @node_from(from_name='选择传送点', success=False)
-    @operation_node(name='选择区域', is_start_node=True)
+    @operation_node(name='选择区域', is_start_node=True, node_max_retry_times=60, timeout_seconds=90)
     def choose_area(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            if getattr(self, '_background_point_steps', 0) >= 22:
+                return self.round_fail(f'后台传送点搜索已结束：{self.tp_name}')
+            if getattr(self, '_background_area_passes', 0) >= 2:
+                return self.round_fail(f'后台传送点失败后区域重试已用完：{self.tp_name}')
+            from src.background_map_navigation import choose_area
+            result = choose_area(self, self.last_screenshot)
+            if result.is_success:
+                self._background_area_passes = getattr(self, '_background_area_passes', 0) + 1
+            return result
         if not self._area_search_started:
             if self._area_search_count >= MapTransport.AREA_SEARCH_MAX_TIMES:
                 # 区域选择次数已用完，传送点仍然选不中，直接结束，不再回退重新选区域。
@@ -121,8 +135,11 @@ class MapTransport(ZOperation):
         return self.round_wait(wait=0.5)
 
     @node_from(from_name='选择区域')
-    @operation_node(name='选择传送点', node_max_retry_times=10)
+    @operation_node(name='选择传送点', node_max_retry_times=25)
     def choose_tp(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from src.background_map_navigation import choose_point
+            return choose_point(self, self.last_screenshot)
         area = self.ctx.screen_loader.get_area('地图', '传送点名称')
         ocr_map = self.ctx.ocr_service.get_ocr_result_map(
             self.last_screenshot,
@@ -166,4 +183,7 @@ class MapTransport(ZOperation):
     @node_from(from_name='选择传送点')
     @operation_node(name='点击传送')
     def click_tp(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from src.background_map_navigation import confirm_point
+            return confirm_point(self, self.last_screenshot)
         return self.round_by_find_and_click_area(self.last_screenshot, '地图', '确认', success_wait=1, retry_wait=1)

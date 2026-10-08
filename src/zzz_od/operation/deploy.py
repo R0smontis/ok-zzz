@@ -21,9 +21,22 @@ class Deploy(ZOperation):
         :param ctx:
         """
         ZOperation.__init__(self, ctx, op_name=gt('出战', 'game'))
+        self._deploy_requests = 0
 
-    @operation_node(name='出战', is_start_node=True)
+    @operation_node(name='出战', is_start_node=True, timeout_seconds=30)
     def deploy(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            button = self.round_by_find_area(self.last_screenshot, '通用-出战', '按钮-出战')
+            if button.is_success:
+                if self._deploy_requests >= 5:
+                    return self.round_fail('手柄出战后画面未变化，请检查游戏状态')
+                self._deploy_requests += 1
+                ds4 = self.ctx.game_config.background_gamepad_type == 'ds4'
+                self.ctx.controller.btn_press('ds4_options' if ds4 else 'xbox_start', press_time=.12)
+                return self.round_wait('手柄出战，等待画面变化', wait=1)
+            if self._deploy_requests:
+                return self.round_success('已离开出战画面', wait=1)
+            return self.round_retry('尚未识别出战画面，未操作', wait=.5)
         return self.round_by_find_and_click_area(
             self.last_screenshot, '通用-出战', '按钮-出战',
             success_wait=1, retry_wait=1,
@@ -38,6 +51,16 @@ class Deploy(ZOperation):
         if result.is_success:
             return self.round_fail('驱动盘数量已达到可拥有上限')
 
+        if getattr(self.ctx.controller, 'background_mode', False):
+            for area in ('按钮-队员数量少-确认', '按钮-等级低-确定并出战'):
+                result = self.round_by_find_area(self.last_screenshot, '通用-出战', area)
+                if result.is_success:
+                    ds4 = self.ctx.game_config.background_gamepad_type == 'ds4'
+                    self.ctx.controller.btn_press('ds4_cross' if ds4 else 'xbox_a', press_time=.12)
+                    return self.round_wait(result.status, wait=1)
+            if self.node_retry_times == self.node_max_retry_times - 1:
+                return self.round_success('无需确认', wait=1)
+            return self.round_retry('等待出战确认', wait=.5)
         result = self.round_by_find_and_click_area(self.last_screenshot, '通用-出战', '按钮-队员数量少-确认')
         if result.is_success:
             return self.round_wait(result.status, wait=1)

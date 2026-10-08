@@ -17,12 +17,13 @@ from onedragon.base.operation.operation_base import OperationResult
 from onedragon.base.operation.operation_edge import node_from
 from onedragon.base.operation.operation_node import operation_node
 from onedragon.base.operation.operation_round_result import (
-    OperationRoundResult,
+    OperationRoundResult, OperationRoundResultEnum,
 )
 from onedragon.utils import cv2_utils, str_utils
 from onedragon.utils.i18_utils import gt
 from onedragon.utils.log_utils import log
 from zzz_od.application.commission_assistant import commission_assistant_const
+from zzz_od.application.commission_assistant.dialogue_detector import DialogueDetector
 from zzz_od.application.commission_assistant.commission_assistant_config import (
     CommissionAssistantConfig,
     DialogOptionEnum,
@@ -69,7 +70,7 @@ class CommissionAssistantApp(ZApplication):
         self.main_story_click_time: float = 0.  # 跳过主线时, 添加一个标记 点击菜单后的5s内没有跳过确认按钮出现则不处理对话框和黑框
         self.option_click_interval_min = max(self.OPTION_CLICK_INTERVAL_MIN,
                                              self.config.dialog_click_interval)  # 选项的最小点击间隔(需要等待点击动画结束)
-        self.dialog_clicked: bool = False  # 有些对话框内容为'......', ocr不识别, 故引进这个参数, 使得结束对话框点击之后的3次识别不到任何内容时也点击屏幕
+        self.dialog_clicked: bool = False  # 仅表示本轮确认有对话，不用于未知画面的补点
 
     def handle_init(self):
         self._listen_btn()
@@ -113,10 +114,11 @@ class CommissionAssistantApp(ZApplication):
             self._load_auto_op()
             return self.round_success('自动战斗模式')
 
-        result = self.round_by_find_and_click_area(self.screenshot(), '委托助手', '对话框确认', pre_delay=0)
-        if result.is_success:
-            # 一些对话时出现确认
-            return self.round_wait(result.status, wait=0.1)
+        self.screenshot()
+        confirmation = DialogueDetector(self.ctx).skip_confirmation(self.last_screenshot)
+        if confirmation is not None and self.config.story_mode == StoryMode.SKIP.value.value:
+            self.ctx.controller.click(confirmation.point, press_time=0.001)
+            return self.round_wait(confirmation.text, wait=0.1)
 
         # start = datetime.now()
 
@@ -155,39 +157,17 @@ class CommissionAssistantApp(ZApplication):
         """
         普通的对话点击：选项、对话框标题/中间区域
         """
-        if self._click_dialog_options(self.last_screenshot, '右侧选项区域',
-                                      color_range=[[240, 240, 240], [255, 255, 255]]):
-            return self.round_wait(status='点击右方选项', wait=self.option_click_interval_min)
-
-        center_area = self.ctx.screen_loader.get_area('委托助手', '中间选项区域')
-        if not check_center_words:
-            # 不检查中间的字, 但是识别中间区域是否为黑屏, 黑屏就点. 适用于跳过剧情
-            # 这种检测方式不会在中间为花色区域时抢鼠标导致需要暂停才能手动与游戏交互
-            center_image, _ = cv2_utils.crop_image(self.last_screenshot, center_area.rect)
-            if not cv2_utils.is_colorful(center_image, saturation_threshold=1, color_ratio_threshold=0.01):
-                self.ctx.controller.click(press_time=0.001)
-                return self.round_wait(status='黑屏点击', wait=self.config.dialog_click_interval)
-        elif self._click_dialog_options(self.last_screenshot, '中间选项区域',
-                                        color_range=[[240, 240, 240], [255, 255, 255]]):
-            # 中间有白色的字, 一般是主线的中间选项
-            return self.round_wait(status='点击中间选项', wait=self.option_click_interval_min)
-
-        # 对话框检测和处理 (右上角有主线标志且识别不到对话框内容时大概率是对话框出现'......'了)
-        with_dialog = self._check_dialog(self.last_screenshot)
-        if with_dialog or (
-                self.check_main_story() and self.config.story_mode != StoryMode.SKIP.value.value):
-            # 因为前面的检测也需要时间, 所以这里的点击需要尽可能快, 不然跳过效果在视觉上就慢了
-            self.ctx.controller.click(press_time=0.001)
-            self.dialog_clicked = True
-            return self.round_wait(status='对话中点击', wait=self.config.dialog_click_interval)
-
-        # 对话框替换期间或者对话内容为 '......' 时是无法识别出内容的
-        # 如果前几帧识别到对话框则需要继续点击屏幕, 但是不能一直点, 所以这里是retry
-        if self.dialog_clicked:
-            self.ctx.controller.click(press_time=0.001)
-            return self.round_retry(status='点击未知画面 (对话后)', wait=0.2)
-        else:
-            return self.round_retry(status='未知画面', wait=0.2)
+        # Each click needs evidence from this frame. Never reuse a past option
+        # location or infer a dialogue from a black/transition screen.
+        action = DialogueDetector(self.ctx).detect(
+            self.last_screenshot, mode=self.config.story_mode, option=self.config.dialog_option)
+        self.dialog_clicked = action is not None
+        if action is None:
+            self.chosen_opt = None
+            self.chosen_opt_last_time = 0
+            return self.round_retry(status='等待对话画面', wait=0.1)
+        self.ctx.controller.click(action.point, press_time=0.001)
+        return self.round_wait(status=action.text, wait=self.config.dialog_click_interval)
 
     def _check_dialog(self, screen: MatLike) -> bool:
         """
@@ -224,11 +204,6 @@ class CommissionAssistantApp(ZApplication):
             return False
 
         now: float = time.time()
-        if now < self.CHOSEN_OPT_HOLD_SEC + self.chosen_opt_last_time:
-            # 点击按钮的保护时间
-            self.ctx.controller.click()
-            return True
-
         to_click: Point | None = None
         to_choose_opt: str | None = None
 
@@ -316,10 +291,14 @@ class CommissionAssistantApp(ZApplication):
     def check_knock_knock(self) -> OperationRoundResult:
         """
         判断是否在短信中
+        返回值:
+        wait 表示检测成功, 上游执行 wait 操作
+        retry 表示检测失败, 上游会继续检测别的场景
+        本函数不返回 success 和 fail
         """
         result = self.round_by_find_area(self.last_screenshot, '委托助手', '标题-短信')
         if not result.is_success:
-            return result
+            return self.round_retry()
 
         area = self.ctx.screen_loader.get_area('委托助手', '区域-短信-文本框')
         ocr_result_list = self.ctx.ocr_service.get_ocr_result_list(image=self.last_screenshot, rect=area.rect)
@@ -330,14 +309,21 @@ class CommissionAssistantApp(ZApplication):
                 bottom_mr = mr
                 bottom_text = mr.data
 
-        if bottom_mr is None:
-            return self.round_fail()
+        if bottom_text is None:
+            return self.round_retry()
 
         if '以上为最新' in bottom_text:
-            return self.round_by_find_and_click_area(self.last_screenshot, '委托助手', '按钮-短信-关闭')
+            result = self.round_by_find_and_click_area(self.last_screenshot, '委托助手', '按钮-短信-关闭')
+            if result.is_success:
+                return self.round_wait(result.status, wait=1)
+            else:
+                return self.round_retry()
+        elif str_utils.find_by_lcs('密友同行', bottom_text, 0.75):
+            # 代理人好感页面的"密友同行"不是短信回复选项，点击会打开同行界面。
+            return self.round_wait('忽略密友同行界面', wait=1)
 
         self.ctx.controller.click(bottom_mr.center)
-        return self.round_success(bottom_text)
+        return self.round_wait(bottom_text, wait=0.3)
 
     @node_from(from_name='委托助手', status='自动战斗模式')
     @operation_node(name='自动战斗模式')
@@ -457,8 +443,10 @@ class CommissionAssistantApp(ZApplication):
                     return self.round_wait(f'点击剧情按钮 {result.status}', wait=0.1)
 
             # 识别跳过后的确认框
-            result = self.round_by_find_and_click_area(self.screenshot(), '委托助手', '对话框确认', pre_delay=0)
-            if result.is_success:
+            self.screenshot()
+            confirmation = DialogueDetector(self.ctx).skip_confirmation(self.last_screenshot)
+            if confirmation is not None:
+                self.ctx.controller.click(confirmation.point, press_time=0.001)
                 self.chosen_opt_last_time = 0.
                 self.main_story_click_time = 0
                 return self.round_wait('跳过剧情', wait=0.1)
@@ -486,8 +474,8 @@ class CommissionAssistantApp(ZApplication):
             return self.round_wait(result.status, wait=1)
         # 判断短信
         result = self.check_knock_knock()
-        if result.is_success:
-            return self.round_wait(result.status, wait=0.3)
+        if result.result == OperationRoundResultEnum.WAIT:
+            return result
         # 判断钓鱼
         result = self.check_fishing()
         if result is not None:
@@ -558,7 +546,7 @@ class CommissionAssistantApp(ZApplication):
                 power = self.round_by_find_area(self.last_screenshot, '钓鱼', '按键-强力-右')
 
             if power is not None and power.is_success:
-                self.ctx.controller.btn_controller.press(key='space', press_time=0.05)
+                self.ctx.controller.keyboard_press('space', press_time=0.05)
             return self.round_wait(target_command_list[command_idx], wait_round_time=0.1)  # 这个要尽快按
         elif command_idx == 4:  # 长按
             if self.fishing_btn_pressed is None:
@@ -577,7 +565,7 @@ class CommissionAssistantApp(ZApplication):
 
                 if power is not None and power.is_success:
                     time.sleep(0.05)  # 稍微等待前面长按 避免按键冲突
-                    self.ctx.controller.btn_controller.press(key='space', press_time=0.05)
+                    self.ctx.controller.keyboard_press('space', press_time=0.05)
             return self.round_wait(target_command_list[command_idx], wait_round_time=0.1)
 
         if command_idx is None:

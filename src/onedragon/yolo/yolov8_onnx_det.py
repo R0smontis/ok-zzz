@@ -29,6 +29,7 @@ from onedragon.yolo.onnx_model_loader import OnnxModelLoader
 
 
 class Yolov8Detector(OnnxModelLoader):
+    required_model_files = ('model.onnx', 'labels.csv')
 
     def __init__(self,
                  model_name: str,

@@ -45,6 +45,9 @@ class CompendiumChooseMissionType(ZOperation):
 
     @operation_node(name='选择副本', is_start_node=True, node_max_retry_times=20)
     def choose_mission_type(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller,'background_mode',False) and self.mission_type.mission_type_name=='迷失之地':
+            from src.background_navigation import compendium_lost_void
+            return compendium_lost_void(self,self.last_screenshot)
         if self.mission_type.is_agent_plan:
             return self.round_success(status='代理人方案培养')
 
@@ -171,6 +174,16 @@ class CompendiumChooseMissionType(ZOperation):
     @node_from(from_name='选择代理人方案')
     @operation_node(name='确认')
     def confirm(self) -> OperationRoundResult:
+        if getattr(self,'_pad_lost_go_sent',False):
+            from src.background_navigation import menu_words,pad_press
+            words=menu_words(self,Rect(650,420,1300,750))
+            if '确认' in words and any('传送' in w or '前往' in w for w in words):
+                pad_press(self,'a')
+                return self.round_retry('手柄确认前往，等待加载',wait=1)
+            rows=self.ctx.ocr_service.get_ocr_result_list(image=self.last_screenshot,rect=Rect(1330,440,1650,950))
+            if any(str(r.data).replace(' ','')=='前往' for r in rows):
+                return self.round_retry('仍在副本列表，等待真实传送',wait=1)
+            return self.round_success('已离开快捷手册，等待入口核验',wait=2)
         return self.round_by_find_and_click_area(self.last_screenshot, '快捷手册', '传送确认',
                                                  success_wait=5, retry_wait=1)
 

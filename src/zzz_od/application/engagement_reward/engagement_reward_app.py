@@ -4,6 +4,8 @@
 # 路径: zzz_od/application/engagement_reward/engagement_reward_app.py
 # 本文件随 ok-zzz 以 GPL-3.0 继续分发。
 from typing import ClassVar
+from onedragon.base.geometry.rectangle import Rect
+from src.background_navigation import menu_words, pad_press, compendium_tab
 
 from onedragon.base.operation.operation_edge import node_from
 from onedragon.base.operation.operation_node import operation_node
@@ -33,6 +35,11 @@ class EngagementRewardApp(ZApplication):
             app_id=engagement_reward_const.APP_ID,
             op_name=engagement_reward_const.APP_NAME,
         )
+        self.timeout_seconds = 120
+
+    def handle_init(self):
+        self._pad_claims=0
+        self._pad_reward_seen=False
 
     @operation_node(name='返回大世界', is_start_node=True)
     def back_at_first(self) -> OperationRoundResult:
@@ -48,11 +55,35 @@ class EngagementRewardApp(ZApplication):
     @node_from(from_name='查看奖励结果', success=False)
     @operation_node(name='点击奖励')
     def click_reward(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            tab=compendium_tab(self,self.last_screenshot,'快捷手册-日常')
+            if not tab.is_success:
+                return tab
+            words=menu_words(self,Rect(750,970,1230,1060))
+            if '活跃奖励' in words:
+                return self.round_success(self.STATUS_NO_REWARD)
+            if '领取奖励' not in words:
+                return self.round_retry('未核验活跃度领取提示，未操作',wait=1)
+            if self._pad_claims>=4:
+                return self.round_fail('活跃度奖励领取未生效，已停止重复领取')
+            pad_press(self,'x');self._pad_claims+=1
+            return self.round_success('手柄领取活跃度奖励，等待结果',wait=1)
         return self.round_by_find_and_click_area(self.last_screenshot, '快捷手册', '今日最大活跃度', success_wait=1, retry_wait=1)
 
     @node_from(from_name='点击奖励')
     @operation_node(name='查看奖励结果')
     def check_reward(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            words=menu_words(self,Rect(680,350,1240,860))
+            if '获得' in words and '确认' in words:
+                self._pad_reward_seen=True
+                pad_press(self,'a')
+                return self.round_retry('已核验获得奖励，确认后等待返回日常页',wait=1)
+            tab=compendium_tab(self,self.last_screenshot,'快捷手册-日常')
+            footer=menu_words(self,Rect(750,970,1230,1060))
+            if tab.is_success and '活跃奖励' in footer:
+                return self.round_success(self.STATUS_CLAIM_SUCCESS if self._pad_reward_seen else self.STATUS_NO_REWARD)
+            return self.round_retry('等待实际活跃度奖励结果',wait=1)
         result = self.round_by_find_and_click_area(self.last_screenshot, '快捷手册', '活跃度奖励-确认', success_wait=1, retry_wait=1)
         if result.is_success:
             return self.round_success('日常奖励领取成功')
@@ -77,8 +108,10 @@ class EngagementRewardApp(ZApplication):
     @operation_node(name='完成后返回大世界')
     def back_afterwards(self) -> OperationRoundResult:
         op = BackToNormalWorld(self.ctx)
-        op.execute()
-        return self.round_success() if self.previous_node.is_success else self.round_fail()
+        result=op.execute()
+        if not result.success:
+            return self.round_by_op_result(result)
+        return self.round_success(self.previous_node.status) if self.previous_node.is_success else self.round_fail(self.previous_node.status)
 
 
 def __debug():

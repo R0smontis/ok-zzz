@@ -716,6 +716,9 @@ class Operation(OperationBase):
             self.op_callback(result)
 
     def _emit_debug_round_trace(self, from_node_name: str, node_name: str, status_text: str) -> None:
+        from src.diagnostics import record_event
+        record_event('operation_node', operation=self.op_name, previous=from_node_name,
+                     node=node_name, status=status_text, throttle=f'node:{self.op_name}')
         arrow = f"{from_node_name} -> {node_name}" if from_node_name != "none" else node_name
         self._emit_debug_timeline(
             category="node",
@@ -1472,6 +1475,12 @@ class Operation(OperationBase):
         self._goto_screen_loading = False
         self._goto_screen_loading_start_time = 0
         log.debug(f'当前识别画面 {current_screen_name}')
+        navigate = getattr(self.ctx, 'navigate_background_screen', None)
+        if (getattr(getattr(self.ctx, 'controller', None), 'background_mode', False) and callable(navigate)
+                and current_screen_name.startswith('快捷手册')):
+            result = navigate(self, screen, screen_name)
+            if result is not None:
+                return result
         if current_screen_name == screen_name:
             return self.round_success(current_screen_name, wait=success_wait, wait_round_time=success_wait_round)
 

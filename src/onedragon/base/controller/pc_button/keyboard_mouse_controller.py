@@ -4,6 +4,7 @@
 # 路径: one_dragon/base/controller/pc_button/keyboard_mouse_controller.py
 # 本文件随 ok-zzz 以 GPL-3.0 继续分发。
 import time
+import threading
 
 from pynput import keyboard, mouse
 
@@ -18,6 +19,8 @@ class KeyboardMouseController(PcButtonController):
         self.keyboard = keyboard.Controller()
         self.mouse = mouse.Controller()
         self._pressed_keys: set[str] = set()  # 当前按下的键
+        self._key_lock = threading.RLock()
+        self._release_events: dict[str, threading.Event] = {}
 
     def tap(self, key: str) -> None:
         """
@@ -36,36 +39,44 @@ class KeyboardMouseController(PcButtonController):
         :param press_time: 持续按键时间
         :return:
         """
-        is_mouse = pc_button_utils.is_mouse_button(key)
-        real_key = pc_button_utils.get_mouse_button(key) if is_mouse else pc_button_utils.get_keyboard_button(key)
-        if is_mouse:
-            self.mouse.press(real_key)
-        else:
-            self.keyboard.press(real_key)
-        if press_time is None:
+        if press_time is not None and press_time < 0:
+            raise ValueError('press_time must be non-negative')
+        with self._key_lock:
+            is_mouse = pc_button_utils.is_mouse_button(key)
+            real_key = pc_button_utils.get_mouse_button(key) if is_mouse else pc_button_utils.get_keyboard_button(key)
+            device = self.mouse if is_mouse else self.keyboard
+            device.press(real_key)
+            previous = self._release_events.get(key)
+            if previous is not None:
+                previous.set()
+            released = threading.Event()
+            self._release_events[key] = released
             self._pressed_keys.add(key)
-
         if press_time is not None:
-            time.sleep(press_time)
-
-            if is_mouse:
-                self.mouse.release(real_key)
-            else:
-                self.keyboard.release(real_key)
+            try:
+                released.wait(press_time)
+            finally:
+                with self._key_lock:
+                    if self._release_events.get(key) is released:
+                        self.release(key)
 
     def release(self, key: str) -> None:
-        if key not in self._pressed_keys:
-            return
-        self._pressed_keys.discard(key)
-        is_mouse = pc_button_utils.is_mouse_button(key)
-        if is_mouse:
-            self.mouse.release(pc_button_utils.get_mouse_button(key))
-        else:
-            self.keyboard.release(pc_button_utils.get_keyboard_button(key))
+        with self._key_lock:
+            if key not in self._pressed_keys:
+                return
+            is_mouse = pc_button_utils.is_mouse_button(key)
+            if is_mouse:
+                self.mouse.release(pc_button_utils.get_mouse_button(key))
+            else:
+                self.keyboard.release(pc_button_utils.get_keyboard_button(key))
+            self._pressed_keys.discard(key)
+            released = self._release_events.pop(key)
+            released.set()
 
     def reset(self) -> None:
-        for key in list(self._pressed_keys):
-            self.release(key)
+        with self._key_lock:
+            for key in list(self._pressed_keys):
+                self.release(key)
 
 
 if __name__ == '__main__':

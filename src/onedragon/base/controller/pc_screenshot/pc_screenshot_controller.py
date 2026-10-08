@@ -3,7 +3,6 @@
 # 来源: https://github.com/OneDragon-Anything/ZenlessZoneZero-OneDragon
 # 路径: one_dragon/base/controller/pc_screenshot/pc_screenshot_controller.py
 # 本文件随 ok-zzz 以 GPL-3.0 继续分发。
-import cv2
 from cv2.typing import MatLike
 
 from onedragon.base.controller.pc_game_window import PcGameWindow
@@ -18,6 +17,7 @@ from onedragon.base.controller.pc_screenshot.screencapper_base import Screencapp
 from onedragon.base.geometry.rectangle import Rect
 from onedragon.envs.env_config import ScreenshotMethodEnum
 from onedragon.utils.log_utils import log
+from src.frame_geometry import resize_for_recognition
 
 
 class PcScreenshotController:
@@ -78,8 +78,10 @@ class PcScreenshotController:
                 if not independent and self.active_strategy_name != method_name:
                     self.active_strategy_name = method_name
 
-                if resize and self.game_win.is_win_scale:
-                    result = cv2.resize(result, (self.standard_width, self.standard_height))
+                if resize:
+                    # A capture can still have the old size while the user
+                    # resizes the window. Inspect its pixels, not a later rect.
+                    result = resize_for_recognition(result, self.standard_width, self.standard_height)
 
                 return result
 

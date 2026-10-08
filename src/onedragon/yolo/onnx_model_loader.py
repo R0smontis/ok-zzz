@@ -10,13 +10,13 @@ import zipfile
 
 import onnxruntime as ort
 
-from onedragon.utils import gpu_executor
 from onedragon.yolo.log_utils import log
 
 _GH_PROXY_URL = 'https://ghfast.top'
 
 
 class OnnxModelLoader:
+    required_model_files = ('model.onnx',)
 
     def __init__(self,
                  model_name: str,
@@ -48,8 +48,12 @@ class OnnxModelLoader:
         if not self.check_and_download_model():  # 新模型不ok
             log.error(f'模型 {self.model_name} 未下载成功 请尝试更换代理下载')
             log.info(f'尝试使用备用模型 {self.backup_model_name}')
+            if not self.backup_model_name or self.backup_model_name == self.model_name:
+                raise FileNotFoundError(f'识别模型缺失或下载失败：{self.model_name}')
             self.model_name = self.backup_model_name
             self.model_dir_path = os.path.join(self.model_parent_dir_path, self.model_name)
+            if not self.check_and_download_model():
+                raise FileNotFoundError(f'备用识别模型缺失或下载失败：{self.model_name}')
 
         self.load_model()
 
@@ -62,24 +66,23 @@ class OnnxModelLoader:
             download = self.download_model()
             if not download:
                 return False
-        return True
+        return self.check_model_exists()
 
     def check_model_exists(self) -> bool:
         """
         检查模型是否已经下载好了，这里只能统一判断onnx是否存在，其它附属文件需要子类自行判断。
         :return:
         """
-        onnx_path = os.path.join(self.model_dir_path, 'model.onnx')
-
-        return os.path.exists(self.model_dir_path) and os.path.exists(onnx_path)
+        return all(os.path.isfile(path) and os.path.getsize(path) > 0
+                   for path in (os.path.join(self.model_dir_path, name)
+                                for name in self.required_model_files))
 
     def download_model(self) -> bool:
         """
         下载模型
         :return: 是否成功下载模型
         """
-        if not os.path.exists(self.model_dir_path):
-            os.mkdir(self.model_dir_path)
+        os.makedirs(self.model_dir_path, exist_ok=True)
 
         download_url = f'{self.model_download_url}/{self.model_name}.zip'
         if self.personal_proxy is not None and len(self.personal_proxy) > 0:
@@ -98,14 +101,17 @@ class OnnxModelLoader:
             last_log_time = time.time()
             downloaded = block_num * block_size / 1024.0 / 1024.0
             total_size_mb = total_size / 1024.0 / 1024.0
-            progress = downloaded / total_size_mb * 100
-            log.info(f"正在下载 {self.model_name}: {downloaded:.2f}/{total_size_mb:.2f} MB ({progress:.2f}%)")
+            if total_size_mb > 0:
+                progress = downloaded / total_size_mb * 100
+                log.info(f"正在下载 {self.model_name}: {downloaded:.2f}/{total_size_mb:.2f} MB ({progress:.2f}%)")
+            else:
+                log.info(f'正在下载 {self.model_name}: {downloaded:.2f} MB')
 
         try:
             _, _ = urllib.request.urlretrieve(download_url, zip_file_path, log_download_progress)
             log.info('下载完成 %s', self.model_name)
             self.unzip_model(zip_file_path)
-            return True
+            return self.check_model_exists()
         except Exception:
             log.error('下载失败模型失败', exc_info=True)
             return False
@@ -118,8 +124,7 @@ class OnnxModelLoader:
         """
         log.info('开始解压文件 %s', zip_file_path)
 
-        if not os.path.exists(self.model_dir_path):
-            os.mkdir(self.model_dir_path)
+        os.makedirs(self.model_dir_path, exist_ok=True)
 
         with zipfile.ZipFile(zip_file_path, 'r') as zip_ref:
             zip_ref.extractall(self.model_dir_path)
@@ -131,42 +136,16 @@ class OnnxModelLoader:
         加载模型
         :return:
         """
-        availables = ort.get_available_providers()
-
-        if self.gpu:
-            if 'CUDAExecutionProvider' in availables:
-                providers = ['CUDAExecutionProvider']
-            elif 'DmlExecutionProvider' in availables:
-                providers = ['DmlExecutionProvider']
-            else:
-                providers = ['CPUExecutionProvider']
-                log.warning('未找到GPU执行提供程序，回退到CPU')
-        else:
-            providers = ['CPUExecutionProvider']
-
         onnx_path = os.path.join(self.model_dir_path, 'model.onnx')
         log.info('加载模型 %s', onnx_path)
-
-        session_options = ort.SessionOptions()
-        if "DmlExecutionProvider" in providers:
-            session_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
-            session_options.enable_mem_pattern = False
-
-        log.info('开始创建ONNX Runtime会话 %s providers=%s', onnx_path, providers)
-        self.session = gpu_executor.create_onnx_session(
-            lambda: ort.InferenceSession(
-                onnx_path,
-                sess_options=session_options,
-                providers=providers,
-            ),
-            providers=providers,
-        )
+        from src.inference import create_session
+        self.session = create_session(onnx_path, gpu=self.gpu, label=self.model_name)
         log.info('创建ONNX Runtime会话完成 providers=%s', self.session.get_providers())
         self.get_input_details()
         self.get_output_details()
 
     def run_session(self, output_names: list[str], input_feed: dict):
-        return gpu_executor.run_session(self.session, output_names, input_feed=input_feed)
+        return self.session.run(output_names, input_feed=input_feed)
 
     def get_input_details(self):
         model_inputs = self.session.get_inputs()

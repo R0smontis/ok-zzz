@@ -11,6 +11,8 @@ from cv2.typing import MatLike
 
 from onedragon.base.config.config_item import get_config_item_from_enum
 from onedragon.base.geometry.point import Point
+from src.background_navigation import pad_press, menu_words, selected_tab
+from onedragon.base.geometry.rectangle import Rect
 from onedragon.base.matcher.match_result import MatchResult
 from onedragon.base.operation.application import application_const
 from onedragon.base.operation.operation_edge import node_from
@@ -69,6 +71,42 @@ class RandomPlayApp(ZApplication):
         self._current_idx: int = 0
         self.turn_compensator: AngleTurnCompensator = AngleTurnCompensator(self.ctx.controller)
         self.retried_transport: bool = False
+        self._pad_promoter_open=0
+        self._pad_video_open=0
+        self._pad_start=0
+        self._business_failure=None
+        self._pad_promoter_name=None
+        self._pad_promoter_confirms=0
+        self._pad_recommended=0
+        self._pad_business_confirms=0
+
+    def _business_page(self):
+        tabs=menu_words(self,Rect(1200,10,1900,100))
+        footer=menu_words(self,Rect(1450,840,1900,1000))
+        return '经营状况' in tabs and any(w in footer for w in ('开始营业','正在营业'))
+
+    def _business_cards(self):
+        return menu_words(self,Rect(870,510,1800,570))
+
+    def _promoter_page(self):
+        # The full-width footer downscales the small confirm text below OCR's
+        # detection size. Read the two independent labels at their native size.
+        title = menu_words(self,Rect(90,990,280,1060))
+        confirm = menu_words(self,Rect(1665,995,1755,1055))
+        return '选择宣传员' in title and '确定' in confirm
+
+    def _business_focus(self):
+        import cv2
+        import numpy as np
+        part=self.last_screenshot[560:855,850:1810]
+        mask=((part[:,:,0]>150)&(part[:,:,1]>140)&(part[:,:,2]<100)).astype(np.uint8)
+        contours,_=cv2.findContours(mask,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
+        boxes=[cv2.boundingRect(c) for c in contours]
+        boxes=[b for b in boxes if b[2]>150 and b[3]>240]
+        if len(boxes)!=1:
+            return None
+        x=850+boxes[0][0]+boxes[0][2]/2
+        return min(range(4),key=lambda i:abs(x-(965,1200,1440,1680)[i]))
 
     @node_from(from_name='交互对话', success=False)
     @node_from(from_name='等待经营画面加载', success=False)
@@ -131,8 +169,19 @@ class RandomPlayApp(ZApplication):
         # 每日首次。点完关闭按钮后回到本节点重判，防止昨日账本残影或未关闭
         result = self.round_by_find_area(self.last_screenshot, '影像店营业', '昨日账本')
         if result.is_success:
+            if getattr(self.ctx.controller,'background_mode',False):
+                pad_press(self,'b')
+                return self.round_retry('手柄关闭昨日账本，等待经营画面',wait=1)
             self.round_by_find_and_click_area(self.last_screenshot, '影像店营业', '按钮-关闭')
             return self.round_retry(wait=1)
+        if getattr(self.ctx.controller,'background_mode',False):
+            current=selected_tab(self,Rect(1200,10,1900,100),('经营状况','无人咨询','咨询中'))
+            if current=='经营状况':
+                return self.round_success('已核验经营状况页',wait=.5)
+            if current in ('无人咨询','咨询中'):
+                pad_press(self,'lb')
+                return self.round_retry('切换经营状况，等待实际页签',wait=1)
+            return self.round_retry('等待经营画面',wait=1)
         # 识别到"经营状况"就点击一下以保证在该分支。二次运行时，有极低概率"无人咨询"变成"咨询中"并被默认跳转
         result = self.round_by_find_and_click_area(self.last_screenshot, '影像店营业', '经营状况')
         if result.is_success:
@@ -143,6 +192,13 @@ class RandomPlayApp(ZApplication):
     @node_from(from_name='等待经营画面加载')
     @operation_node(name='识别营业状态')
     def check_running(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller,'background_mode',False):
+            words=menu_words(self,Rect(1450,840,1900,1000))
+            if '正在营业' in words:
+                return self.round_success(self.STATUS_ALREADY_RUNNING)
+            if '开始营业' in words:
+                return self.round_success('已核验开始营业按钮')
+            return self.round_retry('等待实际营业状态',wait=1)
         result = self.round_by_find_area(self.last_screenshot, '影像店营业', '正在营业')
         if result.is_success:
             return self.round_success(RandomPlayApp.STATUS_ALREADY_RUNNING)
@@ -156,26 +212,65 @@ class RandomPlayApp(ZApplication):
     @node_from(from_name='点击宣传员入口', success=False)
     @operation_node(name='关闭经营页面')
     def close_business_page(self) -> OperationRoundResult:
+        if self.previous_node.name=='点击宣传员入口' and not self.previous_node.is_success:
+            self._business_failure=self.previous_node.status or '宣传员入口未完成'
+        if getattr(self.ctx.controller,'background_mode',False):
+            return self.round_by_op_result(BackToNormalWorld(self.ctx).execute())
         return self.round_by_find_and_click_area(self.last_screenshot, '影像店营业', '返回',
                                                  retry_wait=1)
 
     @node_from(from_name='识别营业状态')
-    @operation_node(name='点击宣传员入口')
+    @operation_node(name='点击宣传员入口',node_max_retry_times=12)
     def click_promoter_entry(self) -> OperationRoundResult:
         """
         在经营状况页面 点击代理人的位置
         :return:
         """
+        if getattr(self.ctx.controller,'background_mode',False):
+            if self._promoter_page():
+                return self.round_success('已打开宣传员列表')
+            if not self._business_page():
+                return self.round_retry('未核验宣传员卡片焦点，未操作',wait=1)
+            allowed=(self.config.agent_name_1,self.config.agent_name_2)
+            promoter=menu_words(self,Rect(870,510,1060,570))
+            if promoter and '选择宣传员' not in promoter and (RANDOM_AGENT_NAME in allowed or any(n in allowed for n in promoter)):
+                self._pad_promoter_name=promoter[0]
+                return self.round_success('已核验当前宣传员符合配置')
+            focus=self._business_focus()
+            if focus is None:
+                return self.round_retry('未核验宣传员卡片焦点，未操作',wait=1)
+            if focus!=0:
+                pad_press(self,'dpad_left')
+                return self.round_retry('手柄选择宣传员卡片，等待实际焦点',wait=.6)
+            if self._pad_promoter_open>=3:
+                return self.round_fail('宣传员入口确认未生效')
+            pad_press(self,'a');self._pad_promoter_open+=1
+            return self.round_retry('手柄打开宣传员列表，等待实际页面',wait=1)
         return self.round_by_click_area('影像店营业', '宣传员入口',
                                         retry_wait=1)
 
     @node_from(from_name='点击宣传员入口')
-    @operation_node(name='选择宣传员')
+    @operation_node(name='选择宣传员',node_max_retry_times=12)
     def choose_promoter(self) -> OperationRoundResult:
         """
         在经营状况页面 点击代理人的位置
         :return:
         """
+        if getattr(self.ctx.controller,'background_mode',False):
+            if self._business_page() and self._pad_promoter_name in self._business_cards():
+                return self.round_success('已核验宣传员已应用：'+self._pad_promoter_name)
+            if not self._promoter_page():
+                return self.round_retry('未核验宣传员选择页，未操作',wait=1)
+            names=menu_words(self,Rect(20,100,450,210))
+            allowed=(self.config.agent_name_1,self.config.agent_name_2)
+            if names and (RANDOM_AGENT_NAME in allowed or names[0] in allowed):
+                if self._pad_promoter_confirms>=3:
+                    return self.round_fail('宣传员选择未生效')
+                self._pad_promoter_name=names[0]
+                pad_press(self,'a');self._pad_promoter_confirms+=1
+                return self.round_retry('确认宣传员，等待实际经营页面',wait=1)
+            pad_press(self,'dpad_right')
+            return self.round_retry('手柄查找配置宣传员，未使用其他角色兜底',wait=.6)
         result = self.round_by_find_area(self.last_screenshot, '影像店营业', '选择宣传员')
         if not result.is_success:
             return self.round_retry(status=result.status, wait_round_time=1)
@@ -264,6 +359,14 @@ class RandomPlayApp(ZApplication):
     @node_from(from_name='选择宣传员')
     @operation_node(name='识别录像带主题')
     def check_video_theme(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller,'background_mode',False):
+            if not self._business_page():
+                return self.round_retry('未核验经营状况，未操作',wait=1)
+            words=menu_words(self,Rect(850,130,1220,200))
+            self._need_video_themes=[w for w in words if w in self._all_video_themes]
+            if len(self._need_video_themes)!=3:
+                return self.round_retry('未识别完整录像带主题，未随意补充',wait=1)
+            return self.round_success('已核验录像带主题：'+'、'.join(self._need_video_themes))
         result = self.round_by_find_area(self.last_screenshot, '影像店营业', '经营状况')
         if not result.is_success:
             return self.round_retry(status=result.status, wait=1)
@@ -303,12 +406,36 @@ class RandomPlayApp(ZApplication):
         在经营状况页面 点击录像带的位置
         :return:
         """
+        if getattr(self.ctx.controller,'background_mode',False):
+            if '推荐上架' in menu_words(self,Rect(1400,980,1900,1060)):
+                return self.round_success('已核验录像带选择页')
+            if not self._business_page():
+                return self.round_retry('未核验经营页，未操作',wait=1)
+            focus=self._business_focus()
+            if focus is None:
+                return self.round_retry('未核验录像带卡片焦点，未操作',wait=1)
+            if focus==0:
+                pad_press(self,'dpad_right')
+                return self.round_retry('手柄选择录像带卡片',wait=.6)
+            if self._pad_video_open>=3:
+                return self.round_fail('录像带入口确认未生效')
+            pad_press(self,'a');self._pad_video_open+=1
+            return self.round_retry('手柄打开录像带选择页',wait=1)
         return self.round_by_click_area('影像店营业', '录像带入口',
                                         retry_wait=1)
 
     @node_from(from_name='点击录像带入口')
     @operation_node(name='识别推荐上架')
     def check_recommended(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller,'background_mode',False):
+            if self._pad_recommended and self._business_page() and len(self._business_cards())>=4:
+                return self.round_success('推荐上架')
+            if '推荐上架' not in menu_words(self,Rect(1400,980,1900,1060)):
+                return self.round_retry('未核验推荐上架提示，未操作',wait=1)
+            if self._pad_recommended>=3:
+                return self.round_fail('推荐上架未应用到经营页')
+            pad_press(self,'x');self._pad_recommended+=1
+            return self.round_retry('手柄推荐上架，等待三张录像带实际应用',wait=1)
         result = self.round_by_find_and_click_area(self.last_screenshot, '影像店营业', '推荐上架')
 
         if result.is_success:
@@ -401,6 +528,13 @@ class RandomPlayApp(ZApplication):
     @node_from(from_name='上架筛选', status=STATUS_ALL_VIDEO_CHOOSE)
     @operation_node(name='返回')
     def back(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller,'background_mode',False):
+            if self._business_page():
+                return self.round_success('已核验返回经营页')
+            if ('推荐上架' in menu_words(self,Rect(1400,980,1900,1060))
+                    and '上架筛选' in menu_words(self,Rect(1500,10,1850,100))):
+                pad_press(self,'b')
+            return self.round_retry('等待实际经营页',wait=1)
         result = self.round_by_find_area(self.last_screenshot, '影像店营业', '经营状况')
         if result.is_success:
             return self.round_success()
@@ -411,18 +545,47 @@ class RandomPlayApp(ZApplication):
     @node_from(from_name='返回')
     @operation_node(name='开始营业')
     def start(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller,'background_mode',False):
+            if not self._business_page() or '开始营业' not in menu_words(self,Rect(1450,840,1900,1000)):
+                return self.round_retry('未核验开始营业，未操作',wait=1)
+            if self._pad_start>=3:
+                return self.round_fail('开始营业未生效')
+            pad_press(self,'x');self._pad_start+=1
+            return self.round_success('手柄开始营业，等待实际确认',wait=1)
         return self.round_by_find_and_click_area(self.last_screenshot, '影像店营业', '开始营业',
                                                  retry_wait=1)
 
     @node_from(from_name='开始营业')
     @operation_node(name='确认营业')
     def confirm_business(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller,'background_mode',False):
+            words=menu_words(self,Rect(650,450,1300,750))
+            if any('准备营业' in w for w in words) and '确认' in words:
+                import numpy as np
+                part=self.last_screenshot[595:655,980:1250]
+                if np.mean((part[:,:,0]>150)&(part[:,:,1]>140)&(part[:,:,2]<100))<.3:
+                    pad_press(self,'dpad_right')
+                    return self.round_retry('选择营业确认，等待实际焦点',wait=.6)
+                if self._pad_business_confirms>=3:
+                    return self.round_fail('营业确认未生效')
+                pad_press(self,'a');self._pad_business_confirms+=1
+                return self.round_success('手柄确认营业，等待真实营业状态',wait=1)
+            return self.round_retry('未核验营业确认窗口，未操作',wait=1)
         return self.round_by_find_and_click_area(self.last_screenshot, '影像店营业', '开始营业-确认',
                                                  retry_wait=1)
 
     @node_from(from_name='确认营业')
-    @operation_node(name='营业后确认')
+    @operation_node(name='营业后确认',node_max_retry_times=10)
     def confirm(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller,'background_mode',False):
+            if self._business_page() and '正在营业' in menu_words(self,Rect(1450,840,1900,1000)):
+                return self.round_success('已核验录像店正在营业')
+            words=menu_words(self,Rect(400,300,1500,850))
+            if (any(any(label in w for label in ('营业','生意兴隆','诚信经营','丁尼为本')) for w in words)
+                    and '确认' in words and self._pad_business_confirms<6):
+                pad_press(self,'a');self._pad_business_confirms+=1
+                return self.round_retry('确认营业结果，等待实际营业页',wait=1)
+            return self.round_retry('等待录像店真实营业结果',wait=1)
         return self.round_by_find_and_click_area(self.last_screenshot, '影像店营业', '营业后确认',
                                                  retry_wait=1)
 
@@ -432,7 +595,10 @@ class RandomPlayApp(ZApplication):
     @operation_node(name='返回大世界')
     def back_to_world(self) -> OperationRoundResult:
         op = BackToNormalWorld(self.ctx)
-        return self.round_by_op_result(op.execute())
+        result=op.execute()
+        if self._business_failure:
+            return self.round_fail(self._business_failure)
+        return self.round_by_op_result(result)
 
 
 def __debug():

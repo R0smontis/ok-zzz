@@ -189,13 +189,15 @@ class EnterGame(ZOperation):
     def input_account_password(self) -> OperationRoundResult:
         if self.ctx.game_account_config.account == '' or self.ctx.game_account_config.password == '':
             return self.round_fail('未配置账号密码')
+        if len(self.ctx.game_account_config.account) <= 3 or len(self.ctx.game_account_config.password) <= 3:
+            return self.round_fail('账号或密码太短, 请检查')
 
         self.round_by_click_area('打开游戏', '国服-账号输入区域')
         time.sleep(0.5)
         if self.use_clipboard:
             PcClipboard.copy_and_paste(self.ctx.game_account_config.account)
         else:
-            self.ctx.controller.keyboard_controller.keyboard.type(self.ctx.game_account_config.account)
+            self.ctx.controller.input_str(self.ctx.game_account_config.account)
         time.sleep(1.5)
 
         self.round_by_click_area('打开游戏', '国服-密码输入区域')
@@ -203,7 +205,7 @@ class EnterGame(ZOperation):
         if self.use_clipboard:
             PcClipboard.copy_and_paste(self.ctx.game_account_config.password)
         else:
-            self.ctx.controller.keyboard_controller.keyboard.type(self.ctx.game_account_config.password)
+            self.ctx.controller.input_str(self.ctx.game_account_config.password)
         time.sleep(1.5)
 
         self.round_by_click_area('打开游戏', '国服-同意按钮')
@@ -224,13 +226,15 @@ class EnterGame(ZOperation):
         """
         if self.ctx.game_account_config.account == '' or self.ctx.game_account_config.password == '':
             return self.round_fail('未配置账号密码')
+        if len(self.ctx.game_account_config.account) <= 3 or len(self.ctx.game_account_config.password) <= 3:
+            return self.round_fail('账号或密码太短, 请检查')
 
         self.round_by_click_area('打开游戏', '国服-账号输入区域-新')
         time.sleep(0.5)
         if self.use_clipboard:
             PcClipboard.copy_and_paste(self.ctx.game_account_config.account)
         else:
-            self.ctx.controller.keyboard_controller.keyboard.type(self.ctx.game_account_config.account)
+            self.ctx.controller.input_str(self.ctx.game_account_config.account)
         time.sleep(1.5)
 
         self.round_by_click_area('打开游戏', '国服-密码输入区域-新')
@@ -238,7 +242,7 @@ class EnterGame(ZOperation):
         if self.use_clipboard:
             PcClipboard.copy_and_paste(self.ctx.game_account_config.password)
         else:
-            self.ctx.controller.keyboard_controller.keyboard.type(self.ctx.game_account_config.password)
+            self.ctx.controller.input_str(self.ctx.game_account_config.password)
         time.sleep(1.5)
 
         self.round_by_click_area('打开游戏', '国服-同意按钮-新')
@@ -254,6 +258,8 @@ class EnterGame(ZOperation):
     def input_bilibili_account_password(self) -> OperationRoundResult:
         if self.ctx.game_account_config.account == '' or self.ctx.game_account_config.password == '':
             return self.round_fail('未配置账号密码')
+        if len(self.ctx.game_account_config.account) <= 3 or len(self.ctx.game_account_config.password) <= 3:
+            return self.round_fail('账号或密码太短, 请检查')
 
         self.round_by_click_area('打开游戏', 'B服-账号输入区域')
         time.sleep(0.5)
@@ -262,19 +268,19 @@ class EnterGame(ZOperation):
         if self.use_clipboard:
             PcClipboard.copy_and_paste(self.ctx.game_account_config.account)
         else:
-            self.ctx.controller.keyboard_controller.keyboard.type(self.ctx.game_account_config.account)
+            self.ctx.controller.input_str(self.ctx.game_account_config.account)
         time.sleep(1.5)
 
         self.round_by_click_area('打开游戏', 'B服-密码输入区域')
         time.sleep(0.5)
         for _ in range(30):
-            self.ctx.controller.btn_controller.tap('backspace')
+            self.ctx.controller.keyboard_tap('backspace')
         time.sleep(2)
         # return self.round_fail()
         if self.use_clipboard:
             PcClipboard.copy_and_paste(self.ctx.game_account_config.password)
         else:
-            self.ctx.controller.keyboard_controller.keyboard.type(self.ctx.game_account_config.password)
+            self.ctx.controller.input_str(self.ctx.game_account_config.password)
         time.sleep(1.5)
 
         # self.round_by_click_area('打开游戏', 'B服-同意按钮')
@@ -331,13 +337,15 @@ class EnterGame(ZOperation):
     def input_account_password_intl(self) -> OperationRoundResult:
         if self.ctx.game_account_config.account == '' or self.ctx.game_account_config.password == '':
             return self.round_fail('未配置账号密码')
+        if len(self.ctx.game_account_config.account) <= 3 or len(self.ctx.game_account_config.password) <= 3:
+            return self.round_fail('账号或密码太短, 请检查')
 
         self.round_by_click_area('打开游戏', '国际服-账号输入区域')
         time.sleep(0.5)
         if self.use_clipboard:
             PcClipboard.copy_and_paste(self.ctx.game_account_config.account)
         else:
-            self.ctx.controller.keyboard_controller.keyboard.type(self.ctx.game_account_config.account)
+            self.ctx.controller.input_str(self.ctx.game_account_config.account)
         time.sleep(1.5)
 
         self.round_by_click_area('打开游戏', '国际服-密码输入区域')
@@ -345,7 +353,7 @@ class EnterGame(ZOperation):
         if self.use_clipboard:
             PcClipboard.copy_and_paste(self.ctx.game_account_config.password)
         else:
-            self.ctx.controller.keyboard_controller.keyboard.type(self.ctx.game_account_config.password)
+            self.ctx.controller.input_str(self.ctx.game_account_config.password)
         time.sleep(1.5)
 
         screen = self.screenshot()

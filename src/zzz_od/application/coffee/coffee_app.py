@@ -12,6 +12,8 @@ import numpy as np
 
 from onedragon.base.config.config_item import get_config_item_from_enum
 from onedragon.base.geometry.point import Point
+from onedragon.base.geometry.rectangle import Rect
+from src.background_navigation import menu_words, pad_press
 from onedragon.base.matcher.match_result import MatchResultList
 from onedragon.base.operation.application import application_const
 from onedragon.base.operation.operation_edge import node_from
@@ -70,6 +72,10 @@ class CoffeeApp(ZApplication):
         """
         self.turn_compensator.reset()
         self.retried_transport: bool = False
+        self.chosen_coffee = None
+        self.had_coffee_list = set()
+        self._pad_coffee_ordered = False
+        self._pad_charge_confirmed = 0
 
     @node_from(from_name='等待咖啡店加载', success=False)
     @operation_node(name='传送', is_start_node=True)
@@ -162,6 +168,20 @@ class CoffeeApp(ZApplication):
     @operation_node(name='选择咖啡')
     def choose_coffee(self) -> OperationRoundResult:
         to_choose_list = self._get_coffee_to_choose()
+        if getattr(self.ctx.controller,'background_mode',False):
+            footer=menu_words(self,Rect(1400,870,1910,970))
+            titles=menu_words(self,Rect(1350,490,1740,630))
+            if '点单' not in footer:
+                return self.round_retry('未核验咖啡点单界面，未操作',wait=1)
+            available=menu_words(self,Rect(180,830,1140,950))+titles
+            target=next((name for name in to_choose_list if name in available),None)
+            if target and target in titles:
+                self.chosen_coffee=self.ctx.compendium_service.name_2_coffee[target]
+                return self.round_success(f'已核验选中咖啡：{target}')
+            if target is None:
+                return self.round_fail('当前咖啡菜单没有可识别的候选咖啡')
+            pad_press(self,'dpad_left')
+            return self.round_retry(f'手柄查找咖啡：{target}，当前详情：{" / ".join(titles)}',wait=.8)
 
         # from onedragon.utils import debug_utils
         # screen = debug_utils.get_debug_image('424905412-5c9df2d3-186d-4be5-a610-865553fd6adb')
@@ -223,6 +243,16 @@ class CoffeeApp(ZApplication):
     @node_from(from_name='选择咖啡')
     @operation_node(name='点单')
     def order_coffee(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller,'background_mode',False):
+            footer=menu_words(self,Rect(1400,870,1910,970))
+            titles=menu_words(self,Rect(1350,490,1740,630))
+            if (not self.chosen_coffee or self.chosen_coffee.coffee_name not in titles
+                    or '点单' not in footer or not any('每日免费' in w for w in footer)):
+                return self.round_retry('咖啡名称或每日免费点单提示未核验，未操作',wait=1)
+            if self._pad_coffee_ordered:
+                return self.round_fail('咖啡点单已发送，未重复点单')
+            pad_press(self,'a');self._pad_coffee_ordered=True
+            return self.round_success(wait=1)
         result = self.round_by_find_and_click_area(self.last_screenshot, '咖啡店', '点单')
         if result.is_success:
             self.had_coffee_list.add(self.chosen_coffee.coffee_name)
@@ -250,11 +280,18 @@ class CoffeeApp(ZApplication):
     @node_from(from_name='点单')
     @node_from(from_name='不占用点单确认')
     @node_from(from_name='对话选咖啡', status='点单后跳过')  # 片刻闲首次点单后的动画可在此跳过
-    @operation_node(name='点单后跳过')
+    @operation_node(name='点单后跳过',node_max_retry_times=60,timeout_seconds=90)
     def skip_after_order(self) -> OperationRoundResult:
         result = self.round_by_find_area(self.last_screenshot, '咖啡店', '电量确认')
         if result.is_success:
             return self.round_success(result.status)
+
+        if getattr(self.ctx.controller,'background_mode',False):
+            result=self.round_by_find_area(self.last_screenshot,'咖啡店','不可贪杯确认')
+            if result.is_success:
+                pad_press(self,'a')
+                return self.round_success(result.status,wait=1)
+            return self.round_retry('等待咖啡制作和实际电量确认，未重复点单',wait=1)
 
         # 这个点击很怪 需要多点几次
         # 原因是绝区零逆天按钮, 需要先拖鼠标, 让鼠标显形才能点击
@@ -276,6 +313,18 @@ class CoffeeApp(ZApplication):
     @node_notify(when=NotifyTiming.CURRENT_SUCCESS)
     @operation_node(name='电量确认')
     def charge_confirm(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller,'background_mode',False):
+            popup=self.round_by_find_area(self.last_screenshot,'咖啡店','电量确认')
+            if popup.is_success:
+                if self._pad_charge_confirmed>=3:
+                    return self.round_fail('电量确认未生效')
+                pad_press(self,'a');self._pad_charge_confirmed+=1
+                return self.round_retry('已核验电量奖励，等待确认关闭',wait=1)
+            if self._pad_charge_confirmed and (self.round_by_find_area(self.last_screenshot,'咖啡店','点单').is_success
+                    or self.check_and_update_current_screen()=='大世界-普通'):
+                self.had_coffee_list.add(self.chosen_coffee.coffee_name)
+                return self.round_success(CoffeeApp.STATUS_EXTRA_COFFEE if self.chosen_coffee.extra else None)
+            return self.round_retry('未核验电量奖励确认结果',wait=1)
         result = self.round_by_find_and_click_area(self.last_screenshot, '咖啡店', '电量确认')
 
         if result.is_success:

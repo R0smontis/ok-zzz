@@ -69,6 +69,18 @@ class Transport(ZOperation):
         if self.is_map_screen(self.last_screenshot):
             return self.round_success()
 
+        if getattr(self.ctx.controller, 'background_mode', False):
+            requests = getattr(self, '_map_open_requests', 0)
+            if requests >= 3:
+                return self.round_fail('手柄打开地图未生效')
+            keys = self.ctx.game_config.get_gamepad_action_keys().get('minimap', [])
+            if not keys:
+                return self.round_fail('未配置手柄地图按键')
+            for key in keys:
+                self.ctx.controller.btn_press(key, press_time=.12)
+            self._map_open_requests = requests + 1
+            return self.round_wait('手柄打开地图，等待实际地图画面', wait=2)
+
         result = self.round_by_find_and_click_area(self.last_screenshot, '大世界', '地图')
         if result.is_success:
             return self.round_wait(status=result.status, wait=2)
@@ -101,6 +113,10 @@ class Transport(ZOperation):
         :param screen: 游戏画面
         :return:
         """
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from src.background_map_navigation import map_state
+            if map_state(self, screen) is not None:
+                return True
         area_name_list: list[str] = []
         tp_name_list: list[str] = []
 

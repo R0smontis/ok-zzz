@@ -47,10 +47,12 @@ class ClassificationResult:
     def __init__(self,
                  raw_image: MatLike,
                  class_idx: int,
-                 run_time: Optional[float] = None,):
+                 run_time: Optional[float] = None,
+                 confidence: Optional[float] = None,):
         self.run_time: float = time.time() if run_time is None else run_time  # 识别时间
         self.raw_image: MatLike = raw_image  # 识别的原始图片
         self.class_idx: int = class_idx  # 分类的下标 -1代表无法识别（不满足阈值）
+        self.confidence = confidence
 
 
 class Yolov8Classifier(OnnxModelLoader):
@@ -142,7 +144,8 @@ class Yolov8Classifier(OnnxModelLoader):
         result = ClassificationResult(
             raw_image=context.img,
             run_time=context.run_time,
-            class_idx=idx if conf >= context.conf else -1
+            class_idx=int(idx) if conf >= context.conf else -1,
+            confidence=float(conf),
         )
         return result
 
@@ -155,7 +158,7 @@ class Yolov8Classifier(OnnxModelLoader):
         """
         self.run_result_history.append(result)
         self.run_result_history = [i for i in self.run_result_history
-                                   if context.run_time - i.run_time > self.keep_result_seconds]
+                                   if 0 <= context.run_time - i.run_time <= self.keep_result_seconds]
 
     @property
     def last_run_result(self) -> Optional[ClassificationResult]:

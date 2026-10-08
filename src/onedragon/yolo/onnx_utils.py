@@ -37,9 +37,9 @@ def scale_input_image_u(image: MatLike, onnx_input_width: int, onnx_input_height
     else:
         input_img = image
 
-    # 缩放后最后的处理
-    input_img = input_img / 255.0
-    input_img = input_img.transpose(2, 0, 1)
-    input_tensor = input_img[np.newaxis, :, :, :].astype(np.float32)
+    # 直接在 float32 上完成 HWC->CHW 与归一化，避免 float64 中间数组；结果与 /255.0 后转 float32 逐位一致
+    input_tensor = np.empty((1, 3, input_img.shape[0], input_img.shape[1]), dtype=np.float32)
+    input_tensor[0] = input_img.transpose(2, 0, 1)
+    input_tensor /= np.float32(255)
 
     return input_tensor, scale_height, scale_width

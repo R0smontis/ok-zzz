@@ -8,6 +8,7 @@ from onedragon.yolo.yolov8_onnx_cls import Yolov8Classifier
 
 
 class FlashClassifier(Yolov8Classifier):
+    required_model_files = ('model.onnx', 'labels.csv')
 
     def __init__(
             self,

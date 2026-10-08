@@ -8,6 +8,7 @@
 import threading
 from typing import Optional
 
+import cv2
 import numpy as np
 from cv2.typing import MatLike
 
@@ -105,7 +106,9 @@ class OkOcrMatcher(OcrMatcher):
             return []
         with self._lock:
             lib = self._get_lib()
-            result = lib.ocr(image)
+            # 一条龙图像是 RGB；ok-script 的 OCR 接口消费 OpenCV BGR。
+            converted = cv2.cvtColor(image, cv2.COLOR_RGB2BGR) if image.ndim == 3 else image
+            result = lib.ocr(converted)
         if result is None or len(result) == 0 or result[0] is None:
             return []
         return [(item[0], item[1]) for item in result[0]]

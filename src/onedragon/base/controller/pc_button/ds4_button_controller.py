@@ -103,6 +103,8 @@ class Ds4ButtonController(VirtualGamepadController):
             ('ds4_ls_left', -1, 0), ('ds4_ls_right', 1, 0),
         ]:
             self._register_stick(key, stick='left', x=x, y=y)
+        for direction, x, y in [('up',0,.35),('down',0,-.35),('left',-.35,0),('right',.35,0)]:
+            self._register_stick('ds4_ls_slow_'+direction,stick='left',x=x,y=y)
 
         # 右摇杆
         for key, x, y in [

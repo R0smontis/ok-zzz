@@ -30,7 +30,7 @@ class BackToNormalWorld(ZOperation):
             allow_battle (bool): 是否允许在战斗状态直接返回成功（锄大地传送后用，让调用方处理战斗）。
                 启用时调用方必须处理返回的 status='大世界-战斗'，否则角色将卡在战斗画面。
         """
-        ZOperation.__init__(self, ctx, op_name=gt('返回大世界'))
+        ZOperation.__init__(self, ctx, op_name=gt('返回大世界'),timeout_seconds=90)
 
         self.ensure_normal_world: bool = ensure_normal_world  # 是否回到普通大世界
         self.allow_battle: bool = allow_battle  # 是否允许战斗状态直接返回
@@ -40,6 +40,7 @@ class BackToNormalWorld(ZOperation):
         self.last_dialog_idx: int = -1  # 上次选择的对话选项下标
         self.click_exit_battle: bool = False  # 是否点击了退出战斗
         self.prefer_dialog_confirm: bool = False  # 第一次优先取消，后续确认/取消轮流点击
+        self._background_menu_back = 0
 
     @node_from(from_name='打开地图', success=False)
     @node_from(from_name='执行传送')
@@ -61,9 +62,52 @@ class BackToNormalWorld(ZOperation):
 
             return self.round_success(status=current_screen)
 
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from src.background_navigation import lost_void_gateway_visible
+            # This gamepad gateway has a top-left back icon and no textual
+            # footer. A mouse click on that icon does not operate this menu.
+            if lost_void_gateway_visible(self, self.last_screenshot):
+                if self._background_menu_back >= 6:
+                    return self.round_fail('深层调查入口返回未生效')
+                self.ctx.controller.btn_press('ds4_circle' if self.ctx.game_config.background_gamepad_type == 'ds4' else 'xbox_b', press_time=.12)
+                self._background_menu_back += 1
+                return self.round_retry('手柄离开已核验的深层调查入口，等待实际画面', wait=1)
+            from src.background_map_navigation import return_from_map
+            map_result = return_from_map(self, self.last_screenshot)
+            if map_result is not None:
+                return map_result
+            from onedragon.base.geometry.rectangle import Rect
+            popup_rows=self.ctx.ocr_service.get_ocr_result_list(image=self.last_screenshot,rect=Rect(650,450,1300,750))
+            popup_words=[str(r.data).strip().replace(' ','') for r in popup_rows] if isinstance(popup_rows,(list,tuple)) else []
+            if any(any(label in w for label in ('生意兴隆','诚信经营','丁尼为本')) for w in popup_words) and '确认' in popup_words:
+                requests=getattr(self,'_background_menu_back',0)
+                if requests>=6:
+                    return self.round_fail('营业结果确认未关闭')
+                self.ctx.controller.btn_press('ds4_cross' if self.ctx.game_config.background_gamepad_type=='ds4' else 'xbox_a',press_time=.12)
+                self._background_menu_back=requests+1
+                return self.round_retry('确认已开始营业的结果，等待实际菜单',wait=1)
+            rows = self.ctx.ocr_service.get_ocr_result_list(image=self.last_screenshot, rect=Rect(600, 850, 1920, 1060))
+            words = [str(r.data).strip().replace(' ', '') for r in rows] if isinstance(rows, (list, tuple)) else []
+            # The bakery's main screen only shows Y/A actions; B still returns
+            # to the street. Require both bakery-specific labels before using B.
+            bakery_menu = (any('选择盲盒' in word or '已领取同类型奖励' in word for word in words)
+                           and any('集卡兑换' in word for word in words))
+            main_menu = len(set(words) & {'设置','公告','成就','绳网','仓库','代理人','商城','丽都城募','调频'}) >= 5
+            if '返回' in words or bakery_menu or main_menu:
+                requests = getattr(self, '_background_menu_back', 0)
+                if requests >= 6:
+                    return self.round_fail('手柄返回大世界未生效，当前菜单仍显示返回')
+                key = 'ds4_circle' if self.ctx.game_config.background_gamepad_type == 'ds4' else 'xbox_b'
+                self.ctx.controller.btn_press(key, press_time=.12)
+                self._background_menu_back = requests + 1
+                return self.round_retry('手柄返回，等待实际大世界画面', wait=1)
+
         result = self.round_by_goto_screen(screen=self.last_screenshot, screen_name='大世界-普通', retry_wait=None)
         if result.is_success:
             return self.round_success(result.status)
+        if (getattr(self.ctx.controller, 'background_mode', False)
+                and current_screen is not None and current_screen.startswith('快捷手册') and result.is_fail):
+            return result
 
         if (not result.is_fail  # fail是没有路径可以到达
                 and self.ctx.screen_loader.current_screen_name is not None):

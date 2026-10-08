@@ -35,22 +35,28 @@ class ZPcController(PcControllerBase):
 
         self.is_moving: bool = False  # 是否正在移动
 
-    def sync_game_config(self, game_config: GameConfig) -> None:
+    def sync_game_config(self, game_config: GameConfig, activate: bool = True) -> None:
         """切换实例后同步控制器持有的账号级配置"""
         self.game_config = game_config
 
-        if self.game_config.background_mode:
+        task_mode = getattr(game_config, '_task_input_mode', None)
+        if task_mode == 'messages' or (task_mode is None and getattr(game_config, '_framework_message_mode', False)):
+            self.enable_window_message_mode()
+            self.action_keys = game_config.get_action_keys('keyboard')
+            return
+
+        if task_mode == 'gamepad' or self.game_config.background_mode or getattr(self.game_config, '_framework_background_mode', False):
             self.enable_background_mode(self.game_config.background_gamepad_type)
+            if not self.background_mode:
+                raise RuntimeError('手柄后台操作初始化失败，请检查ViGEmBus驱动和虚拟手柄依赖')
         else:
             self.enable_foreground_mode()
-            self.active_window()
+            if activate:
+                self.active_window()
 
     def init_before_context_run(self) -> bool:
         """运行前根据配置启用后台/前台模式"""
-        if self.game_config.background_mode:
-            self.enable_background_mode(self.game_config.background_gamepad_type)
-        else:
-            self.enable_foreground_mode()
+        self.sync_game_config(self.game_config, activate=False)
         return PcControllerBase.init_before_context_run(self)
 
     def get_mouse_flash_duration(self) -> float:
@@ -223,6 +229,11 @@ class ZPcController(PcControllerBase):
         """
         if dx == 0 and dy == 0:
             return
+        if getattr(self, 'message_mode', False):
+            from onedragon.base.geometry.point import Point
+            current = self.window_input.position
+            return self.window_input.move(Point(max(0, min(self.standard_width-1, current.x+dx)),
+                                                max(0, min(self.standard_height-1, current.y+dy))))
         if self.background_mode:
             self._gamepad_turn(dx, dy)
         else:

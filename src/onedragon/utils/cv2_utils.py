@@ -216,10 +216,17 @@ def match_template(source: MatLike, template: MatLike, threshold,
     result = cv2.matchTemplate(source, template, cv2.TM_CCOEFF_NORMED, mask=mask)
 
     match_result_list = MatchResultList(only_best=only_best)
-    filtered_locations = np.where(np.logical_and(
-        result >= threshold,
-        np.isfinite(result) if ignore_inf else np.ones_like(result))
-    )  # 过滤低置信度的匹配结果
+    valid = result >= threshold
+    if ignore_inf:
+        valid &= np.isfinite(result)
+    if only_best:
+        # The mask excludes NaNs/infinities before selecting the maximum.
+        # minMaxLoc retains the first row-major location when scores tie.
+        _, confidence, _, point = cv2.minMaxLoc(result, mask=valid.astype(np.uint8))
+        if point[0] >= 0:
+            match_result_list.append(MatchResult(confidence, point[0], point[1], tx, ty))
+        return match_result_list
+    filtered_locations = np.where(valid)
 
     # 遍历所有匹配结果，并输出位置和置信度
     for pt in zip(*filtered_locations[::-1]):
