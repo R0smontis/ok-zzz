@@ -22,6 +22,15 @@ from zzz_od.application.hollow_zero.lost_void.context.lost_void_artifact import 
 from zzz_od.application.hollow_zero.lost_void.operation.interact.lost_void_artifact_pos import LostVoidArtifactPos
 from zzz_od.context.zzz_context import ZContext
 from zzz_od.operation.zzz_operation import ZOperation
+from zzz_od.application.hollow_zero.lost_void.mission_screen import focused_gear
+
+
+def normalize_gear_name(text):
+    value=re.sub(r'\s+','',text).replace('【','[').replace('】',']')
+    # The equipped header uses a different font than the preview. Preserve
+    # exact identity while correcting the variants observed in that header.
+    value=value.replace('攜游','携游').replace('携遊','携游')
+    return value.replace('[携游]救令玄幡','[携游]敕令玄幡')
 
 
 class LostVoidChooseGear(ZOperation):
@@ -32,9 +41,15 @@ class LostVoidChooseGear(ZOperation):
         :param ctx:
         """
         ZOperation.__init__(self, ctx, op_name='迷失之地-武备选择')
+        self._pad_scan = None
+        self._equip_requests = 0
+        self._unlock_requests = 0
+        self._equip_confirmed = False
 
-    @operation_node(name='选择武备', is_start_node=True)
+    @operation_node(name='选择武备', is_start_node=True, timeout_seconds=90)
     def choose_gear(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            return self._choose_gear_with_pad()
         area = self.ctx.screen_loader.get_area('迷失之地-通用选择', '文本-详情')
         self.ctx.controller.mouse_move(area.center + Point(0, 100))
         time.sleep(0.1)
@@ -67,7 +82,8 @@ class LostVoidChooseGear(ZOperation):
 
                 # 将选择的武备类型鸣徽添加至第一优先级
                 text = target.artifact.category
-                self.ctx.lost_void.challenge_config.artifact_priority_in_battle.append(text)
+                if text not in self.ctx.lost_void.challenge_config.artifact_priority_in_battle:
+                    self.ctx.lost_void.challenge_config.artifact_priority_in_battle.append(text)
                 log.info('【武备追新】添加开局选择的武备属性至第一优先级: [' + text + ']')
 
                 choose_new = True
@@ -82,6 +98,107 @@ class LostVoidChooseGear(ZOperation):
             time.sleep(0.5)
 
         return self.round_success(wait=0.5)
+
+    def _pad(self, action):
+        ds4=self.ctx.game_config.background_gamepad_type == 'ds4'
+        keys={'left':'ds4_dpad_left' if ds4 else 'xbox_dpad_left',
+              'right':'ds4_dpad_right' if ds4 else 'xbox_dpad_right',
+              'confirm':'ds4_cross' if ds4 else 'xbox_a',
+              'back':'ds4_circle' if ds4 else 'xbox_b',
+              'unlock':'ds4_triangle' if ds4 else 'xbox_y'}
+        self.ctx.controller.btn_press(keys[action],press_time=.12)
+
+    def _choose_gear_with_pad(self):
+        if self._pad_scan is None:
+            contours, context=self._find_gears_with_status()
+            pairs=self._gear_rect_pairs(context) if contours else []
+            statuses=sorted(contours,key=lambda item:cv2.boundingRect(item[0])[0])
+            if not pairs:
+                return self.round_retry('无法识别武备槽位，未操作',wait=.5)
+            self._pad_scan={'slots':[Rect(*pair[1]) for pair in pairs], 'levels':[s[1] for s in statuses],
+                            'index':0,'gears':[],'availability':[], 'target':None,'phase':'scan'}
+        state=self._pad_scan
+        focus=focused_gear(self.last_screenshot)
+        if focus is None:
+            self._pad('right')
+            return self.round_wait('等待武备手柄焦点',wait=.4)
+        target=state['target'] if state['phase']=='select' else state['slots'][state['index']]
+        # 只通过当前帧焦点定位，不用后台点击枚举得到虚假的同名武备。
+        if abs(focus.center.x-target.center.x) > max(30,target.width*.35):
+            self._pad('right' if focus.center.x < target.center.x else 'left')
+            return self.round_wait('手柄定位武备槽位',wait=.4)
+        if state['phase']=='select':
+            return self.round_success('已核验目标武备焦点',wait=.3)
+        area=self.ctx.screen_loader.get_area('迷失之地-武备选择','武备名称')
+        matches=self.ctx.ocr_service.get_ocr_result_list(image=self.last_screenshot,rect=area.rect)
+        text=''.join(m.data for m in sorted(matches,key=lambda m:m.center.x))
+        art,primary=self._build_artifact_from_ocr_name(text)
+        if art is None:
+            return self.round_retry('当前武备名称未识别，未确认携带',wait=.5)
+        idx=state['index']
+        state['gears'].append(LostVoidArtifactPos(art=art,rect=target,ocr_text=text,is_primary_name=primary))
+        availability = self._gear_availability(focus, art.display_name)
+        if availability is None:
+            state['gears'].pop()
+            return self.round_retry('武备携带状态未识别，等待稳定画面', wait=.5)
+        state['availability'].append(availability)
+        log.info('手柄逐帧识别武备 %d/%d：%s',idx+1,len(state['slots']),art.display_name)
+        if not availability['usable']:
+            log.info('跳过不可携带武备 %s：解锁需要=%s，当前资源=%s',
+                     art.display_name, availability.get('cost'), availability.get('balance'))
+        state['index']+=1
+        if state['index'] < len(state['slots']):
+            return self.round_wait('识别下一个武备',wait=.1)
+        return self._select_usable_gear()
+
+    def _select_usable_gear(self):
+        state = self._pad_scan
+        gears = [g for i, g in enumerate(state['gears']) if state['availability'][i]['usable']]
+        if not gears:
+            return self.round_fail('当前没有可携带或可解锁的武备')
+        new_gears = [g for i, g in enumerate(state['gears'])
+                     if state['availability'][i]['usable'] and not state['levels'][i]]
+        choices = new_gears if self.ctx.lost_void.challenge_config.chase_new_mode and new_gears else gears
+        priorities=self.ctx.lost_void.get_artifact_by_priority(choices,1)
+        chosen=priorities[0] if priorities else choices[0]
+        state.update(phase='select',target=chosen.rect,chosen=chosen)
+        return self.round_wait(f'准备携带 {chosen.artifact.display_name}',wait=.1)
+
+    def _gear_button_enabled(self, rect):
+        # OCR can read the grey disabled label, so text presence alone is insufficient.
+        crop = cv2_utils.crop_image_only(self.last_screenshot, rect)
+        if crop is None or crop.size == 0:
+            return False
+        pixels = crop.astype('int16')
+        white = (pixels.min(axis=2) >= 150) & (pixels.max(axis=2)-pixels.min(axis=2) <= 70)
+        return int(white.sum()) >= 80
+
+    def _gear_number(self, rect):
+        matches = self.ctx.ocr_service.get_ocr_result_list(image=self.last_screenshot, rect=rect)
+        numbers = [int(text) for m in matches
+                   if re.fullmatch(r'\d+', text := re.sub(r'\s+', '', str(m.data)))]
+        return numbers[0] if len(numbers) == 1 else None
+
+    def _gear_availability(self, focus, expected_name=None):
+        if self._gear_button_enabled(Rect(1780, 849, 1870, 894)):
+            return {'usable': True, 'unlock': False}
+        matches = self.ctx.ocr_service.get_ocr_result_list(
+            image=self.last_screenshot, rect=Rect(1732, 755, 1912, 825))
+        if not any('解锁' in str(m.data) for m in matches):
+            # The equipped item also has a grey A button. It remains a valid
+            # candidate, verified by its actual equipped title rather than by input.
+            if expected_name is not None:
+                top = self.ctx.ocr_service.get_ocr_result_list(
+                    image=self.last_screenshot, rect=Rect(730, 340, 1200, 410))
+                text = ''.join(m.data for m in sorted(top, key=lambda m:m.center.x))
+                if normalize_gear_name(text) == normalize_gear_name(expected_name):
+                    return {'usable': True, 'unlock': False, 'equipped': True}
+            return None
+        balance = self._gear_number(Rect(1630, 20, 1795, 85))
+        cost = self._gear_number(Rect(max(190, focus.center.x-70), 1020,
+                                      min(1740, focus.center.x+75), 1075))
+        return {'usable': balance is not None and cost is not None and cost <= balance,
+                'unlock': True, 'balance': balance, 'cost': cost}
 
     def _find_gears_with_status(self) -> tuple[list[tuple[Any, bool]], Any]:
         """
@@ -98,7 +215,7 @@ class LostVoidChooseGear(ZOperation):
             return [], gear_context
 
         # 1. 预处理：获取所有武备框和等级框的绝对坐标
-        gear_rects = gear_context.get_absolute_rect_pairs()
+        gear_rects = self._gear_rect_pairs(gear_context)
         # 按x1坐标排序武备框
         gear_rects.sort(key=lambda item: item[1][0])  # item[1][0] 是 x1 坐标
 
@@ -144,6 +261,28 @@ class LostVoidChooseGear(ZOperation):
         # cv2_utils.show_image(self.last_screenshot, debug_rects, wait=0)
         return gear_with_status, gear_context
 
+    @staticmethod
+    def _gear_rect_pairs(context):
+        # A highlighted ring and its inner artwork can form separate external contours.
+        # Keep one slot per centre so the same locked gear cannot re-enter the candidate list.
+        pairs = sorted(context.get_absolute_rect_pairs(),
+                       key=lambda p: (p[1][2]-p[1][0])*(p[1][3]-p[1][1]), reverse=True)
+        result = []
+        for pair in pairs:
+            rect = Rect(*pair[1])
+            # Bright artwork protruding between the round icons can pass the
+            # area filter. It is not a selectable slot: navigating towards its
+            # centre alternates forever between the two neighbouring gears.
+            # These bounds apply to the already normalized 1080p game frame.
+            if (rect.width < 70 or rect.height < 75
+                    or not .55 <= rect.width / rect.height <= 1.8):
+                continue
+            if any(abs(rect.center.x-Rect(*other[1]).center.x) < 45
+                   and abs(rect.center.y-Rect(*other[1]).center.y) < 45 for other in result):
+                continue
+            result.append(pair)
+        return sorted(result, key=lambda item: item[1][0])
+
     def get_gear_pos_by_click_ocr(
             self,
             gear_with_status: list[tuple[Any, bool]],
@@ -157,7 +296,7 @@ class LostVoidChooseGear(ZOperation):
             return [], []
 
         name_area = self.ctx.screen_loader.get_area('迷失之地-武备选择', '武备名称')
-        gear_abs_pairs = gear_context.get_absolute_rect_pairs()
+        gear_abs_pairs = self._gear_rect_pairs(gear_context)
         gear_abs_pairs.sort(key=lambda item: item[1][0])
         sorted_status_list = sorted(gear_with_status, key=lambda item: cv2.boundingRect(item[0])[0])
 
@@ -237,7 +376,7 @@ class LostVoidChooseGear(ZOperation):
         return name_list
 
     def _build_artifact_from_ocr_name(self, ocr_text: str) -> tuple[LostVoidArtifact | None, bool]:
-        normalized = ocr_text.strip().replace('【', '[').replace('】', ']')
+        normalized = normalize_gear_name(ocr_text)
         if len(normalized) == 0:
             return None, False
 
@@ -258,8 +397,57 @@ class LostVoidChooseGear(ZOperation):
         return None, False
 
     @node_from(from_name='选择武备')
-    @operation_node(name='点击携带')
+    @operation_node(name='点击携带', timeout_seconds=15)
     def click_equip(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller,'background_mode',False):
+            target=self._pad_scan['chosen']
+            normalize=normalize_gear_name
+            matches=self.ctx.ocr_service.get_ocr_result_list(image=self.last_screenshot,rect=Rect(730,340,1200,410))
+            text=''.join(m.data for m in sorted(matches,key=lambda m:m.center.x))
+            artifact = getattr(target, 'artifact', None)
+            # The preview ROI also includes "等级1:". Compare the parsed name,
+            # not all preview OCR tokens, against the equipped slot title.
+            expected = normalize(artifact.display_name if artifact is not None else target.ocr_text)
+            parsed = re.search(r'\[[^\]]+\].+$', expected)
+            if parsed is not None:
+                expected = parsed.group(0)
+            if normalize(text)==expected:
+                self._equip_confirmed = True
+                self.ctx.lost_void.priority_updated=False
+                if artifact is not None:
+                    priorities = self.ctx.lost_void.challenge_config.artifact_priority_in_battle
+                    if artifact.category not in priorities:
+                        priorities.append(artifact.category)
+                log.info('武备携带已核验：%s', expected)
+                return self.round_success('已核验携带武备',wait=.3)
+            focus = focused_gear(self.last_screenshot)
+            if focus is None or (getattr(target, 'rect', None) is not None
+                    and abs(focus.center.x-target.rect.center.x) > max(30,target.rect.width*.35)):
+                return self.round_retry('等待目标武备焦点，未操作', wait=.5)
+            availability = self._gear_availability(focus)
+            if availability is None:
+                return self.round_retry('等待武备按钮状态，未操作', wait=.5)
+            if not availability['usable']:
+                log.warning('武备不可携带：%s，解锁需要=%s，当前资源=%s',
+                            expected, availability.get('cost'), availability.get('balance'))
+                return self.round_fail('目标武备资源不足，未重复确认')
+            if availability['unlock']:
+                if self._unlock_requests >= 2:
+                    return self.round_fail('武备解锁未生效，停止重复操作')
+                self._unlock_requests += 1
+                log.info('手柄解锁武备：%s，需要=%s，当前资源=%s',
+                         expected, availability['cost'], availability['balance'])
+                self._pad('unlock')
+                return self.round_wait('手柄解锁武备，等待携带按钮启用', wait=.6)
+            if self._equip_requests >= 3:
+                log.warning('携带武备核验失败：目标=%s，当前顶部=%s', expected, normalize(text))
+                return self.round_fail('携带武备未生效，停止重复操作')
+            found=self.round_by_find_area(self.last_screenshot,'迷失之地-武备选择','按钮-携带')
+            if not found.is_success:
+                return self.round_retry('未找到携带按钮，未操作',wait=.5)
+            self._equip_requests+=1
+            self._pad('confirm')
+            return self.round_wait('手柄携带，等待顶部武备名称核验',wait=.6)
         result = self.round_by_find_and_click_area(screen_name='迷失之地-武备选择', area_name='按钮-携带',
                                                    success_wait=1, retry_wait=1)
         if result.is_success:
@@ -269,8 +457,16 @@ class LostVoidChooseGear(ZOperation):
 
     @node_from(from_name='选择武备', success=False)
     @node_from(from_name='点击携带')
-    @operation_node(name='点击返回')
+    @operation_node(name='点击返回', timeout_seconds=15)
     def click_back(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller,'background_mode',False):
+            if self.ctx.lost_void.in_normal_world(self.last_screenshot):
+                if not self._equip_confirmed:
+                    return self.round_fail('武备选择未完成，已关闭菜单')
+                return self.round_success('已关闭武备菜单',wait=.3)
+            popup=self.round_by_find_area(self.last_screenshot,'迷失之地-武备选择','确认')
+            self._pad('confirm' if popup.is_success else 'back')
+            return self.round_wait('等待武备菜单关闭',wait=.6)
         # 先尝试点击返回
         result = self.round_by_find_and_click_area(screen_name='迷失之地-武备选择', area_name='按钮-返回',
                                                  success_wait=1, retry_wait=1)

@@ -53,12 +53,17 @@ class MoveTargetWrapper:
         尝试合并一个入口
         @return: 是否合并成功
         """
-        if other.is_mixed and other.merge_parent is not None:
-            other: MoveTargetWrapper = other.merge_parent
+        while other.merge_parent is not None:
+            other = other.merge_parent
 
         this = self
-        if this.is_mixed and this.merge_parent is not None:
-            this: MoveTargetWrapper = this.merge_parent
+        while this.merge_parent is not None:
+            this = this.merge_parent
+
+        # Pairwise grouping visits both (a, b) and (b, a). Merging their
+        # common root into itself would hide the entire mixed entrance.
+        if this is other:
+            return False
 
         is_merge = False
         for x in this.target_rect_list:
@@ -96,8 +101,8 @@ class MoveTargetWrapper:
                 if rect.y2 > y2:
                     y2 = rect.y2
 
-            self.leftest_target_name = this.target_name_list[leftest_entry_idx]
-            self.entire_rect = Rect(x1, y1, x2, y2)
+            this.leftest_target_name = this.target_name_list[leftest_entry_idx]
+            this.entire_rect = Rect(x1, y1, x2, y2)
 
         return is_merge
 
@@ -195,6 +200,8 @@ class LostVoidMoveByDet(ZOperation):
         """
         self.same_target_times = 0
         self.last_visible_target_list = []
+        self._movement_anchor = None
+        self._movement_anchor_time = 0
 
     def _get_detected_class_names(self, frame_result: DetectFrameResult) -> list[str]:
         return [result.detect_class.class_name for result in frame_result.results]
@@ -227,6 +234,10 @@ class LostVoidMoveByDet(ZOperation):
         in_world = self.ctx.lost_void.in_normal_world(self.last_screenshot)
         if not in_world:
             return self.handle_not_in_world(self.last_screenshot)
+
+        if self.ctx.lost_void.check_battle_encounter(self.last_screenshot, self.last_screenshot_time):
+            self.ctx.controller.stop_moving_forward()
+            return self.round_success(LostVoidMoveByDet.STATUS_IN_BATTLE)
 
         frame_result = self.ctx.lost_void.detect_to_go(self.last_screenshot, screenshot_time=self.last_screenshot_time,
                                                        ignore_list=self.ignore_entry_list)
@@ -277,6 +288,10 @@ class LostVoidMoveByDet(ZOperation):
     @node_from(from_name='移动前转向', status='开始移动')
     @operation_node(name='移动')
     def move_towards(self) -> OperationRoundResult:
+        if self.ctx.lost_void.check_battle_encounter(self.last_screenshot, self.last_screenshot_time):
+            self.ctx.controller.stop_moving_forward()
+            return self.round_success(LostVoidMoveByDet.STATUS_IN_BATTLE)
+
         frame_result: DetectFrameResult = self.ctx.lost_void.detect_to_go(
             self.last_screenshot, screenshot_time=self.last_screenshot_time,
             ignore_list=self.ignore_entry_list)
@@ -590,6 +605,17 @@ class LostVoidMoveByDet(ZOperation):
             visible_target_list,
         )
 
+        # Peripheral detections may flicker in and out while we run against a
+        # barrier. Track the chosen target over time as well as the full list.
+        now = time.time()
+        rect = new_target.entire_rect
+        anchor = getattr(self, '_movement_anchor', None)
+        if (anchor is None or cal_utils.distance_between(anchor.center, rect.center) >= 10
+                or abs(anchor.width-rect.width) > max(6, anchor.width*.15)):
+            self._movement_anchor = rect
+            self._movement_anchor_time = now
+        stalled_target = now-getattr(self, '_movement_anchor_time', now) >= 6
+
         if all_visible_targets_static:
             increase_count = 0.2 if len(visible_target_list) == 1 else 1
             self.same_target_times += increase_count
@@ -599,7 +625,9 @@ class LostVoidMoveByDet(ZOperation):
         self.last_visible_target_list = visible_target_list
         stuck_threshold = 5 if len(visible_target_list) == 1 else 20
 
-        if self.same_target_times >= stuck_threshold:
+        if self.same_target_times >= stuck_threshold or stalled_target:
+            log.info('寻路脱困：目标=%s，目标持续无位移=%s，可见目标数=%d',
+                     new_target.leftest_target_name, stalled_target, len(visible_target_list))
             self.ctx.controller.stop_moving_forward()
             self.stuck_state.stuck_times += 1
             self._reset_stuck_status()
@@ -685,8 +713,16 @@ class LostVoidMoveByDet(ZOperation):
         if self.allow_arrival_by_interact_btn:
             return True
 
-        # 2. 检测图标是否变大
+        # 2. Only the chosen target can acknowledge arrival. A nearby completed
+        # NPC must not stop navigation towards another, still distant mark.
+        target = self.get_move_target(frame_result)
+        if target is None:
+            return False
         for result in frame_result.results:
+            if not any(rect.x1 == result.x1 and rect.y1 == result.y1
+                       and rect.x2 == result.x2 and rect.y2 == result.y2
+                       for rect in target.target_rect_list):
+                continue
             if result.detect_class.class_name == LostVoidDetector.CLASS_DISTANCE:
                 # 不考虑 [距离]白点
                 continue

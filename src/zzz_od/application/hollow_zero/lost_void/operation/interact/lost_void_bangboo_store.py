@@ -4,11 +4,13 @@
 # 路径: zzz_od/application/hollow_zero/lost_void/operation/interact/lost_void_bangboo_store.py
 # 本文件随 ok-zzz 以 GPL-3.0 继续分发。
 import time
+import re
 
 import cv2
 from cv2.typing import MatLike
 
 from onedragon.base.geometry.point import Point
+from onedragon.base.geometry.rectangle import Rect
 from onedragon.base.operation.operation_edge import node_from
 from onedragon.base.operation.operation_node import operation_node
 from onedragon.base.operation.operation_round_result import OperationRoundResult
@@ -25,6 +27,7 @@ from zzz_od.application.hollow_zero.lost_void.operation.interact.lost_void_choos
     LostVoidChooseCommon,
 )
 from zzz_od.context.zzz_context import ZContext
+from zzz_od.application.hollow_zero.lost_void.mission_screen import common_choice
 from zzz_od.operation.zzz_operation import ZOperation
 
 
@@ -54,8 +57,10 @@ class LostVoidBangbooStore(ZOperation):
     @node_from(from_name='识别商店类型')
     @node_from(from_name='识别商店类型', success=False)
     @node_from(from_name='确认后处理')
-    @operation_node(name='购买藏品')
+    @operation_node(name='购买藏品', timeout_seconds=120)
     def buy_artifact_gold(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            return self._buy_with_pad()
         # 移动鼠标到空的区域 防止阻碍识别
         area = self.ctx.screen_loader.get_area('迷失之地-邦布商店', '文本-详情')
         self.ctx.controller.mouse_move(area.center + Point(0, 100))
@@ -133,6 +138,93 @@ class LostVoidBangbooStore(ZOperation):
 
         self.ctx.controller.click(target.store_buy_rect.center)
         return self.round_success(target_item.name, wait=1)
+
+    def _pad(self, action):
+        ds4 = self.ctx.game_config.background_gamepad_type == 'ds4'
+        keys = {'confirm': 'ds4_cross' if ds4 else 'xbox_a',
+                'back': 'ds4_circle' if ds4 else 'xbox_b'}
+        self.ctx.controller.btn_press(keys.get(action, ('ds4_' if ds4 else 'xbox_')+'dpad_'+action), press_time=.12)
+
+    def _gold_balance(self):
+        matches = self.ctx.ocr_service.get_ocr_result_list(image=self.last_screenshot, rect=Rect(1620,20,1790,85))
+        numbers = [re.sub(r'\s+', '', str(m.data)) for m in matches]
+        values = [int(s) for s in numbers if re.fullmatch(r'\d+', s)]
+        return values[0] if len(values) == 1 else None
+
+    def _buy_with_pad(self):
+        cfg = self.ctx.lost_void.challenge_config
+        if self.store_type != '标识-金币':
+            return self.round_fail('后台血量商店暂不扣除血量，返回继续挑战')
+        if not cfg.store_gold:
+            return self.round_fail('不使用金币购买')
+        pending = getattr(self, '_pad_purchase', None)
+        screen_name = self.check_and_update_current_screen(self.last_screenshot)
+        if screen_name == '迷失之地-通用选择' or common_choice(self.ctx, self.last_screenshot):
+            op = LostVoidChooseCommon(self.ctx)
+            op.return_screen_name = '迷失之地-邦布商店'
+            result = op.execute()
+            return self.round_wait('商店奖励已处理', wait=.5) if result.success else self.round_fail(result.status)
+        if pending is not None:
+            confirm = self.round_by_find_area(self.last_screenshot, '迷失之地-邦布商店', '按钮-购买-确认')
+            if confirm.is_success:
+                if pending['confirms'] >= 3:
+                    return self.round_fail('商店购买确认未生效')
+                self._pad('confirm')
+                pending['confirms'] += 1
+                return self.round_wait('确认购买，等待实际金币变化', wait=.8)
+            balance = self._gold_balance() if screen_name == '迷失之地-邦布商店' else None
+            if balance is not None and balance < pending['balance']:
+                self._pad_purchase = None
+                self._pad_target_name = None
+                self._pad_scan_steps = 0
+                self.ctx.lost_void.priority_updated = False
+                return self.round_wait('已核验购买扣款：'+pending['name'], wait=.5)
+            pending['waits'] += 1
+            if pending['waits'] >= 5:
+                return self.round_fail('购买后未核验到扣款，不重复购买')
+            return self.round_wait('等待购买结果，未重复操作', wait=.5)
+        if screen_name != '迷失之地-邦布商店':
+            return self.round_retry('等待实际商店画面，未操作', wait=.5)
+        balance = self._gold_balance()
+        if balance is None:
+            return self.round_retry('商店金币未识别，未购买', wait=.5)
+        # 当前焦点的购买按钮为绿底黑字，不能依赖白字 OCR 的购买列表。
+        hsv = cv2.cvtColor(self.last_screenshot[760:860], cv2.COLOR_RGB2HSV)
+        mask = cv2.inRange(hsv, (20,145,100), (75,255,255))
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        focus = [(x+w/2) for c in contours for x,y,w,h in [cv2.boundingRect(c)] if 140<w<340 and h>25]
+        if len(focus) != 1:
+            # The focused button can be disabled (too expensive/sold out).
+            # Browse a bounded number of real shop slots instead of waiting 120s.
+            steps = getattr(self, '_pad_scan_steps', 0)
+            if steps >= 8:
+                return self.round_fail('商店未找到可用购买焦点，结束购买')
+            self._pad('right')
+            self._pad_scan_steps = steps + 1
+            return self.round_wait('跳过不可用购买按钮，浏览下一商品', wait=.5)
+        all_items, buyable = self.get_artifact_pos(self.last_screenshot)
+        available = [i for i in all_items if i.store_price is not None and 0 < i.store_price <= balance
+            and (i in buyable or abs(i.rect.center.x-focus[0]) < 100)]
+        priority = self.ctx.lost_void.get_artifact_by_priority(available, 1,
+            consider_priority_1=True,
+            consider_priority_2=self.refresh_times > cfg.buy_only_priority_1,
+            consider_not_in_priority=self.refresh_times > cfg.buy_only_priority_2,
+            consider_priority_new=cfg.artifact_priority_new) if available else []
+        target_name = getattr(self, '_pad_target_name', None)
+        target = next((i for i in available if i.artifact.display_name == target_name), None)
+        if target is None and priority:
+            target = priority[0]
+            self._pad_target_name = target.artifact.display_name
+        steps = getattr(self, '_pad_scan_steps', 0)
+        if steps >= 8:
+            return self.round_fail('后台商店未找到可核验的优先商品，结束购买')
+        if target is None or abs(target.rect.center.x-focus[0]) >= 100:
+            self._pad('left' if target is not None and target.rect.center.x < focus[0] else 'right')
+            self._pad_scan_steps = steps + 1
+            return self.round_wait('手柄浏览商店商品', wait=.5)
+        self._pad('confirm')
+        self._pad_purchase = {'name':target.artifact.display_name, 'balance':balance, 'confirms':0, 'waits':0}
+        return self.round_wait('请求购买，等待实际确认及扣款', wait=.8)
 
     def get_artifact_pos(self, screen: MatLike) -> tuple[list[LostVoidArtifactPos], list[LostVoidArtifactPos]]:
         """
@@ -232,8 +324,18 @@ class LostVoidBangbooStore(ZOperation):
             return self.round_retry(status=f'未知画面 {screen_name}', wait=1)
 
     @node_from(from_name='购买藏品', success=False)
-    @operation_node(name='购买结束')
+    @operation_node(name='购买结束', timeout_seconds=20)
     def finish(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            name = self.check_and_update_current_screen(self.last_screenshot)
+            if name != '迷失之地-邦布商店':
+                if getattr(self, '_pad_back_requested', False):
+                    return self.round_success('已核验商店关闭')
+                return self.round_retry('未核验商店画面，未操作', wait=.5)
+            if not getattr(self, '_pad_back_requested', False):
+                self._pad('back')
+                self._pad_back_requested = True
+            return self.round_wait('关闭商店，等待画面确认', wait=.5)
         return self.round_by_find_and_click_area(screen_name='迷失之地-邦布商店', area_name='按钮-返回',
                                                  success_wait=1, retry_wait=1,
                                                  until_not_find_all=[('迷失之地-邦布商店', '按钮-返回')])

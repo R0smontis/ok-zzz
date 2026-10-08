@@ -11,10 +11,15 @@ from onedragon.base.operation.application.application_config import ApplicationC
 
 class LostVoidTaskEnum(Enum):
 
-    BOUNTY_COMMISSION = ConfigItem('完成悬赏委托', desc='完成每周8000积分奖励')
+    BOUNTY_COMMISSION = ConfigItem('完成悬赏委托', desc='按游戏显示的当前悬赏目标领取奖励')
     EVAL_POINT = ConfigItem('刷满业绩点', desc='刷满每周业绩点')
     PERIOD_REWARD = ConfigItem('刷满周期奖励', desc='刷满每周丁尼')
     WEEKLY_PLAN_TIMES = ConfigItem('完成周计划次数', desc='完成配置的每周计划次数')
+
+
+class MatrixTeamMode(Enum):
+    CHALLENGE = ConfigItem('沿用挑战配置')
+    CUSTOM = ConfigItem('自定义编队')
 
 
 class LostVoidConfig(ApplicationConfig):
@@ -70,3 +75,35 @@ class LostVoidConfig(ApplicationConfig):
     @challenge_config.setter
     def challenge_config(self, new_value: str):
         self.update('challenge_config', new_value)
+
+    @property
+    def matrix_team_mode(self) -> str:
+        return self.get('matrix_team_mode', MatrixTeamMode.CHALLENGE.value.value)
+
+    @matrix_team_mode.setter
+    def matrix_team_mode(self, value: str):
+        self.update('matrix_team_mode', value)
+
+    @property
+    def matrix_agent_1(self) -> str:
+        return self.get('matrix_agent_1', 'unknown')
+
+    @matrix_agent_1.setter
+    def matrix_agent_1(self, value: str):
+        self.update('matrix_agent_1', value)
+
+    @property
+    def matrix_agent_2(self) -> str:
+        return self.get('matrix_agent_2', 'unknown')
+
+    @matrix_agent_2.setter
+    def matrix_agent_2(self, value: str):
+        self.update('matrix_agent_2', value)
+
+    @property
+    def matrix_agent_3(self) -> str:
+        return self.get('matrix_agent_3', 'unknown')
+
+    @matrix_agent_3.setter
+    def matrix_agent_3(self, value: str):
+        self.update('matrix_agent_3', value)

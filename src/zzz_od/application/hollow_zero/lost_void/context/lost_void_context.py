@@ -8,6 +8,7 @@ import re
 import time
 
 from cv2.typing import MatLike
+from onedragon.base.geometry.rectangle import Rect
 
 from onedragon.base.config.yaml_operator import YamlOperator
 from onedragon.base.operation.application import application_const
@@ -40,7 +41,6 @@ from zzz_od.application.hollow_zero.lost_void.operation.lost_void_move_by_det im
 )
 from zzz_od.auto_battle.auto_battle_dodge_context import YoloStateEventEnum
 from zzz_od.context.zzz_context import ZContext
-from zzz_od.game_data.agent import CommonAgentStateEnum
 
 
 class LostVoidContext:
@@ -62,16 +62,26 @@ class LostVoidContext:
         self.dynamic_priority_list: list[str] = []  # 动态获取的优先级列表
         self.dynamic_abandon_list: list[str] = []  # 动态放弃组
         self.had_interacted_ophelia_on_current_level: bool = False  # 当前层是否已交互过奥菲莉亚
+        self.completed_npc_names: set[str] = set()
+        # Set only after deploying: the opening room holds a training dummy whose
+        # health panel is indistinguishable from an enemy's. ENTRY alone is also the
+        # fallback for unknown rooms, so it cannot carry this meaning.
+        self.in_start_room: bool = False
 
     def init_before_run(self) -> None:
         self.priority_updated = False
         self.dynamic_priority_list = []
         self.dynamic_abandon_list = []
         self.had_interacted_ophelia_on_current_level = False
+        self.completed_npc_names = set()
+        self.in_start_room = False
         self.init_lost_void_det_model()
         self.load_artifact_data()
         self.load_challenge_config()
         self.load_investigation_strategy()
+        log.info('迷失之地资源就绪：模型=%s，推理后端=%s，藏品=%d，调查战略=%d',
+                 self.detector.model_name, self.detector.session.get_providers(),
+                 len(self.all_artifact_list), len(self.investigation_strategy_list))
 
     def load_artifact_data(self) -> None:
         """
@@ -192,29 +202,56 @@ class LostVoidContext:
                 if label[5:] not in ignore_list:
                     to_detect_labels.append(label)
 
-        return self.ctx.lost_void.detector.run(screen, run_time=screenshot_time,
+        frame = self.ctx.lost_void.detector.run(screen, run_time=screenshot_time,
                                                label_list=to_detect_labels)
+        completed = getattr(self, 'completed_npc_names', set())
+        ocr = getattr(self.ctx, 'ocr_service', None)
+        interactions = [r for r in frame.results if r.detect_class.class_name == LostVoidDetector.CLASS_INTERACT]
+        if not completed or ocr is None or not interactions:
+            return frame
+        # The exclamation mark remains after talking. Associate a visible NPC
+        # name with its own mark rather than ignoring all marks of that class.
+        rows = ocr.get_ocr_result_list(image=screen, rect=Rect(0,100,1920,850))
+        ignored = set()
+        for row in rows:
+            text = str(row.data).replace(' ', '')
+            if not any(name in text for name in completed):
+                continue
+            candidates = [r for r in interactions
+                if abs(row.center.x-r.center[0]) <= max(90,r.width*.8)
+                and r.y2-20 <= row.center.y <= r.y2+110]
+            if candidates:
+                nearest = min(candidates, key=lambda r: abs(row.center.x-r.center[0]))
+                ignored.add(id(nearest))
+        if not ignored:
+            return frame
+        return DetectFrameResult(frame.raw_image, [r for r in frame.results if id(r) not in ignored], frame.run_time)
 
     def check_battle_encounter(self, screen: MatLike, screenshot_time: float) -> bool:
         """
         判断是否进入了战斗
-        1. 识别右上角文本提示
-        2. 识别角色血量扣减
-        3. 识别黄光红光
+        攻击按钮可用时，依次检查敌人血条/方向箭头、
+        黄光红光和战斗文字提示。
         @param screen: 游戏截图
         @param screenshot_time: 截图时间
         @return: 是否进入了战斗
         """
-        auto_op = self.ctx.auto_battle_context.auto_op
-        state_record_service = self.ctx.auto_battle_context.state_record_service
+        battle = self.ctx.auto_battle_context
+        # 战斗标志和目标扫描都必须以当前帧的攻击按钮为前提。
+        if not battle.is_normal_attack_btn_available(screen):
+            return False
+        from zzz_od.auto_battle.battle_presence import detect_battle_presence
+        evidence = None if self.in_start_room else detect_battle_presence(screen, battle)
+        if evidence is not None:
+            log.info('迷失之地遭遇战斗：%s', evidence)
+            return True
+        auto_op = battle.auto_op
+        state_record_service = battle.state_record_service
         if auto_op is not None:
             in_battle = self.ctx.auto_battle_context.is_normal_attack_btn_available(screen)
             if in_battle:
-                self.ctx.auto_battle_context.agent_context.check_agent_related(screen, screenshot_time)
-                state = state_record_service.get_state_recorder(CommonAgentStateEnum.LIFE_DEDUCTION_31.value.state_name)
-                if state is not None and state.last_record_time == screenshot_time:
-                    return True
-
+                # Absolute HP loss is also caused by self-damaging equipment.
+                # It cannot establish that an enemy is present.
                 self.ctx.auto_battle_context.dodge_context.check_dodge_flash(screen, screenshot_time)
                 state = state_record_service.get_state_recorder(YoloStateEventEnum.DODGE_RED.value)
                 if state is not None and state.last_record_time == screenshot_time:

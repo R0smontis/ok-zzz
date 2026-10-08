@@ -95,7 +95,7 @@ class LostVoidRunRecord(AppRunRecord):
         按周的角度看是否已经完成
         """
         if self.config.extra_task == LostVoidTaskEnum.BOUNTY_COMMISSION.value.value:
-            # 需要刷悬赏委托 就看8000积分奖励完成没有
+            # 以入口画面识别到的当期悬赏目标为准。
             return self.bounty_commission_complete
         elif self.config.extra_task == LostVoidTaskEnum.EVAL_POINT.value.value:
             # 需要刷业绩 就看空业绩点出来没有

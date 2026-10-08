@@ -131,7 +131,7 @@ class LostVoidDetector(Yolov8Detector):
         elif isinstance(target_type, list):
             target_type_set.update(target_type)
         for result in frame_result.results:
-            if result.detect_class.class_name in target_type:
+            if result.detect_class.class_name in target_type_set:
                 return True
         return False
 

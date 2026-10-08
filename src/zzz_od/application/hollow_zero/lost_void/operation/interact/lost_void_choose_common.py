@@ -9,6 +9,7 @@ import time
 from cv2.typing import MatLike
 
 from onedragon.base.geometry.point import Point
+from onedragon.base.geometry.rectangle import Rect
 from onedragon.base.matcher.match_result import MatchResult
 from onedragon.base.operation.operation_node import operation_node
 from onedragon.base.operation.operation_round_result import OperationRoundResult
@@ -20,6 +21,7 @@ from zzz_od.application.hollow_zero.lost_void.operation.interact.lost_void_artif
 )
 from zzz_od.context.zzz_context import ZContext
 from zzz_od.operation.zzz_operation import ZOperation
+from zzz_od.application.hollow_zero.lost_void.mission_screen import common_choice, focused_card, battle_result, single_event_choice, lottery_counts
 
 
 class LostVoidChooseCommon(ZOperation):
@@ -38,9 +40,16 @@ class LostVoidChooseCommon(ZOperation):
         self.chosen_idx_list: list[int] = []  # 已经选择过的下标
         self.fallback_click_count: int = 0  # 按钮计数缺失时，使用本轮点击次数作为兜底
         self.last_choose_target_num: int = 0  # 记录上一轮目标数量，用于重置点击计数
+        self._pad_target = None
+        self._pad_confirm_requests = 0
+        self._pad_options = set()
+        self._pad_reward_confirm = False
+        self._pad_reward_page = None
 
-    @operation_node(name='选择', is_start_node=True)
+    @operation_node(name='选择', is_start_node=True, timeout_seconds=90)
     def choose_artifact(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            return self._choose_with_pad()
         area = self.ctx.screen_loader.get_area('迷失之地-通用选择', '文本-详情')
         self.ctx.controller.mouse_move(area.center + Point(0, 100))
         time.sleep(0.1)
@@ -82,6 +91,174 @@ class LostVoidChooseCommon(ZOperation):
                 )
 
         return self.click_confirm()
+
+    def _choose_with_pad(self):
+        screen = self.last_screenshot
+        if self._pad_confirm_requests and self.ctx.lost_void.in_normal_world(screen):
+            self.ctx.lost_void.priority_updated = False
+            return self.round_success('已核验选卡菜单关闭')
+        if self._pad_confirm_requests and battle_result(self.ctx, screen):
+            self.ctx.lost_void.priority_updated = False
+            return self.round_success('已核验选卡结束并进入挑战结果')
+        return_screen = getattr(self, 'return_screen_name', None)
+        verified_common = common_choice(self.ctx, screen)
+        if self._pad_confirm_requests and return_screen and not verified_common:
+            if (self.check_and_update_current_screen(screen, screen_name_list=[return_screen]) == return_screen
+                    or (return_screen == '迷失之地-抽奖机' and lottery_counts(self.ctx, screen) is not None)):
+                self.ctx.lost_void.priority_updated = False
+                return self.round_success('已核验奖励结束并返回' + return_screen)
+        next_menus = ['迷失之地-邦布商店', '迷失之地-路径迭换', '迷失之地-抽奖机', '迷失之地-武备选择']
+        name = self.check_and_update_current_screen(screen, screen_name_list=['迷失之地-通用选择', *next_menus])
+        if verified_common or (name is None and single_event_choice(self.ctx, screen)):
+            name = '迷失之地-通用选择'
+        if name != '迷失之地-通用选择':
+            if self._pad_confirm_requests and name in next_menus:
+                self.ctx.lost_void.priority_updated = False
+                return self.round_success('已核验选卡结束并进入' + name)
+            return self.round_wait('等待选卡结果画面，未操作', wait=.5)
+        candidates, chosen = self.get_artifact_pos(screen)
+        if self.to_choose_num == 0 and not (self.to_choose_artifact or self.to_choose_gear):
+            if not self._is_single_card_reward(screen):
+                return self.round_retry('未识别选卡标题，未确认', wait=.5)
+            if self._pad_confirm_requests and not getattr(self, '_pad_reward_confirm', False):
+                self.ctx.lost_void.priority_updated = False
+                return self.round_success('已核验进入卡牌奖励确认页', wait=.2)
+            self._pad_reward_confirm = True
+        if self.to_choose_num == 0:
+            reward_page = self._reward_page_signature(screen)
+            previous_page = getattr(self, '_pad_reward_page', None)
+            if reward_page is not None and previous_page is not None and reward_page[:2] == previous_page[:2] and (len(reward_page) == 2 or len(previous_page) == 2):
+                reward_page = previous_page
+            if reward_page is not None and reward_page != previous_page:
+                # A bundle yields several reward pages. Bound retries per verified
+                # card, rather than sharing the selection page's attempts.
+                self._pad_reward_page = reward_page
+                self._pad_confirm_requests = 0
+                self._pad_target = None
+                log.info('后台确认新奖励卡：%s', ' / '.join(reward_page))
+        names = {i.artifact.display_name for i in candidates + chosen}
+        previous = getattr(self, '_pad_options', set())
+        new_single_option = self.to_choose_num == 1 and len(names) == 1 and focused_card(screen) is not None
+        if self._pad_confirm_requests and (len(names) >= 2 or new_single_option) and previous and previous.isdisjoint(names):
+            self.ctx.lost_void.priority_updated = False
+            return self.round_success('已核验进入下一组选项', wait=.2)
+        if self.to_choose_num > 1:
+            return self._choose_multiple_with_pad(screen, candidates, chosen)
+        single_selected = self.to_choose_num == 1 and len(chosen) == 1
+        if self.to_choose_num == 1 and getattr(self, 'to_choose_gear_branch', False):
+            single_selected = single_selected or self._get_chosen_count_from_confirm_button(screen, 1) == 1
+        if single_selected:
+            if chosen:
+                self._pad_target = chosen[0]
+            self._pad_options = names
+        if self._pad_target is None and self.to_choose_num == 1 and not single_selected:
+            available = [i for i in candidates + chosen if i.can_choose or i.chosen]
+            new = self.sort_candidates([i for i in available if i.is_new]) if self.ctx.lost_void.challenge_config.artifact_priority_new else []
+            priority = self.ctx.lost_void.get_artifact_by_priority(available, len(available)) if available else []
+            ordered = new + priority + self.sort_candidates(available)
+            if not ordered:
+                return self.round_retry('未识别到卡牌，未确认', wait=.5)
+            self._pad_target = ordered[0]
+            self._pad_options = names
+            log.info('后台选卡目标：%s', self._pad_target.artifact.display_name)
+        if self.to_choose_num == 1 and not single_selected:
+            focus = focused_card(screen)
+            if focus is None:
+                return self.round_wait('未识别选卡焦点，未确认', wait=.5)
+            point = self._pad_target.rect.center
+            if not focus.x1 <= point.x <= focus.x2:
+                self._pad('right' if focus.center.x < point.x else 'left')
+                return self.round_wait('手柄定位目标卡牌', wait=.4)
+        elif self.to_choose_num != 1 and not (self.to_choose_artifact or self.to_choose_gear or getattr(self, '_pad_reward_confirm', False)):
+            return self.round_retry('未识别选卡标题，未确认', wait=.5)
+        reward = self.to_choose_num == 0 and getattr(self, '_pad_reward_page', None) is not None
+        if self._pad_confirm_requests >= (5 if reward else 3):
+            return self.round_fail('选卡确认后菜单未关闭')
+        self._pad('confirm')
+        self._pad_confirm_requests += 1
+        return self.round_wait('已确认，等待选卡菜单实际关闭', wait=2 if reward else .8)
+
+    def _is_single_card_reward(self, screen):
+        # 特遣调查额外奖励没有“获得战利品”标题，使用卡牌标识、名称及
+        # 单卡下面的确认按钮共同核验，不能把任意无标题页面直接跳过。
+        matches = self.ctx.ocr_service.get_ocr_result_list(image=screen, rect=Rect(780,230,1140,900))
+        marker = any('CARD' in str(m.data).upper() and m.center.y < 350 for m in matches)
+        name = any(len(str(m.data).strip()) >= 2 and 475 < m.center.y < 545 for m in matches)
+        confirm = any(str(m.data).strip() == '确定' and 750 < m.center.y < 900 for m in matches)
+        return marker and name and confirm
+
+    def _reward_page_signature(self, screen):
+        service = getattr(self.ctx, 'ocr_service', None)
+        if service is None:
+            return None
+        rows = service.get_ocr_result_list(image=screen, rect=Rect(780,230,1140,990))
+        if not isinstance(rows, (list, tuple)):
+            return None
+        confirm = any(str(row.data).strip() == '确定' and 750 < row.center.y < 990 for row in rows)
+        name_top, name_bottom = (410, 475) if self.to_choose_gear else (475, 565)
+        names = tuple(sorted(str(row.data).replace(' ', '') for row in rows
+                             if name_top < row.center.y < name_bottom and len(str(row.data).strip()) >= 2))
+        quantity = tuple(sorted(str(row.data).replace(' ', '') for row in rows
+                                if ((370 < row.center.y < 415) if self.to_choose_gear else (690 < row.center.y < 760))
+                                and re.fullmatch(r'[x×]?\d+', str(row.data).strip())))
+        return (('武备' if self.to_choose_gear else '藏品'), *names, *quantity) if names and confirm else None
+
+    def _pad(self, action):
+        ds4 = self.ctx.game_config.background_gamepad_type == 'ds4'
+        if action == 'submit':
+            key = 'ds4_square' if ds4 else 'xbox_x'
+        else:
+            key = ('ds4_cross' if ds4 else 'xbox_a') if action == 'confirm' else ('ds4_' if ds4 else 'xbox_') + 'dpad_' + action
+        self.ctx.controller.btn_press(key, press_time=.12)
+
+    def _choose_multiple_with_pad(self, screen, candidates, chosen):
+        count = self._get_chosen_count_from_confirm_button(screen, self.to_choose_num)
+        if count is None or not 0 <= count <= self.to_choose_num:
+            return self.round_wait('未识别多选计数，未操作', wait=.5)
+        pending = getattr(self, '_pad_pending_selection', None)
+        selected = getattr(self, '_pad_selected_names', set())
+        if pending is not None:
+            name, before = pending
+            if count <= before:
+                polls = getattr(self, '_pad_selection_waits', 0) + 1
+                self._pad_selection_waits = polls
+                if polls >= 4:
+                    return self.round_fail('多选操作后已选数量未增加')
+                return self.round_wait('等待已选数量增加，未重复按键', wait=.5)
+            selected.add(name)
+            self._pad_selected_names = selected
+            self._pad_pending_selection = None
+            self._pad_target = None
+        if count == self.to_choose_num:
+            if self._pad_confirm_requests >= 3:
+                return self.round_fail('多选提交后菜单未关闭')
+            self._pad('submit')
+            self._pad_confirm_requests += 1
+            return self.round_wait('已核验选满，手柄提交并等待菜单关闭', wait=.8)
+        if self._pad_target is None:
+            available = [i for i in candidates if i.can_choose and not i.chosen and i.artifact.display_name not in selected]
+            new = self.sort_candidates([i for i in available if i.is_new]) if self.ctx.lost_void.challenge_config.artifact_priority_new else []
+            priority = self.ctx.lost_void.get_artifact_by_priority(available, len(available)) if available else []
+            ordered = new + priority + self.sort_candidates(available)
+            if not ordered:
+                return self.round_retry('未识别到未选卡牌，未操作', wait=.5)
+            self._pad_target = ordered[0]
+            self._pad_options = {i.artifact.display_name for i in candidates + chosen}
+        excluded = [i.rect.center.x for i in candidates + chosen if i.chosen or i.artifact.display_name in selected]
+        focus = focused_card(screen, excluded_centers=excluded)
+        if focus is None:
+            # 恢复时焦点可能仍在唯一已选卡上，允许从已核验焦点移向未选目标。
+            focus = focused_card(screen)
+        if focus is None:
+            return self.round_wait('未识别多选卡牌焦点，未操作', wait=.5)
+        target = self._pad_target
+        if not focus.x1 <= target.rect.center.x <= focus.x2:
+            self._pad('right' if focus.center.x < target.rect.center.x else 'left')
+            return self.round_wait('手柄定位未选卡牌', wait=.4)
+        self._pad('confirm')
+        self._pad_pending_selection = (target.artifact.display_name, count)
+        self._pad_selection_waits = 0
+        return self.round_wait(f'选择卡牌，等待实际计数 {count}/{self.to_choose_num} 增加', wait=.5)
 
     def select_by_layers(self, target_num: int) -> bool:
         # 选择策略：
