@@ -60,6 +60,7 @@ class App_ChargePlan(AppTaskBase):
         self.name = '⚡ 体力刷本'
         self.description = '运行一条龙应用：体力刷本'
         self.default_config.update({
+            'plan_list': None,
             'combat_simulation_double_reward_config': '{\n "tab_name": "训练",\n "category_name": "实战模拟室",\n "mission_type_name": "基础材料",\n "mission_name": "调查专项",\n "level": "默认等级",\n "auto_battle_config": "全配队通用",\n "run_times": 0,\n "plan_times": 1,\n "card_num": "默认数量",\n "predefined_team_idx": -1,\n "notorious_hunt_buff_num": 1,\n "plan_id": "b903dbed-9d85-45ba-bb56-c43483df1cb8",\n "skipped": false\n}',
             'daily_reset_plan_times': False,
             'double_reward': False,
@@ -259,13 +260,18 @@ class App_LostVoid(AppTaskBase):
             'extra_task': '完成悬赏委托',
             'mission_name': '战线肃清',
             'weekly_plan_times': 2,
+            'matrix_team_mode': '沿用挑战配置',
+            'matrix_agent_1': 'unknown',
+            'matrix_agent_2': 'unknown',
+            'matrix_agent_3': 'unknown',
             '结束后': '无',
             '关机延迟秒': 60,
         })
         self.config_type.update({
             'extra_task': {'type': 'drop_down', 'options': ['完成悬赏委托', '刷满业绩点', '刷满周期奖励', '完成周计划次数']},
+            'matrix_team_mode': {'type': 'drop_down', 'options': ['沿用挑战配置', '自定义编队']},
         })
-        self._option_keys = ['challenge_config', 'daily_plan_times', 'extra_task', 'mission_name', 'weekly_plan_times']
+        self._option_keys = ['challenge_config', 'daily_plan_times', 'extra_task', 'mission_name', 'weekly_plan_times', 'matrix_team_mode', 'matrix_agent_1', 'matrix_agent_2', 'matrix_agent_3']
 
 
 class App_WitheredDomain(AppTaskBase):
@@ -499,4 +505,3 @@ class App_WorldPatrol(AppTaskBase):
             '关机延迟秒': 60,
         })
         self._option_keys = ['auto_battle', 'daily_loop_count', 'loop_interval_seconds', 'route_list', 'route_retry_action', 'route_retry_times', 'ui_disappear_action', 'ui_disappear_seconds']
-

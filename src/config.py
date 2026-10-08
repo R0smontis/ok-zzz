@@ -1,6 +1,10 @@
 # -*- coding: utf-8 -*-
 """ok-zzz 应用配置（ok-script config 字典）。"""
 from ok import ConfigOption
+from src.interaction import Pynput, PostMessage, ForegroundPostMessage, PyDirect, BackgroundGamepad
+from src.hotkey_settings import validate_hotkey
+from src.inference import recognition_config
+from src.application_input import task_input_config
 
 version = "0.1.0"
 
@@ -21,7 +25,8 @@ key_config_option = ConfigOption('Game Hotkey Config', {
     'Special Attack Key': 'e',
     'Ultimate Key': 'q',
     'Switch Agent Key': 'space',
-}, description='游戏内战斗按键（普通配置使用默认键位即可，进阶键位在 config/game.yml 调整）')
+}, description='游戏内键鼠战斗按键，修改后在下次任务启动时生效；手柄键位在 config/00/game.yml 调整',
+   validator=validate_hotkey)
 
 # ok-script 截图后遮挡 UID，避免识别模型把 UID 当目标
 def make_uid_black(frame):
@@ -43,7 +48,7 @@ config = {
     'debug': False,
     'gui': gui_config,
     'config_folder': 'configs',
-    'global_configs': [key_config_option],
+    'global_configs': [key_config_option, recognition_config, task_input_config],
     'screenshot_processor': make_uid_black,
     'gui_icon': 'icons/icon.png',
     'wait_until_before_delay': 0,
@@ -62,7 +67,7 @@ config = {
         'hwnd_class': 'UnityWndClass',
         # Pynput: 前台键鼠; PostMessage: 后台消息键鼠(需实测 ZZZ 是否接受);
         # 游戏手柄后台模式由 ZzzController 的虚拟手柄承担（见 tasks/auto_combat_task）
-        'interaction': ['Pynput', 'PostMessage', 'ForegroundPostMessage', 'PyDirect'],
+        'interaction': [Pynput, PostMessage, ForegroundPostMessage, PyDirect, BackgroundGamepad],
         'capture_method': ['WGC', 'BitBlt_RenderFull', 'BitBlt'],
         'check_hdr': False,
         'force_no_hdr': False,
@@ -72,7 +77,7 @@ config = {
     'supported_resolution': {
         'ratio': '16:9',
         'min_size': (1280, 720),
-        'resize_to': [(2560, 1440), (1920, 1080), (1600, 900), (1280, 720)],
+        'resize_to': [(2560, 1440), (1920, 1080), (1600, 900), (1280, 720), (3840, 2160)],
     },
     'links': {
         'default': {
@@ -85,10 +90,13 @@ config = {
     'gui_title': 'ok-zzz',
     'version': version,
     'my_app': ['src.globals', 'Globals'],
+    'custom_tabs': [['src.tasks.debug_tab', 'DebugToolsTab']],
     # 触发器任务（常驻勾选，帧循环驱动）：ok-ww 式战斗/闪避挂机
     'trigger_tasks': [
         ["src.tasks.auto_combat_task", "AutoCombatTask"],
         ["src.tasks.auto_combat_task", "DodgeAssistantTriggerTask"],
+        ["src.tasks.dialogue_task", "AutoDialogueTriggerTask"],
+        ["src.tasks.diagnostic_task", "DiagnosticRecordingTask"],
     ],
     # 一次性任务：一条龙日常为大入口，独立任务只保留大型玩法与工具
     'onetime_tasks': [
@@ -114,6 +122,6 @@ config = {
         ["src.tasks.app_tasks", "App_OperationDebug"],               # 指令调试
         ["src.tasks.app_tasks", "App_ScreenshotHelper"],             # 闪避截图
         ["src.tasks.battle_demo_task", "BattleDemoTask"],            # 战斗演示
-        ["ok", "DiagnosisTask"],                                     # 诊断
+        ["src.tasks.framework_diagnosis_task", "FrameworkDiagnosisTask"],
     ],
 }

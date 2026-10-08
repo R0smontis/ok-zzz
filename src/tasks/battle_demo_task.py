@@ -17,6 +17,8 @@ class BattleDemoTask(ZzzBaseTask, BaseTask):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.name = "🧪 战斗演示（单场）"
+        self.visible = False
+        self.debug_tool = True
         self.description = ("启动一条龙战斗引擎验证链路：请先手动进入战斗或开启引擎后手动开怪；"
                             "识别到战斗结束后自动停止。仅用于验证，日常请使用「自动战斗」触发器。")
         self.default_config = {

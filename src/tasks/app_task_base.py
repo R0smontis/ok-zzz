@@ -6,6 +6,7 @@
 保证 config/{实例}/{组}/{app_id}.yml 与原版格式互通。
 """
 import json
+import copy
 
 from ok import BaseTask
 
@@ -15,6 +16,7 @@ from onedragon.base.operation.one_dragon_finalizer import (
 )
 from onedragon.utils.log_utils import log
 from src.tasks.zzz_base_task import ZzzBaseTask
+from src.application_input import application_inputs
 
 # 任务 UI 专用键（不写回应用配置）
 UI_KEYS = ('结束后', '关机延迟秒')
@@ -24,6 +26,32 @@ class AppTaskBase(ZzzBaseTask, BaseTask):
     """单应用运行任务（app_id 由子类声明）。"""
 
     app_id: str = ''
+    use_background_application = True
+
+    def post_init(self):
+        super().post_init()
+        from src.tasks.app_option_ui import configure_app_options
+        configure_app_options(self)
+
+    def _parse_option(self, key, value):
+        from zzz_od.application.app_options_data import APP_OPTIONS
+        from src.tasks.app_option_ui import OPTION_LABELS
+        label = OPTION_LABELS.get(key, key)
+        if self.app_id == 'charge_plan' and key in ('plan_list', 'combat_simulation_double_reward_config'):
+            from src.tasks.plan_widgets import parse_charge_plans
+            return parse_charge_plans(value, single=key != 'plan_list')
+        option = next((o for a in APP_OPTIONS if a.get('app_id') == self.app_id
+                       for o in a.get('options', []) if o['key'] == key), None)
+        if option and option['type'] == 'json':
+            try:
+                parsed = json.loads(value) if isinstance(value, str) else value
+            except (ValueError, TypeError) as exc:
+                raise ValueError(f'{label}：JSON 格式错误（{exc}）') from None
+            expected = dict if option['default'].lstrip().startswith('{') else list
+            if not isinstance(parsed, expected):
+                raise ValueError(f'{label}：需要 JSON {"对象" if expected is dict else "数组"}')
+            return parsed
+        return value
 
     def apply_options(self):
         """把任务配置写回应用配置（JSON 文本 → list/dict）。"""
@@ -32,31 +60,73 @@ class AppTaskBase(ZzzBaseTask, BaseTask):
         ctx = self.ctx
         app_config = ctx.run_context.get_config(
             self.app_id, instance_idx=ctx.current_instance_idx)
+        # 先验证所有输入，再写回，避免配置错误后仍按旧配置操作游戏。
+        updates = {}
         for key in self._option_keys:
             if key not in self.config:
                 continue
-            value = self.config.get(key)
-            if isinstance(value, str) and self.config_type.get(key, {}).get('type') == 'text_edit':
-                raw = value.strip()
-                if raw and raw[0] in '[{':
-                    try:
-                        value = json.loads(raw)
-                    except Exception as e:
-                        log.warning(f'{self.app_id} 选项 {key} 不是合法 JSON，保持原值: {e}')
-                        continue
-            try:
-                app_config.update(key, value)
-            except Exception as e:
-                log.warning(f'{self.app_id} 写回选项 {key} 失败: {e}')
-        log.info(f'{self.app_id} 选项已写回')
+            updates[key] = self._parse_option(key, self.config.get(key))
+        if self.app_id == 'charge_plan':
+            from zzz_od.application.charge_plan.charge_plan_config import ChargePlanItem, ChargePlanConfig
+            for key in ('plan_list', 'combat_simulation_double_reward_config'):
+                if key not in updates:
+                    continue
+                rows = updates[key] if key == 'plan_list' else [updates[key]]
+                for row in rows:
+                    error = ChargePlanConfig.validate_item(ctx, ChargePlanItem.from_dict(row))
+                    if error:
+                        raise ValueError(f'刷本计划：{error}')
+            # Counts belong to the engine's runtime, not to an old UI snapshot.
+            existing = {item.plan_id: item for item in app_config.plan_list}
+            for row in updates.get('plan_list', []):
+                if row['plan_id'] in existing:
+                    row['run_times'] = existing[row['plan_id']].run_times
+        if self.app_id == 'lost_void' and updates.get('mission_name') == '矩阵行动' \
+                and updates.get('matrix_team_mode') == '自定义编队':
+            from zzz_od.application.hollow_zero.lost_void.matrix_team import resolve_agent_ids
+            resolve_agent_ids([updates.get(f'matrix_agent_{idx}') for idx in range(1, 4)])
+        previous = copy.deepcopy(app_config.data)
+        try:
+            previous_plans = getattr(app_config, 'plan_list', None)
+            for key, value in updates.items():
+                if key == 'plan_list' and self.app_id == 'charge_plan':
+                    app_config.plan_list = [ChargePlanItem.from_dict(row) for row in value]
+                else:
+                    app_config.update(key, value, save=False)
+            app_config.save()
+        except Exception:
+            app_config.data = previous
+            if self.app_id == 'charge_plan':
+                app_config.plan_list = previous_plans
+            raise
+        self.log_info(f'{self.name}：配置已应用')
+        if self.app_id == 'lost_void':
+            record = ctx.run_context.get_run_record(self.app_id, ctx.current_instance_idx)
+            self.log_info(f'迷失之地计划：{app_config.extra_task}；'
+                          f'今日 {record.daily_run_times}/{app_config.daily_plan_times} 次；'
+                          f'本周 {record.weekly_run_times}/{app_config.weekly_plan_times} 次；'
+                          f'悬赏已满额：{"是" if record.bounty_commission_complete else "否"}')
 
     def run(self):
         ctx = self.ctx
+        try:
+            self.apply_options()
+        except Exception as exc:
+            self.log_error(f'配置未能应用，任务已停止：{exc}', notify=True)
+            raise
+        self.stop_battle_triggers()
+        with application_inputs(self):
+            return self._run_application()
+
+    def _run_application(self):
+        ctx = self.ctx
         ctx.init_for_application()
-        self.apply_options()
 
         run_result = ctx.run_context.run_application(
             self.app_id, instance_idx=ctx.current_instance_idx)
+        if self.app_id == 'charge_plan':
+            app_config = ctx.run_context.get_config(self.app_id, instance_idx=ctx.current_instance_idx)
+            self.config['plan_list'] = json.dumps([item.to_dict() for item in app_config.plan_list], ensure_ascii=False)
 
         after_done = str(self.config.get('结束后', '无'))
         request = AfterDoneRequest(
@@ -65,4 +135,18 @@ class AppTaskBase(ZzzBaseTask, BaseTask):
             if after_done == '关机' else None,
         )
         execute_after_done(ctx, run_result, request)
-        self.log_info(f"{self.app_id} 运行结束: {run_result.finish_reason}", notify=True)
+        self.report_run_result(run_result)
+
+    def report_run_result(self, run_result):
+        from onedragon.base.operation.application.application_run_context import RunFinishReason
+        reason = run_result.finish_reason
+        if reason == RunFinishReason.FAILED:
+            result = self.ctx.run_context.last_application_result
+            detail = getattr(result, 'status', None) or '未返回具体原因，请查看程序节点日志'
+            self.info['执行结果'] = f'失败：{detail}'
+            self.log_error(f'{self.name}运行失败：{detail}', notify=True)
+        else:
+            label = {RunFinishReason.COMPLETED: '已完成', RunFinishReason.STOPPED: '已停止',
+                     RunFinishReason.NOT_STARTED: '未能启动'}.get(reason, str(reason))
+            self.info['执行结果'] = label
+            self.log_info(f'{self.name}：{label}', notify=True)

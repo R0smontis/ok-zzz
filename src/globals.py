@@ -7,6 +7,7 @@
 - 应用注册: discover_factories(ctx)
 """
 import time
+import threading
 
 from ok import Logger
 from ok import og
@@ -18,8 +19,58 @@ class Globals:
 
     def __init__(self, exit_event):
         super().__init__()
+        from src.win32_compat import install_win32_compat
+        install_win32_compat()
+        from src.capture_compat import install_capture_compat
+        install_capture_compat()
+        from src.runtime_logging import install_runtime_logging
+        install_runtime_logging()
+        from src.tasks.option_widgets import install_option_widgets
+        install_option_widgets()
+        from src.gpu_ocr import install_gpu_ocr
+        install_gpu_ocr()
+        from src.startup_runtime import install_update_compat
+        install_update_compat()
         self.exit_event = exit_event
         self._context = None
+        self._shutdown_lock = threading.Lock()
+        self._stopped = False
+        if hasattr(exit_event, 'bind_stop'):
+            exit_event.bind_stop(self)
+
+    def stop(self):
+        """Framework ExitEvent callback; release inputs before captures are closed."""
+        with self._shutdown_lock:
+            if self._stopped:
+                return
+            self._stopped = True
+        live_debug = getattr(self, 'live_debug', None)
+        if live_debug is not None:
+            live_debug.stop()
+        from src.diagnostics import recorder
+        recorder.stop('程序退出')
+        executor = getattr(og, 'executor', None)
+        for task in getattr(executor, 'trigger_tasks', ()):
+            stop_engine = getattr(task, '_stop_engine', None)
+            if callable(stop_engine):
+                try:
+                    stop_engine()
+                except Exception as error:
+                    logger.warning(f'退出时停止助手失败: {error}')
+        context = self._context
+        if context is not None:
+            try:
+                context.run_context.stop_running()
+            except Exception as error:
+                logger.warning(f'退出时停止任务失败: {error}')
+            context.after_app_shutdown()
+        overlay = getattr(self, '_overlay_manager', None)
+        if overlay is not None:
+            try:
+                overlay.shutdown()
+            except Exception as error:
+                logger.warning(f'退出时停止悬浮窗失败: {error}')
+        logger.info('程序退出清理完成：战斗输入、声音监听与调试录制已停止')
 
     # ------------------------------------------------------------------ #
     # ok-script 桥接
@@ -30,19 +81,51 @@ class Globals:
         return og.executor.ocr_lib('default')
 
     def _frame_provider(self):
-        """控制器帧源委托：强制取新帧并返回 (截图时间, 帧)。"""
-        og.executor.next_frame()
-        return time.time(), og.executor.frame
+        """强制取新帧并返回 (截图时间, BGR 帧)，由控制器转换到 RGB。"""
+        executor = og.executor
+        frame = executor.next_frame(time_out=12)
+        if frame is None:
+            context = self._context
+            if context is not None:
+                context.auto_battle_context.stop_auto_battle()
+                if context.controller is not None:
+                    context.controller.cancel_inputs()
+            raise RuntimeError('连续12秒无法取得游戏画面，已停止输入；请检查截图方式和游戏窗口')
+        return executor._last_frame_time, frame
+
+    def _window_provider(self):
+        """Use the selected capture device; never rediscover a game by title."""
+        manager = getattr(og, 'device_manager', None)
+        if manager is None:
+            return 0
+        device = manager.get_preferred_device()
+        if not device or device.get('device') != 'windows':
+            return 0
+        window = getattr(manager, 'hwnd_window', None)
+        hwnd = getattr(window, 'hwnd', 0)
+        return hwnd if hwnd and hwnd == device.get('real_hwnd') else 0
+
+    def _sync_game_hotkeys(self, game_config):
+        from src.config import key_config_option
+        from src.hotkey_settings import sync_hotkeys
+        sync_hotkeys(og.global_config.get_config(key_config_option), game_config)
+        from src.interaction import selected_gamepad_mode, selected_message_mode
+        game_config._framework_background_mode = selected_gamepad_mode()
+        game_config._framework_message_mode = selected_message_mode()
 
     @property
     def context(self):
         """ZzzContext 惰性创建（需要 ok-script 完成设备初始化后调用）。"""
         if self._context is None:
+            if self._stopped:
+                raise RuntimeError('程序正在退出，无法创建游戏上下文')
             from zzz_od.application.app_registry import discover_factories
             from zzz_od.context.zzz_context import ZContext
             context = ZContext(
                 get_ocr_lib=self._get_ocr_lib if og.executor is not None else None,
                 frame_provider=self._frame_provider,
+                window_provider=self._window_provider,
+                game_config_sync=self._sync_game_hotkeys,
             )
             discover_factories(context)
             context.init()
