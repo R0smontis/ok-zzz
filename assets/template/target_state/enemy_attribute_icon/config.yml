@@ -1,0 +1,7 @@
+sub_dir: target_state
+template_id: enemy_attribute_icon
+template_name: 敌人血条属性标记
+template_shape: rectangle
+point_list:
+- 1013, 374
+- 1067, 428

@@ -1459,7 +1459,7 @@
     color_range: null
     goto_list: []
   - area_name: 战斗-菜单
-    id_mark: true
+    id_mark: false
     pc_rect:
     - 58
     - 40
@@ -5485,7 +5485,7 @@
   - area_name: 按钮-悬赏委托
     id_mark: false
     pc_rect:
-    - 1181
+    - 1080
     - 19
     - 1346
     - 65
@@ -6007,7 +6007,7 @@
     - 1550
     - 1056
     text: 特遣任务
-    lcs_percent: 0.5
+    lcs_percent: 1.0
     template_sub_dir: ''
     template_id: ''
     template_match_threshold: 0.7

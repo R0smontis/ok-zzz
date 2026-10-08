@@ -1,0 +1,8 @@
+sub_dir: lost_void
+template_id: story_confirm_xbox
+template_name: 黑底事件手柄确认提示
+template_shape: rectangle
+auto_mask: false
+point_list:
+- 942, 558
+- 979, 595

@@ -20,7 +20,7 @@ area_list:
 - area_name: 按钮-悬赏委托
   id_mark: false
   pc_rect:
-  - 1181
+  - 1080
   - 19
   - 1346
   - 65

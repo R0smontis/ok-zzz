@@ -41,7 +41,7 @@ area_list:
   - 1550
   - 1056
   text: 特遣任务
-  lcs_percent: 0.5
+  lcs_percent: 1.0
   template_sub_dir: ''
   template_id: ''
   template_match_threshold: 0.7
