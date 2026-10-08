@@ -6,3 +6,633 @@ msgstr ""
 
 msgid "⚔️ Auto Combat"
 msgstr "⚔️ 自动战斗"
+
+msgid "auto_battle"
+msgstr "战斗配置"
+
+msgid "auto_battle_config"
+msgstr "战斗配置"
+
+msgid "auto_battle_switch"
+msgstr "战斗开关快捷键"
+
+msgid "dodge_config"
+msgstr "闪避配置"
+
+msgid "dodge_assistant_config"
+msgstr "闪避配置"
+
+msgid "dodge_switch"
+msgstr "闪避开关快捷键"
+
+msgid "auto_ultimate_enabled"
+msgstr "自动终结技"
+
+msgid "background_mode"
+msgstr "后台模式"
+
+msgid "screenshot_interval"
+msgstr "截图间隔秒"
+
+msgid "use_merged_file"
+msgstr "使用合并指令文件"
+
+msgid "challenge_config"
+msgstr "挑战配置"
+
+msgid "daily_plan_times"
+msgstr "每日计划次数"
+
+msgid "weekly_plan_times"
+msgstr "每周计划次数"
+
+msgid "mission_name"
+msgstr "任务名称"
+
+msgid "extra_task"
+msgstr "额外任务"
+
+msgid "extra_exit"
+msgstr "额外任务退出时机"
+
+msgid "predefined_team_idx"
+msgstr "预备编队编号"
+
+msgid "loop"
+msgstr "循环执行"
+
+msgid "weekly_challenge_start_weekday"
+msgstr "每周挑战开始日"
+
+msgid "combat_simulation_double_reward_config"
+msgstr "双倍奖励刷本计划"
+
+msgid "daily_reset_plan_times"
+msgstr "每日重置计划次数"
+
+msgid "double_reward"
+msgstr "刷取双倍奖励"
+
+msgid "restore_charge"
+msgstr "体力恢复方式"
+
+msgid "transport_point"
+msgstr "传送点"
+
+msgid "run_charge_plan_afterwards"
+msgstr "完成后执行体力计划"
+
+msgid "dialog_click_interval"
+msgstr "对话点击间隔秒"
+
+msgid "dialog_option"
+msgstr "对话选项"
+
+msgid "pause_in_background"
+msgstr "游戏在后台时暂停"
+
+msgid "sleep_after_empty_screen"
+msgstr "空白画面等待秒数"
+
+msgid "story_mode"
+msgstr "剧情处理方式"
+
+msgid "agent_name_1"
+msgstr "录像店推荐角色一"
+
+msgid "agent_name_2"
+msgstr "录像店推荐角色二"
+
+msgid "dismantle_abandon"
+msgstr "拆解已标记弃置的驱动盘"
+
+msgid "dismantle_level"
+msgstr "拆解等级"
+
+msgid "critical_max_node_idx"
+msgstr "式舆防卫战最大节点"
+
+msgid "exp_grind_mode"
+msgstr "经验刷取模式"
+
+msgid "daily_loop_count"
+msgstr "每日循环次数"
+
+msgid "loop_interval_seconds"
+msgstr "循环间隔秒"
+
+msgid "route_list"
+msgstr "路线清单"
+
+msgid "route_retry_action"
+msgstr "路线重试处理"
+
+msgid "route_retry_times"
+msgstr "路线重试次数"
+
+msgid "ui_disappear_action"
+msgstr "界面消失处理"
+
+msgid "ui_disappear_seconds"
+msgstr "界面消失等待秒数"
+
+msgid "operation_template"
+msgstr "指令模板"
+
+msgid "repeat_enabled"
+msgstr "重复执行"
+
+msgid "dodge_detect"
+msgstr "检测闪避预警"
+
+msgid "frequency_second"
+msgstr "截图频率秒"
+
+msgid "key_save"
+msgstr "保存截图快捷键"
+
+msgid "length_second"
+msgstr "保留截图时长秒"
+
+msgid "mini_map_angle_detect"
+msgstr "检测小地图朝向"
+
+msgid "screenshot_before_key"
+msgstr "保留按键前截图"
+
+msgid "selected_sign"
+msgstr "每日签到目标"
+
+msgid "adventure_duration"
+msgstr "游历时长"
+
+msgid "adventure_mission_1"
+msgstr "游历任务一"
+
+msgid "adventure_mission_2"
+msgstr "游历任务二"
+
+msgid "adventure_mission_3"
+msgstr "游历任务三"
+
+msgid "adventure_mission_4"
+msgstr "游历任务四"
+
+msgid "auto_manage_enabled"
+msgstr "自动托管"
+
+msgid "craft_drag_times"
+msgstr "制造最大下拉次数"
+
+msgid "boo_box_adventure_price"
+msgstr "邦巢游历最低价格"
+
+msgid "boo_box_craft_price"
+msgstr "邦巢制造最低价格"
+
+msgid "boo_box_sell_price"
+msgstr "邦巢出售最低价格"
+
+msgid "boo_box_purchase_enabled"
+msgstr "邦巢购买"
+
+msgid "good_goods_purchase_enabled"
+msgstr "好物铺购买"
+
+msgid "pawnshop_crest_enabled"
+msgstr "云纹徽兑换"
+
+msgid "pawnshop_crest_priority"
+msgstr "云纹徽兑换优先级"
+
+msgid "pawnshop_crest_unlimited_denny_enabled"
+msgstr "云纹徽兑换不限购丁尼"
+
+msgid "pawnshop_omnicoin_enabled"
+msgstr "万能币兑换"
+
+msgid "pawnshop_omnicoin_priority"
+msgstr "万能币兑换优先级"
+
+msgid "yum_cha_sin"
+msgstr "饮茶仙"
+
+msgid "yum_cha_sin_period_refresh"
+msgstr "饮茶仙定期采办刷新"
+
+msgid "Yes"
+msgstr "是"
+
+msgid "No"
+msgstr "否"
+
+msgid "Operation"
+msgstr "操作"
+
+msgid "Reset Config"
+msgstr "恢复默认设置"
+
+msgid "matrix_team_mode"
+msgstr "矩阵行动编队方式"
+
+msgid "matrix_agent_1"
+msgstr "主战角色一"
+
+msgid "matrix_agent_2"
+msgstr "主战角色二"
+
+msgid "matrix_agent_3"
+msgstr "主战角色三"
+
+msgid "Dodge Key"
+msgstr "闪避按键"
+
+msgid "Normal Attack Key"
+msgstr "普通攻击按键"
+
+msgid "Special Attack Key"
+msgstr "特殊技按键"
+
+msgid "Ultimate Key"
+msgstr "终结技按键"
+
+msgid "Switch Agent Key"
+msgstr "切换角色按键"
+
+msgid "Game Hotkey Config"
+msgstr "游戏战斗键位"
+
+msgid "hou_hou_bakery"
+msgstr "吼吼饼铺"
+
+msgid "trigrams_collection"
+msgstr "卦象集录"
+
+msgid "scratch_card"
+msgstr "刮刮卡"
+
+msgid "unknown"
+msgstr "未选择"
+
+msgid "anby"
+msgstr "安比"
+
+msgid "anton"
+msgstr "安东"
+
+msgid "ben"
+msgstr "本"
+
+msgid "billy"
+msgstr "比利"
+
+msgid "corin"
+msgstr "可琳"
+
+msgid "ellen"
+msgstr "艾莲"
+
+msgid "grace"
+msgstr "格莉丝"
+
+msgid "koleda"
+msgstr "珂蕾妲"
+
+msgid "lucy"
+msgstr "露西"
+
+msgid "lycaon"
+msgstr "莱卡恩"
+
+msgid "nekomata"
+msgstr "猫又"
+
+msgid "nicole"
+msgstr "妮可"
+
+msgid "piper"
+msgstr "派派"
+
+msgid "rina"
+msgstr "丽娜"
+
+msgid "soldier_11"
+msgstr "11号"
+
+msgid "soukaku"
+msgstr "苍角"
+
+msgid "zhu_yuan"
+msgstr "朱鸢"
+
+msgid "qingyi"
+msgstr "青衣"
+
+msgid "jane_doe"
+msgstr "简"
+
+msgid "seth_lowell"
+msgstr "赛斯"
+
+msgid "caesar_king"
+msgstr "凯撒"
+
+msgid "burnice_white"
+msgstr "柏妮思"
+
+msgid "yanagi"
+msgstr "柳"
+
+msgid "lighter"
+msgstr "莱特"
+
+msgid "asaba_harumasa"
+msgstr "悠真"
+
+msgid "hoshimi_miyabi"
+msgstr "雅"
+
+msgid "astra_yao"
+msgstr "耀嘉音"
+
+msgid "evelyn_chevalier"
+msgstr "伊芙琳"
+
+msgid "soldier_0_anby"
+msgstr "零号安比"
+
+msgid "pulchra"
+msgstr "波可娜"
+
+msgid "trigger"
+msgstr "扳机"
+
+msgid "vivian"
+msgstr "薇薇安"
+
+msgid "hugo_vlad"
+msgstr "雨果"
+
+msgid "yixuan"
+msgstr "仪玄"
+
+msgid "panyinhu"
+msgstr "潘引壶"
+
+msgid "ju_fufu"
+msgstr "橘福福"
+
+msgid "yuzuha"
+msgstr "浮波柚叶"
+
+msgid "alice"
+msgstr "爱丽丝"
+
+msgid "seed"
+msgstr "席德"
+
+msgid "orphie"
+msgstr "奥菲丝"
+
+msgid "lucia"
+msgstr "卢西娅"
+
+msgid "manato"
+msgstr "真斗"
+
+msgid "yidhari"
+msgstr "伊德海莉"
+
+msgid "dialyn"
+msgstr "琉音"
+
+msgid "banyue"
+msgstr "般岳"
+
+msgid "zhao"
+msgstr "照"
+
+msgid "sunna"
+msgstr "千夏"
+
+msgid "yeshunguang"
+msgstr "叶瞬光"
+
+msgid "aria"
+msgstr "爱芮"
+
+msgid "nangongyu"
+msgstr "南宫羽"
+
+msgid "cissia"
+msgstr "希希芙"
+
+msgid "promeia"
+msgstr "普罗米娅"
+
+msgid "velina"
+msgstr "维琳娜"
+
+msgid "pyrois_wise"
+msgstr "佩洛伊斯"
+
+msgid "starlight_billy_kid"
+msgstr "星辉比利"
+
+msgid "norma"
+msgstr "诺姆"
+
+msgid "remielle"
+msgstr "蕾米埃尔"
+
+msgid "sigrid"
+msgstr "希格莉德"
+
+msgid "claret"
+msgstr "克拉蕾"
+
+msgid "MIN_3"
+msgstr "3分钟"
+
+msgid "MIN_15"
+msgstr "15分钟"
+
+msgid "HOUR_1"
+msgstr "1小时"
+
+msgid "HOUR_2"
+msgstr "2小时"
+
+msgid "HOUR_6"
+msgstr "6小时"
+
+msgid "HOUR_12"
+msgstr "12小时"
+
+msgid "HOUR_20"
+msgstr "20小时"
+
+msgid "CRAFT_1_1"
+msgstr "制造区1-1"
+
+msgid "CRAFT_1_2"
+msgstr "制造区1-2"
+
+msgid "CRAFT_1_3"
+msgstr "制造区1-3"
+
+msgid "CRAFT_1_4"
+msgstr "制造区1-4"
+
+msgid "CRAFT_2_1"
+msgstr "制造区2-1"
+
+msgid "CRAFT_2_2"
+msgstr "制造区2-2"
+
+msgid "CRAFT_2_3"
+msgstr "制造区2-3"
+
+msgid "CRAFT_2_4"
+msgstr "制造区2-4"
+
+msgid "CRAFT_3_1"
+msgstr "制造区3-1"
+
+msgid "CRAFT_3_2"
+msgstr "制造区3-2"
+
+msgid "CRAFT_3_3"
+msgstr "制造区3-3"
+
+msgid "CRAFT_3_4"
+msgstr "制造区3-4"
+
+msgid "COMMUNITY_1_1"
+msgstr "社区旧址1-1"
+
+msgid "COMMUNITY_1_2"
+msgstr "社区旧址1-2"
+
+msgid "COMMUNITY_1_3"
+msgstr "社区旧址1-3"
+
+msgid "COMMUNITY_1_4"
+msgstr "社区旧址1-4"
+
+msgid "COMMUNITY_2_1"
+msgstr "社区旧址2-1"
+
+msgid "COMMUNITY_2_2"
+msgstr "社区旧址2-2"
+
+msgid "COMMUNITY_2_3"
+msgstr "社区旧址2-3"
+
+msgid "COMMUNITY_2_4"
+msgstr "社区旧址2-4"
+
+msgid "COMMUNITY_3_1"
+msgstr "社区旧址3-1"
+
+msgid "COMMUNITY_3_2"
+msgstr "社区旧址3-2"
+
+msgid "COMMUNITY_3_3"
+msgstr "社区旧址3-3"
+
+msgid "COMMUNITY_3_4"
+msgstr "社区旧址3-4"
+
+msgid "RESEARCH_1_1"
+msgstr "科研院旧址1-1"
+
+msgid "RESEARCH_1_2"
+msgstr "科研院旧址1-2"
+
+msgid "RESEARCH_1_3"
+msgstr "科研院旧址1-3"
+
+msgid "RESEARCH_1_4"
+msgstr "科研院旧址1-4"
+
+msgid "RESEARCH_2_1"
+msgstr "科研院旧址2-1"
+
+msgid "RESEARCH_2_2"
+msgstr "科研院旧址2-2"
+
+msgid "RESEARCH_2_3"
+msgstr "科研院旧址2-3"
+
+msgid "RESEARCH_2_4"
+msgstr "科研院旧址2-4"
+
+msgid "RESEARCH_3_1"
+msgstr "科研院旧址3-1"
+
+msgid "RESEARCH_3_2"
+msgstr "科研院旧址3-2"
+
+msgid "RESEARCH_3_3"
+msgstr "科研院旧址3-3"
+
+msgid "RESEARCH_3_4"
+msgstr "科研院旧址3-4"
+
+msgid "S1"
+msgstr "40000"
+
+msgid "S2"
+msgstr "35000"
+
+msgid "S3"
+msgstr "30000"
+
+msgid "S4"
+msgstr "25000"
+
+msgid "NONE"
+msgstr "不购买"
+
+msgid "BANGBOO_SYSTEM_WIDGET"
+msgstr "邦布系统控件"
+
+msgid "DENNY"
+msgstr "丁尼"
+
+msgid "HIFI_MASTER_COPY"
+msgstr "高保真母盘"
+
+msgid "SENIOR_INVESTIGATOR_LOG"
+msgstr "资深调查员记录"
+
+msgid "W_ENGINE_ENERGY_MODULE"
+msgstr "音擎能源模块"
+
+msgid "ETHER_PLATING_AGENT"
+msgstr "以太镀剂"
+
+msgid "PREPAID_POWER_CARD"
+msgstr "储值电卡"
+
+msgid "skip_on_stuck_again"
+msgstr "再次卡住时跳过路线"
+
+msgid "retry_on_stuck_again"
+msgstr "再次卡住时重试路线"
+
+msgid "silent_fail"
+msgstr "停止当前任务"
+
+msgid "restart_and_skip"
+msgstr "重启游戏并跳过路线"
+
+msgid "restart_and_retry"
+msgstr "重启游戏并重试路线"
+
+msgid "plan_list"
+msgstr "刷本计划"
+
+msgid "BackgroundGamepad"
+msgstr "手柄后台操作"

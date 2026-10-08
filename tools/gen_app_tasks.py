@@ -89,6 +89,10 @@ def find_enum_choices(config_module, default_value):
                 continue
             if default_value in values:
                 return [v for v in values if isinstance(v, str)]
+            # StrEnum 配置经常存成员名（如 HOUR_20），而显示值是中文。
+            names = [member.name for member in obj]
+            if default_value in names:
+                return names
     return None
 
 
@@ -112,6 +116,13 @@ def extract_options(config_cls):
             continue  # 需要数据文件/服务的属性跳过
         if value is None or isinstance(value, SKIP_VALUES):
             continue
+        # 兼容早期选项桥把 JSON 文本直接存入 list/dict 配置的情况。
+        annotation = str(member.fget.__annotations__.get('return', ''))
+        if isinstance(value, str) and annotation.startswith(('list[', 'dict[')):
+            try:
+                value = json.loads(value.replace('\\n', '\n'))
+            except ValueError:
+                continue
         if isinstance(value, bool):
             options.append({'key': name, 'type': 'bool', 'default': value})
         elif isinstance(value, int):
