@@ -30,6 +30,8 @@ from zzz_od.auto_battle.atomic_op.btn_ultimate import AtomicBtnUltimate
 from zzz_od.auto_battle.atomic_op.state_clear import AtomicClearState
 from zzz_od.auto_battle.atomic_op.state_set import AtomicSetState
 from zzz_od.auto_battle.atomic_op.wait import AtomicWait
+from zzz_od.auto_battle.atomic_op.generic_combat import AtomicGenericCombat
+from zzz_od.auto_battle.atomic_op.realtime_response import AtomicRealtimeResponse
 from zzz_od.auto_battle.auto_battle_state import BattleStateEnum
 
 if TYPE_CHECKING:
@@ -47,6 +49,11 @@ class AtomicOpFactory:
         :return:
         """
         op_name = op_def.op_name
+        if op_name == AtomicGenericCombat.OP_NAME:
+            return AtomicGenericCombat(self.auto_battle_context)
+        if op_name == AtomicRealtimeResponse.OP_NAME:
+            warning = op_def.data[0] if op_def.data else None
+            return AtomicRealtimeResponse(self.auto_battle_context, warning=warning)
         op_data = op_def.data
         # 有几个特殊参数 在这里统一提取
         press: bool = op_name.endswith('-按下')

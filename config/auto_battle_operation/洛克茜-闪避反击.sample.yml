@@ -1,0 +1,6 @@
+# 闪避已由实时事件发出，这里接反击，不重复闪避。
+operations:
+  - op_name: "按键-普通攻击-松开"
+  - op_name: "按键-普通攻击"
+    repeat: 3
+    post_delay: 0.15

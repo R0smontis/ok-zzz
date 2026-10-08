@@ -7,14 +7,17 @@ from __future__ import annotations
 
 import threading
 import time
+from functools import wraps
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import TYPE_CHECKING
 
 import cv2
 import numpy as np
 from cv2.typing import MatLike
+from src.diagnostics import record_battle_start, record_event
 
 from onedragon.base.conditional_operation.state_recorder import StateRecord
+from onedragon.base.controller.input_guard import execution_input_allowed, execution_action
 from onedragon.base.debug.debug_trace_bus import TimelineTraceItem
 from onedragon.base.matcher.match_result import MatchResult
 from onedragon.base.screen import screen_utils
@@ -41,6 +44,25 @@ if TYPE_CHECKING:
 _battle_state_check_executor = ThreadPoolExecutor(thread_name_prefix='od_battle_state_check', max_workers=16)
 
 
+def guarded_battle_action(method):
+    """Blocked input must not publish an action or predict a character switch."""
+    @wraps(method)
+    def guarded(self, *args, **kwargs):
+        release = kwargs.get('release', args[2] if len(args) >= 3 else False)
+        guard = getattr(self.ctx.controller, 'battle_input_guard', None)
+        action_guard = getattr(self.ctx.controller, 'battle_action_guard', None)
+        if not release and (not execution_input_allowed() or (guard is not None and not guard())
+                            or (action_guard is not None and not action_guard(method.__name__))):
+            record_event('battle_action_blocked', action=method.__name__)
+            return False
+        token = execution_action.set(method.__name__)
+        try:
+            return method(self, *args, **kwargs)
+        finally:
+            execution_action.reset(token)
+    return guarded
+
+
 class AutoBattleContext:
 
     def __init__(self, ctx: ZContext):
@@ -54,6 +76,8 @@ class AutoBattleContext:
 
         self.auto_op: AutoBattleOperator | None = None
         self._op_cache: dict[str, AutoBattleOperator] = {}  # 缓存自动战斗配置
+        from src.recognition_queue import SingleFlightChecks
+        self.recognition_checks = SingleFlightChecks()
 
         # 识别区域
         self._check_distance_area: ScreenArea | None = None
@@ -89,6 +113,8 @@ class AutoBattleContext:
 
         # 自动释放终结技开关
         self.auto_ultimate_enabled: bool = True  # 是否在终结技可用时自动释放
+        # Shared by resident assistants and scripted dungeon battles.
+        self.realtime_dodge_enabled_provider = None
 
     def init_auto_op(
         self,
@@ -136,18 +162,19 @@ class AutoBattleContext:
         self.dodge_context.init_auto_op(auto_op=self.auto_op)
         self.target_context.init_auto_op(auto_op=self.auto_op)
 
-    def start_auto_battle(self) -> None:
+    def start_auto_battle(self, auto_ultimate_enabled: bool = True) -> None:
         """
         开始自动战斗
         """
         if self.auto_op is not None:
             # 清空之前检测到的状态
-            self.auto_ultimate_enabled = True  # 默认每次开启自动战斗时 开启自动终结技
+            record_battle_start('start_auto_battle', self)
+            self.auto_ultimate_enabled = auto_ultimate_enabled
 
             self.init_battle_context()
-            self.auto_op.start_running_async()
-            self.start_context_async()
             self.clear_all_states()
+            self.start_context_async()
+            self.auto_op.start_running_async()
 
     def resume_auto_battle(self) -> None:
         """
@@ -155,10 +182,11 @@ class AutoBattleContext:
         """
         if self.auto_op is not None:
             # 清空之前检测到的状态
+            record_battle_start('resume_auto_battle', self)
 
-            self.auto_op.start_running_async()
-            self.start_context_async()
             self.clear_all_states()
+            self.start_context_async()
+            self.auto_op.start_running_async()
 
     def clear_all_states(self) -> None:
         """
@@ -183,6 +211,7 @@ class AutoBattleContext:
         Returns:
             None
         """
+        record_event('battle_stop')
         if self.auto_op is not None:
             self.auto_op.stop_running()
         self.stop_context()
@@ -239,6 +268,7 @@ class AutoBattleContext:
         self.dodge_context.after_app_shutdown()
         self.target_context.after_app_shutdown()
 
+    @guarded_battle_action
     def dodge(self, press: bool = False, press_time: float | None = None, release: bool = False):
         if press:
             e = BattleStateEnum.BTN_DODGE.value + '-按下'
@@ -250,8 +280,13 @@ class AutoBattleContext:
         self.ctx.controller.dodge(press=press, press_time=press_time, release=release)
         finish_time = time.time()
         self.state_record_service.update_state(StateRecord(e, finish_time))
+        if not release:
+            # A reaction flag is consumed by its first actual dodge. Keeping
+            # it for one second caused repeated dodges from a single warning.
+            self.state_record_service.update_state(StateRecord('自定义-红光闪避', is_clear=True))
         self._emit_debug_action(e)
 
+    @guarded_battle_action
     def switch_next(self, press: bool = False, press_time: float | None = None, release: bool = False):
         update_agent = False
         if press:
@@ -280,6 +315,7 @@ class AutoBattleContext:
         self.state_record_service.batch_update_states(state_records)
         self._emit_debug_action(e)
 
+    @guarded_battle_action
     def switch_prev(self, press: bool = False, press_time: float | None = None, release: bool = False):
         update_agent = False
         if press:
@@ -308,6 +344,7 @@ class AutoBattleContext:
         self.state_record_service.batch_update_states(state_records)
         self._emit_debug_action(e)
 
+    @guarded_battle_action
     def switch_backup(self, press: bool = False, press_time: float | None = None, release: bool = False):
         if press:
             e = BattleStateEnum.BTN_SWITCH_BACKUP.value + '-按下'
@@ -321,6 +358,7 @@ class AutoBattleContext:
         self.state_record_service.update_state(StateRecord(e, finish_time))
         self._emit_debug_action(e)
 
+    @guarded_battle_action
     def normal_attack(self, press: bool = False, press_time: float | None = None, release: bool = False):
         if press:
             e = BattleStateEnum.BTN_SWITCH_NORMAL_ATTACK.value + '-按下'
@@ -334,6 +372,7 @@ class AutoBattleContext:
         self.state_record_service.update_state(StateRecord(e, finish_time))
         self._emit_debug_action(e)
 
+    @guarded_battle_action
     def special_attack(self, press: bool = False, press_time: float | None = None, release: bool = False):
         if press:
             e = BattleStateEnum.BTN_SWITCH_SPECIAL_ATTACK.value + '-按下'
@@ -347,7 +386,10 @@ class AutoBattleContext:
         self.state_record_service.update_state(StateRecord(e, finish_time))
         self._emit_debug_action(e)
 
+    @guarded_battle_action
     def ultimate(self, press: bool = False, press_time: float | None = None, release: bool = False):
+        if not release and not self.auto_ultimate_enabled:
+            return False
         if press:
             e = BattleStateEnum.BTN_ULTIMATE.value + '-按下'
         elif release:
@@ -360,6 +402,7 @@ class AutoBattleContext:
         self.state_record_service.update_state(StateRecord(e, finish_time))
         self._emit_debug_action(e)
 
+    @guarded_battle_action
     def chain_left(self, press: bool = False, press_time: float | None = None, release: bool = False):
         update_agent = False
         if press:
@@ -385,6 +428,7 @@ class AutoBattleContext:
         self.state_record_service.batch_update_states(state_records)
         self._emit_debug_action(e)
 
+    @guarded_battle_action
     def chain_right(self, press: bool = False, press_time: float | None = None, release: bool = False):
         update_agent = False
         if press:
@@ -411,6 +455,7 @@ class AutoBattleContext:
         self._emit_debug_action(e)
 
     def _emit_debug_action(self, action_name: str) -> None:
+        record_event('battle_action', action=action_name)
         bus = self.ctx.debug_trace_bus
         if not bus.enabled:
             return
@@ -423,6 +468,7 @@ class AutoBattleContext:
             )
         )
 
+    @guarded_battle_action
     def move_w(self, press: bool = False, press_time: float | None = None, release: bool = False):
         if press:
             e = BattleStateEnum.BTN_MOVE_W.value + '-按下'
@@ -435,6 +481,7 @@ class AutoBattleContext:
         finish_time = time.time()
         self.state_record_service.update_state(StateRecord(e, finish_time))
 
+    @guarded_battle_action
     def move_s(self, press: bool = False, press_time: float | None = None, release: bool = False):
         if press:
             e = BattleStateEnum.BTN_MOVE_S.value + '-按下'
@@ -447,6 +494,7 @@ class AutoBattleContext:
         finish_time = time.time()
         self.state_record_service.update_state(StateRecord(e, finish_time))
 
+    @guarded_battle_action
     def move_a(self, press: bool = False, press_time: float | None = None, release: bool = False):
         if press:
             e = BattleStateEnum.BTN_MOVE_A.value + '-按下'
@@ -459,6 +507,7 @@ class AutoBattleContext:
         finish_time = time.time()
         self.state_record_service.update_state(StateRecord(e, finish_time))
 
+    @guarded_battle_action
     def move_d(self, press: bool = False, press_time: float | None = None, release: bool = False):
         if press:
             e = BattleStateEnum.BTN_MOVE_D.value + '-按下'
@@ -471,6 +520,7 @@ class AutoBattleContext:
         finish_time = time.time()
         self.state_record_service.update_state(StateRecord(e, finish_time))
 
+    @guarded_battle_action
     def lock(self, press: bool = False, press_time: float | None = None, release: bool = False):
         if press:
             e = BattleStateEnum.BTN_LOCK.value + '-按下'
@@ -483,6 +533,7 @@ class AutoBattleContext:
         finish_time = time.time()
         self.state_record_service.update_state(StateRecord(e, finish_time))
 
+    @guarded_battle_action
     def chain_cancel(self, press: bool = False, press_time: float | None = None, release: bool = False):
         if press:
             e = BattleStateEnum.BTN_CHAIN_CANCEL.value + '-按下'
@@ -495,6 +546,7 @@ class AutoBattleContext:
         finish_time = time.time()
         self.state_record_service.update_state(StateRecord(e, finish_time))
 
+    @guarded_battle_action
     def quick_assist(self):
         # 切换角色的状态时间应该是按键开始时间
         start_time = time.time()
@@ -513,6 +565,7 @@ class AutoBattleContext:
         state_records.append(StateRecord(btn_name, finish_time))
         self.state_record_service.batch_update_states(state_records)
 
+    @guarded_battle_action
     def switch_by_name(self, agent_name: str) -> None:
         """
         根据代理人名称 切换到指定的代理人
@@ -544,54 +597,77 @@ class AutoBattleContext:
         check_battle_end_hollow_result: bool = False,
         check_battle_end_defense_result: bool = False,
         check_distance: bool = False,
-        sync: bool = False
+        sync: bool = False,
+        passive: bool = False,
+        attack_hud_visible: bool | None = None,
+        chain_ui_visible: bool | None = None,
     ) -> bool:
         """
         识别战斗状态的总入口
         :return: 当前是否在战斗画面
         """
-        in_battle = self.is_normal_attack_btn_available(screen)
+        in_battle = (self.is_normal_attack_btn_available(screen) if attack_hud_visible is None
+                     else attack_hud_visible)
         self.last_check_in_battle = in_battle
+        # Dedicated role handlers must skip the entire ultimate branch when
+        # disabled, including its animation wait and attempt cooldown.
+        self.state_record_service.update_state(StateRecord(
+            '自定义-自动终结技启用', screenshot_time,
+            is_clear=not (in_battle and self.auto_ultimate_enabled)))
+        record_event('battle_state', captured_at=screenshot_time, attack_hud_visible=in_battle,
+                     passive=passive, operator_running=bool(getattr(self.auto_op, 'is_running', False)))
         if in_battle:
             self.state_record_service.update_state(
                 StateRecord(BattleStateEnum.STATUS_NORMAL_ATTACK_READY.value, screenshot_time))
         else:
             # 离开战斗(普攻按钮消失):立即清状态,不依赖默认时间窗口在战后自然失效,
             # 避免战后残留的"按键可用"让 速切模板-通用 兜底继续发普攻(#2157)
-            self.state_record_service.update_state(
-                StateRecord(BattleStateEnum.STATUS_NORMAL_ATTACK_READY.value, is_clear=True))
+            self.state_record_service.batch_update_states([
+                StateRecord(state.value, is_clear=True) for state in (
+                    BattleStateEnum.STATUS_NORMAL_ATTACK_READY, BattleStateEnum.STATUS_SPECIAL_READY,
+                    BattleStateEnum.STATUS_ULTIMATE_READY, BattleStateEnum.STATUS_QUICK_ASSIST_READY,
+                    BattleStateEnum.STATUS_SWITCH_BACKUP_READY)])
 
         future_list: list[Future] = []
+
+        def submit_check(name, executor, function, *args):
+            future = self.recognition_checks.submit(name, executor, function, *args, sync=sync)
+            if future is not None:
+                future_list.append(future)
+            return future
 
         # 统一提交检测任务
         if in_battle:
             # 闪避相关
-            audio_future = _battle_state_check_executor.submit(self.dodge_context.check_dodge_audio, screenshot_time)
-            future_list.append(audio_future)
+            audio_future = submit_check('audio', _battle_state_check_executor, self.dodge_context.check_dodge_audio, screenshot_time)
             if self.ctx.model_config.flash_classifier_gpu:
-                future_list.append(gpu_executor.submit(self.dodge_context.check_dodge_flash, screen, screenshot_time, audio_future))
+                submit_check('flash', gpu_executor, self.dodge_context.check_dodge_flash, screen, screenshot_time, audio_future)
             else:
-                future_list.append(_battle_state_check_executor.submit(self.dodge_context.check_dodge_flash, screen, screenshot_time, audio_future))
+                submit_check('flash', _battle_state_check_executor, self.dodge_context.check_dodge_flash, screen, screenshot_time, audio_future)
 
             # 角色状态
-            future_list.append(_battle_state_check_executor.submit(self.agent_context.check_agent_related, screen, screenshot_time))
+            submit_check('agent', _battle_state_check_executor, self.agent_context.check_agent_related, screen, screenshot_time)
 
             # 目标状态
-            future_list.append(_battle_state_check_executor.submit(self.target_context.run_all_checks, screen, screenshot_time))
+            submit_check('target', _battle_state_check_executor, self.target_context.run_all_checks, screen, screenshot_time)
 
             # 快速支援
-            future_list.append(_battle_state_check_executor.submit(self.check_quick_assist, screen, screenshot_time))
-            future_list.append(_battle_state_check_executor.submit(self.check_switch_backup, screen, screenshot_time))
+            submit_check('quick_assist', _battle_state_check_executor, self.check_quick_assist, screen, screenshot_time)
+            submit_check('switch_backup', _battle_state_check_executor, self.check_switch_backup, screen, screenshot_time)
 
             # 距离
             if check_distance:
                 if self.ctx.model_config.ocr_use_gpu:
-                    future_list.append(gpu_executor.submit(self._check_distance_with_lock, screen, screenshot_time))
+                    submit_check('distance', gpu_executor, self._check_distance_with_lock, screen, screenshot_time)
                 else:
-                    future_list.append(_battle_state_check_executor.submit(self._check_distance_with_lock, screen, screenshot_time))
+                    submit_check('distance', _battle_state_check_executor, self._check_distance_with_lock, screen, screenshot_time)
         else:
             # 连携
-            future_list.append(_battle_state_check_executor.submit(self.check_chain_attack, screen, screenshot_time))
+            if chain_ui_visible is None:
+                from zzz_od.auto_battle.battle_presence import has_chain_timer
+                chain_ui_visible = has_chain_timer(screen)
+            if not passive and chain_ui_visible:
+                submit_check('chain', _battle_state_check_executor, self.check_chain_attack, screen, screenshot_time)
 
             # 战斗结束
             check_battle_end = check_battle_end_normal_result or check_battle_end_hollow_result or check_battle_end_defense_result
@@ -600,11 +676,11 @@ class AutoBattleContext:
                     executor = gpu_executor
                 else:
                     executor = _battle_state_check_executor
-                future_list.append(executor.submit(
+                submit_check('battle_end', executor,
                     self._check_battle_end,
                     screen, screenshot_time,
                     check_battle_end_normal_result, check_battle_end_hollow_result, check_battle_end_defense_result
-                ))
+                )
 
         # 统一处理结果
         for future in future_list:
@@ -740,6 +816,10 @@ class AutoBattleContext:
         :return: 是否检测到轮廓
         """
         try:
+            from zzz_od.auto_battle.battle_presence import has_chain_timer
+            if has_chain_timer(screen):
+                self.state_record_service.update_state(StateRecord('连携技-准备', screenshot_time))
+                return True
             # 运行连携条的CV流水线
             cv_result = self.ctx.cv_service.run_pipeline(
                 '战斗-连携条',
@@ -1056,6 +1136,11 @@ class AutoBattleContext:
         :return:
         """
         self.dodge_context.stop_context()
+
+        # Live read-only recognition can initialize areas without any input
+        # controller. Still stop recognition/audio and allow later cleanup.
+        if self.ctx.controller is None:
+            return
 
         log.info('松开所有按键')
         self._release_keys()

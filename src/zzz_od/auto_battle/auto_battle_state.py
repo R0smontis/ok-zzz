@@ -30,3 +30,4 @@ class BattleStateEnum(Enum):
     STATUS_QUICK_ASSIST_READY = '按键可用-快速支援'
     STATUS_SWITCH_BACKUP_READY = '按键可用-切换后援'
     STATUS_NORMAL_ATTACK_READY = '按键可用-普通攻击'
+    STATUS_UNKNOWN_FRONT = '前台-未识别'

@@ -1,0 +1,6 @@
+# 招架切入后点按普攻发动支援突击；不照搬克拉蕾的长按角力。
+operations:
+  - op_name: "按键-普通攻击-松开"
+  - op_name: "按键-普通攻击"
+    repeat: 5
+    post_delay: 0.1

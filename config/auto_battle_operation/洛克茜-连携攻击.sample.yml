@@ -1,0 +1,5 @@
+# 连携选择由原有事件场景完成，此处只处理切入后的动作。
+operations:
+  - op_name: "按键-普通攻击"
+    repeat: 3
+    post_delay: 0.15

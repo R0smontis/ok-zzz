@@ -14,7 +14,10 @@ from typing import TYPE_CHECKING, Any
 from onedragon.base.conditional_operation.atomic_op import AtomicOp
 from onedragon.base.conditional_operation.loader import ConditionalOperatorLoader
 from onedragon.base.conditional_operation.operation_def import OperationDef
+from onedragon.base.conditional_operation.state_handler import StateHandler
+from onedragon.base.conditional_operation.scene import Scene
 from onedragon.base.conditional_operation.operator import ConditionalOperator
+from onedragon.base.controller.input_guard import execution_input_guard
 from onedragon.utils import thread_utils
 from onedragon.utils.log_utils import log
 from zzz_od.auto_battle.atomic_op.btn_lock import AtomicBtnLock
@@ -85,6 +88,10 @@ class AutoBattleOperator(ConditionalOperator):
         # 停止事件
         self._stop_event = Event()
         self._periodic_generation: int = 0  # 会话代际计数器
+        self.event_only = False
+        self.execution_allowed = None
+        self.execution_guard_factory = None
+        self.event_started_at = 0.0
 
     def load_other_info(self, data: dict[str, Any]) -> None:
         """
@@ -109,6 +116,34 @@ class AutoBattleOperator(ConditionalOperator):
         self.abnormal_status_interval = data.get('abnormal_status_interval', 0)
         self.auto_lock_interval = data.get('auto_lock_interval', 1)
         self.auto_turn_interval = data.get('auto_turn_interval', 2)
+
+    def load(self) -> None:
+        super().load()
+        # Loaded after merged/user templates too: preserving their contents
+        # must not keep the old no-operation behavior for an unknown portrait.
+        if self._sub_dir != ['auto_battle']:
+            return
+        from zzz_od.auto_battle.generic_handlers import normal_handler, event_handlers
+        for scene in self.scenes:
+            if scene.triggers:
+                fallbacks = event_handlers(scene.triggers)
+                unknown = []
+                for handler in event_handlers(scene.triggers):
+                    handler.states = '[前台-未识别, 0, 1] & (' + handler.states + ')'
+                    handler.original_data['states'] = handler.states
+                    unknown.append(handler)
+                scene.set_handlers(unknown + scene.handlers + fallbacks)
+            else:
+                scene.set_handlers([normal_handler(unknown_only=True)] + scene.handlers
+                                   + [normal_handler()])
+        self.scenes.append(Scene({
+            'triggers': ['自定义-实时闪避事件'], 'priority': 100, 'interval': .25,
+            'handlers': [{
+                'states': '[按键可用-普通攻击, 0, 0.25] & [自定义-实时闪避事件, 0, 0.25]',
+                'debug_name': '优先实时弹刀或闪避',
+                'operations': [{'op_name': '实时战斗响应'}],
+            }],
+        }))
 
     def init_before_running(self) -> tuple[bool, str]:
         """
@@ -144,14 +179,40 @@ class AutoBattleOperator(ConditionalOperator):
 
     def start_running_async(self) -> bool:
         success = ConditionalOperator.start_running_async(self)
-        if success:
+        if success and not self.event_only:
             self._periodic_generation += 1
             self._stop_event.clear()
             gen = self._periodic_generation
-            lock_f = _auto_battle_operator_executor.submit(self.operate_periodically, gen)
+            lock_f = _auto_battle_operator_executor.submit(self._guarded_periodic, gen, self._make_input_guard())
             lock_f.add_done_callback(thread_utils.handle_future_result)
 
         return success
+
+    def batch_update_states(self, state_records):
+        if self.event_only:
+            state_records = [record for record in state_records
+                             if record.state_name.startswith('闪避识别-')
+                             and not record.is_clear
+                             and record.trigger_time >= self.event_started_at
+                             and 0 <= time.time() - record.trigger_time <= 0.25]
+            if not state_records:
+                return
+        super().batch_update_states(state_records)
+
+    def _trigger_scene(self, state_name, generation=None):
+        if self.event_only:
+            recorder = self.state_record_service.get_state_recorder(state_name)
+            if (recorder is None or recorder.last_record_time < self.event_started_at
+                    or not 0 <= time.time() - recorder.last_record_time <= 0.25):
+                return
+        super()._trigger_scene(state_name, generation)
+
+    def _guarded_periodic(self, generation, guard):
+        token = execution_input_guard.set(guard)
+        try:
+            self.operate_periodically(generation)
+        finally:
+            execution_input_guard.reset(token)
 
     def operate_periodically(self, generation: int) -> None:
         """

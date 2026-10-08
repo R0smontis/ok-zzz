@@ -177,6 +177,12 @@ class AutoBattleStateRecordService(StateRecordService):
             all_mutex_list['切换角色-' + agent_type_enum.value] = ['切换角色-' + i for i in mutex_list]
 
         # 特殊处理连携技的互斥
+        unknown = BattleStateEnum.STATUS_UNKNOWN_FRONT.value
+        front_states = ([f'前台-{a.value.agent_name}' for a in AgentEnum]
+                        + [f'前台-{t.value}' for t in AgentTypeEnum if t != AgentTypeEnum.UNKNOWN])
+        all_mutex_list[unknown] = front_states
+        for state in front_states:
+            all_mutex_list[state].append(unknown)
         for i in range(1, 3):
             all_mutex_list[f'连携技-{i}-邦布'] = [f'连携技-{i}-{agent_enum.value.agent_name}' for agent_enum in AgentEnum]
 

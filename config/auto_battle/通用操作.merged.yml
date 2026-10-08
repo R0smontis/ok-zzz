@@ -1,0 +1,32 @@
+"author": "ok-zzz"
+"auto_lock_interval": -1
+"auto_turn_interval": 2
+"check_agent_interval": 0.1
+"check_chain_interval": 0.02
+"check_dodge_interval": 0.02
+"check_quick_interval": 0.1
+"introduction": "使用标准按键与实际就绪状态，不依赖角色专属模板；专属资源和连招由角色模板提供。"
+"scenes":
+- "handlers":
+  - "debug_name": "通用角色操作"
+    "operations":
+    - "op_name": "通用战斗"
+    "states": "[按键可用-普通攻击, 0, 0.25]"
+  "priority": 9
+- "handlers": []
+  "interval": 0.25
+  "priority": 97
+  "triggers":
+  - "闪避识别-红光"
+  - "闪避识别-黄光"
+  - "闪避识别-声音"
+- "handlers": []
+  "interval": 0.25
+  "priority": 97
+  "triggers":
+  - "按键可用-快速支援"
+- "handlers": []
+  "interval": 0.5
+  "priority": 98
+  "triggers":
+  - "按键可用-连携技"

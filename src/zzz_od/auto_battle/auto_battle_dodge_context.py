@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from enum import Enum
@@ -147,6 +148,8 @@ class AutoBattleDodgeContext:
         self._flash_model: FlashClassifier | None = None  # 闪避分类器
         self._audio_recorder: AudioRecorder = AudioRecorder(self._on_audio_record_error)  # 音频录制器
         self._audio_template: np.ndarray | None = None  # 音频模板
+        self._audio_template_lock = threading.Lock()
+        self._audio_template_future: Future | None = None
 
         # 识别锁，保证每种类型只有一个实例在进行识别
         self._check_dodge_flash_lock = threading.Lock()
@@ -163,6 +166,67 @@ class AutoBattleDodgeContext:
         # 音频事件去重时间间隔
         self._audio_event_interval: float = 0.1
         self._last_audio_event_time: float = 0
+        # Trigger assistant may veto repeated or stale recognition results.
+        self.event_listener = None
+        self._reset_warning_gate()
+
+    def _reset_warning_gate(self):
+        self._last_flash = None
+        self._last_flash_time = 0.0
+        self._flash_absent_since = None
+        self._last_visual_warning_time = 0.0
+        self._last_event_time = 0.0
+
+    def _publish_warning(self, state_name, screenshot_time):
+        """Dungeon warnings must interrupt character actions through the same priority scene."""
+        battle = self.ctx.auto_battle_context
+        service = battle.state_record_service
+        op = battle.auto_op
+        enabled = battle.realtime_dodge_enabled_provider
+        realtime = (op is not None and op.is_running and op._sub_dir == ['auto_battle']
+                    and (enabled is None or enabled()))
+        if not realtime:
+            # Encounter detection also runs while the battle operator is stopped.
+            if state_name is not None:
+                service.update_state(StateRecord(state_name, screenshot_time))
+            return state_name is not None
+        from src.diagnostics import record_event
+        now = time.time()
+        hud = service.get_state_recorder('按键可用-普通攻击')
+        if not (0 <= now-screenshot_time <= .25 and hud is not None
+                and 0 <= now-hud.last_record_time <= .25):
+            if state_name is not None:
+                record_event('script_warning_rejected', warning=state_name,
+                             reason='画面过期或攻击按钮不可见', captured_at=screenshot_time)
+            return False
+        if state_name is None:
+            if self._flash_absent_since is None:
+                self._flash_absent_since = screenshot_time
+            return False
+        if state_name == YoloStateEventEnum.DODGE_AUDIO.value:
+            if 0 <= screenshot_time-self._last_visual_warning_time < .35:
+                return False
+        else:
+            if (self._flash_absent_since is not None
+                    and screenshot_time-self._flash_absent_since >= .08):
+                self._last_flash = None
+            repeated = (self._last_flash == state_name
+                        and screenshot_time-self._last_flash_time < .3)
+            self._last_flash = state_name
+            self._last_flash_time = screenshot_time
+            self._flash_absent_since = None
+            self._last_visual_warning_time = screenshot_time
+            if repeated:
+                return False
+        if screenshot_time-self._last_event_time < .1:
+            return False
+        self._last_event_time = screenshot_time
+        from zzz_od.auto_battle.atomic_op.realtime_response import WARNING_CODES
+        service.batch_update_states([
+            StateRecord(state_name, screenshot_time),
+            StateRecord('自定义-实时闪避事件', screenshot_time, value=WARNING_CODES[state_name]),
+        ])
+        return True
 
     def _on_audio_record_error(self, error: RuntimeError) -> None:
         """音频录制异常时通知当前运行界面。"""
@@ -185,7 +249,8 @@ class AutoBattleDodgeContext:
         self._check_audio_interval = 0.02
 
         use_gpu = self.ctx.model_config.flash_classifier_gpu
-        if self._flash_model is None or self._flash_model.gpu != use_gpu:
+        model_settings = (self.ctx.model_config.flash_classifier, use_gpu)
+        if self._flash_model is None or getattr(self, '_flash_model_settings', None) != model_settings:
             self._flash_model = FlashClassifier(
                 model_download_url=self.ctx.model_config.get_model_download_base_url(
                     'flash_classifier',
@@ -198,6 +263,7 @@ class AutoBattleDodgeContext:
                 personal_proxy=self.ctx.env_config.personal_proxy if self.ctx.env_config.is_personal_proxy else None,
                 gpu=use_gpu
             )
+            self._flash_model_settings = model_settings
 
     def init_battle_dodge_context(
             self,
@@ -208,9 +274,14 @@ class AutoBattleDodgeContext:
         # 上一次识别的时间
         self._last_check_dodge_time = 0
         self._last_check_audio_time = 0
+        self._reset_warning_gate()
 
         # 异步加载音频模板
-        _dodge_check_executor.submit(self.init_audio_template)
+        with self._audio_template_lock:
+            if self._audio_template is None and (
+                    self._audio_template_future is None or self._audio_template_future.done()):
+                self._audio_template_future = _dodge_check_executor.submit(self.init_audio_template)
+                self._audio_template_future.add_done_callback(thread_utils.handle_future_result)
 
     def init_audio_template(self) -> None:
         """
@@ -258,10 +329,16 @@ class AutoBattleDodgeContext:
                     state_name = YoloStateEventEnum.DODGE_AUDIO.value
 
             should_dodge = state_name is not None
-            if should_dodge:
-                self.ctx.auto_battle_context.state_record_service.update_state(StateRecord(state_name, screenshot_time))
-
-            return should_dodge
+            from src.diagnostics import record_event
+            record_event('dodge_detection', event=state_name, class_idx=int(result.class_idx),
+                         confidence=getattr(result, 'confidence', None),
+                         captured_at=screenshot_time, age=time.time()-screenshot_time)
+            listener = self.event_listener
+            if listener is not None:
+                # The assistant publishes while holding its lifecycle lock,
+                # so disable/config changes cannot race a delayed publication.
+                return listener(state_name, screenshot_time)
+            return self._publish_warning(state_name, screenshot_time)
         except Exception:
             log.error('识别画面闪光失败', exc_info=True)
             return False
@@ -293,6 +370,8 @@ class AutoBattleDodgeContext:
 
             # 事件去重逻辑
             if corr > self._audio_recorder.trigger_threshold:
+                if screenshot_time - self._last_audio_event_time < self._audio_event_interval:
+                    return False
                 self._last_audio_event_time = screenshot_time
                 self._audio_recorder.clear_audio()
                 return True
@@ -354,4 +433,6 @@ class AutoBattleDodgeContext:
         """
         App关闭后进行的操作 关闭一切可能资源操作
         """
+        self.stop_context()
+        self.event_listener = None
         _dodge_check_executor.shutdown(wait=False, cancel_futures=True)

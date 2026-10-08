@@ -1,0 +1,5 @@
+# 单人/缺少可识别队友时，短普攻回能；不占用长等待。
+operations:
+  - op_name: "按键-普通攻击"
+    repeat: 4
+    post_delay: 0.2

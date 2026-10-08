@@ -1,0 +1,26 @@
+# 普攻积痕后长按 E；不假设当前残痕一定满三层，不屏蔽实时预警。
+# 长按 E / 普攻时长为初始校准值，受到打断时执行器负责松键。
+operations:
+  - op_name: "按键-普通攻击"
+    post_delay: 0.25
+    repeat: 2
+  - op_name: "按键-普通攻击-松开"
+  - op_name: "按键-普通攻击-按下"
+  - op_name: "等待秒数"
+    seconds: 0.5
+  - op_name: "按键-普通攻击-按下"
+  - op_name: "等待秒数"
+    seconds: 0.5
+  - op_name: "按键-普通攻击-松开"
+  - op_name: "按键-特殊攻击-松开"
+  - op_name: "按键-特殊攻击-按下"
+  - op_name: "等待秒数"
+    seconds: 0.5
+  - op_name: "按键-特殊攻击-按下"
+  - op_name: "等待秒数"
+    seconds: 0.5
+  - op_name: "按键-特殊攻击-松开"
+  - op_name: "等待秒数"
+    seconds: 0.2
+  - op_name: "设置状态"
+    state: "自定义-合轴时间"

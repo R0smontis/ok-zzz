@@ -61,6 +61,7 @@ class AtomicBtnCommon(AtomicOp):
 
         self._status = BtnRunStatus.WAIT
         self._update_lock = threading.Lock()
+        self._stop_event = threading.Event()
         self._method: Callable[[bool, float, bool], None] = None
         if op_name == BattleStateEnum.BTN_DODGE.value:
             self._method = self.ctx.dodge
@@ -100,19 +101,20 @@ class AtomicBtnCommon(AtomicOp):
             if self._status != BtnRunStatus.WAIT:
                 return
             self._status = BtnRunStatus.RUNNING
+            self._stop_event.clear()
 
         for _i in range(self.repeat_times):
             if self._status != BtnRunStatus.RUNNING:
                 break
 
             if self._status == BtnRunStatus.RUNNING and self.pre_delay > 0:
-                time.sleep(self.pre_delay)
+                self._stop_event.wait(self.pre_delay)
 
             if self._status == BtnRunStatus.RUNNING:
                 self._method(press=self.is_press, press_time=self.press_time, release=self.is_release)
 
             if self._status == BtnRunStatus.RUNNING and self.post_delay > 0:
-                time.sleep(self.post_delay)
+                self._stop_event.wait(self.post_delay)
 
         with self._update_lock:
             self._status = BtnRunStatus.WAIT
@@ -121,6 +123,7 @@ class AtomicBtnCommon(AtomicOp):
         with self._update_lock:
             if self._status == BtnRunStatus.RUNNING:
                 self._status = BtnRunStatus.STOP
+                self._stop_event.set()
 
         if self.is_press:
             self._method(release=True)

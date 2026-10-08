@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import threading
+import cv2
 from concurrent.futures import ThreadPoolExecutor, Future
 from typing import Optional, List, Union, Tuple, Callable, TYPE_CHECKING
 
@@ -63,10 +64,13 @@ class TeamInfo:
 
         if agent_names is not None:
             for agent_name in agent_names:
+                found = None
                 for agent_enum in AgentEnum:
                     if agent_name == agent_enum.value.agent_name:
-                        self.agent_list.append(AgentInfo(agent_enum.value))
+                        found = agent_enum.value
                         break
+                # Unknown/new agents still occupy a real party slot.
+                self.agent_list.append(AgentInfo(found))
 
     def update_agent_list(self,
                           current_agent_list: List[Tuple[Agent, Optional[str]]],
@@ -90,7 +94,7 @@ class TeamInfo:
                     self.check_agent_diff_times = 0
                     self.check_agent_same_times += 1
 
-                    if self.check_agent_same_times >= 5:  # 连续5次一致时 就不验证了
+                    if self.check_agent_same_times >= 5 and all(a is not None for a, _ in current_agent_list):
                         self.should_check_all_agents = False
                         log.debug("停止识别新角色")
                 else:
@@ -118,8 +122,13 @@ class TeamInfo:
                 if agent is not None:
                     all_none = False
                     break
-            # 没有一个能识别到的话 也不更新
-            if all_none:
+            # A party consisting entirely of new characters still has common
+            # HUD energy/skill states. Initialize unknown physical slots, while
+            # retaining an established known party on a transient avatar miss.
+            unknown_layout = (bool(current_agent_list)
+                and not any(info.agent is not None for info in self.agent_list)
+                and len(energy_list) == len(current_agent_list))
+            if all_none and not unknown_layout:
                 return False
 
             if update_time < self.agent_update_time:  # 可能是过时的截图 这时候不更新
@@ -189,24 +198,7 @@ class TeamInfo:
                 return False
             self.agent_update_time = update_time
 
-            not_none_agent_list = []
-            none_cnt: int = 0
-            for i in self.agent_list:
-                if i.agent is None:
-                    none_cnt += 1
-                else:
-                    not_none_agent_list.append(i)
-
-            next_agent_list = []
-            if len(not_none_agent_list) > 0:
-                for i in range(1, len(not_none_agent_list)):
-                    next_agent_list.append(not_none_agent_list[i])
-                next_agent_list.append(not_none_agent_list[0])
-
-            for i in range(none_cnt):
-                next_agent_list.append(AgentInfo(None, 0))
-
-            self.agent_list = next_agent_list
+            self.agent_list = self.agent_list[1:] + self.agent_list[:1]
 
             # log.debug('切换下一个 更新后角色列表 %s 更新时间 %.4f',
             #           [ i.agent.agent_name if i.agent is not None else 'none' for i in self.agent_list],
@@ -228,23 +220,7 @@ class TeamInfo:
                 return False
             self.agent_update_time = update_time
 
-            not_none_agent_list = []
-            none_cnt: int = 0
-            for i in self.agent_list:
-                if i.agent is None:
-                    none_cnt += 1
-                else:
-                    not_none_agent_list.append(i)
-
-            next_agent_list = []
-            if len(not_none_agent_list) > 0:
-                next_agent_list.append(not_none_agent_list[-1])
-                for i in range(0, len(not_none_agent_list)-1):
-                    next_agent_list.append(not_none_agent_list[i])
-
-            for i in range(none_cnt):
-                next_agent_list.append(AgentInfo(None, 0))
-            self.agent_list = next_agent_list
+            self.agent_list = self.agent_list[-1:] + self.agent_list[:-1]
 
             # log.debug('切换上一个 更新后角色列表 %s 更新时间 %.4f',
             #           [ i.agent.agent_name if i.agent is not None else 'none' for i in self.agent_list],
@@ -293,6 +269,8 @@ class AutoBattleAgentContext:
     def __init__(self, ctx: ZContext):
         self.ctx: ZContext = ctx
         self.team_info: TeamInfo = TeamInfo()
+        self._known_portrait_templates: dict[str, tuple[Agent, str]] = {}
+        self._party_layout_size: int = 0
 
         # 识别锁 保证每种类型只有1实例在进行识别
         self._check_agent_lock = threading.Lock()
@@ -334,6 +312,8 @@ class AutoBattleAgentContext:
         自动战斗前的初始化
         """
         self.team_info: TeamInfo = TeamInfo()
+        self._known_portrait_templates.clear()
+        self._party_layout_size = 0
         # 上一次识别的时间
         self._last_check_agent_time: float = 0
         self._last_switch_agent_time: float = 0
@@ -353,7 +333,20 @@ class AutoBattleAgentContext:
                     check_all = True
                     break
         if check_all:
-            return [(agent_enum.value, None) for agent_enum in AgentEnum]
+            # An unknown slot must retain the full catalogue, while known
+            # party members should match before unrelated portraits. This is
+            # also used by the synchronous chain-UI probe.
+            known = {i.agent.agent_id: (i.agent, i.matched_template_id)
+                     for i in self.team_info.agent_list if i.agent is not None}
+            # Cutscenes briefly hide backup portraits. Keep successfully
+            # observed skins as the first matching group during this battle;
+            # an absent slot still falls through to the complete catalogue.
+            for agent_id, candidate in self._known_portrait_templates.items():
+                if agent_id not in known or known[agent_id][1] is None:
+                    known[agent_id] = candidate
+            return list(known.values()) + [
+                (agent_enum.value, None) for agent_enum in AgentEnum
+                if agent_enum.value.agent_id not in known]
         else:
             return [(i.agent, i.matched_template_id) for i in self.team_info.agent_list if i.agent is not None]
 
@@ -408,12 +401,10 @@ class AutoBattleAgentContext:
         if self.team_info.should_check_all_agents:
             return False
 
-        for agent, _ in screen_agent_list:
-            if agent is not None:
-                return False
-
-        log.debug('当前识别不到任何角色，下一次截图强制重新识别所有角色')
-        return True
+        if any(agent is None for agent, _ in screen_agent_list):
+            log.debug('队伍存在未匹配槽位，下一次截图重新识别所有角色')
+            return True
+        return False
 
     def _check_agent_in_parallel(self, screen: MatLike) -> List[Tuple[Agent, Optional[str]]]:
         """
@@ -428,6 +419,11 @@ class AutoBattleAgentContext:
         ]
         area_img = [cv2_utils.crop_image_only(screen, rect) for rect in area_rect]
 
+        third_slot_visible = self._third_party_slot_visible(screen)
+        if third_slot_visible and len(self.team_info.agent_list) != 3:
+            # Recover an old one/two-person cache before choosing the ROIs and
+            # candidates, rather than returning three empty cached slots.
+            self.team_info.request_check_all_agents()
         possible_agents = self.get_possible_agent_list()
 
         result_agent_list: List[Tuple[Optional[Agent], Optional[str]]] = []
@@ -457,18 +453,38 @@ class AutoBattleAgentContext:
             try:
                 result_agent, result_template_id = future.result()
                 result_agent_list.append((result_agent, result_template_id))
+                if result_agent is not None and result_template_id is not None:
+                    self._known_portrait_templates[result_agent.agent_id] = (result_agent, result_template_id)
             except Exception:
                 log.error('识别角色头像失败', exc_info=True)
                 result_agent_list.append((None, None))
 
-        if result_agent_list[1][0] is not None and result_agent_list[2][0] is not None:  # 3人
+        if (result_agent_list[2][0] is not None or third_slot_visible
+                or self._party_layout_size == 3
+                or (len(self.team_info.agent_list) == 3 and
+                    any(a is not None for a, _ in result_agent_list[:3]))):
+            # The third HUD slot proves a three-person layout even when a new
+            # agent's portrait in either of the other slots has no template.
             current_agent_list = result_agent_list[:3]
         elif result_agent_list[3][0] is not None:  # 2人
             current_agent_list = [result_agent_list[0], result_agent_list[3]]
         else:  # 1人
             current_agent_list = [result_agent_list[0]]
 
+        # An animation can hide every portrait for a frame without removing
+        # physical party slots. Availability/guard states decide whether an
+        # assist is possible; a transient empty avatar must not disable it.
+        self._party_layout_size = max(self._party_layout_size, len(current_agent_list))
+
         return current_agent_list
+
+    @staticmethod
+    def _third_party_slot_visible(screen: MatLike) -> bool:
+        # Party count is a HUD-layout fact, independent of whether the third
+        # portrait is already in this version's character catalogue.
+        gauge = cv2.cvtColor(screen[48:66, 840:937], cv2.COLOR_RGB2HSV)
+        green = cv2.inRange(gauge, (35, 90, 90), (90, 255, 255))
+        return cv2.countNonZero(green) >= green.size * .2
 
     def _match_agent_in(
         self,
@@ -557,6 +573,9 @@ class AutoBattleAgentContext:
         state = to_check.state
         check_method = _agent_state_check_method[state.check_way]
         value = check_method(ctx=self.ctx, screen=screen, state_def=state, total=to_check.total, pos=to_check.pos)
+
+        if value == 0 and state.clear_on_zero:
+            return StateRecord(state.state_name, screenshot_time, is_clear=True)
 
         if value > -1 and value >= state.min_value_trigger_state:
             # 对于切人-冷却和格挡破碎，值为0时视为清除信号
@@ -873,6 +892,9 @@ class AutoBattleAgentContext:
         :return:
         """
         state_records = []
+        if self.team_info.agent_list:
+            state_records.append(StateRecord(BattleStateEnum.STATUS_UNKNOWN_FRONT.value, update_time,
+                                             is_clear=self.team_info.agent_list[0].agent is not None))
         for i in range(len(self.team_info.agent_list)):
             prefix = '前台-' if i == 0 else ('后台-%d-' % i)
             agent_info = self.team_info.agent_list[i]
@@ -909,7 +931,8 @@ class AutoBattleAgentContext:
                     self.ctx.auto_battle_context.auto_op.is_running):
                     # 前台角色终结技可用，且配置已开启，且自动战斗正在运行
                     if update_time - self._last_ultimate_time > 2.0:  # 冷却时间2秒，防止重复释放
-                        log.info(f'检测到前台角色 {agent.agent_name} 终结技可用，增加状态[自定义-终结技被强制释放]')
+                        name = agent.agent_name if agent is not None else '未识别角色'
+                        log.info(f'检测到前台角色 {name} 终结技可用，增加状态[自定义-终结技被强制释放]')
                         state_records.append(StateRecord('自定义-终结技被强制释放', update_time, is_clear=False))
                         self._last_ultimate_time = update_time
 

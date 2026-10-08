@@ -1,6 +1,7 @@
 template_name: "速切模板-全角色"
 # 每个角色一个模板，然后就可以进行
 handlers:
+  - state_template: "速切模板-洛克茜"
   - state_template: "速切模板-莱卡恩"
   - state_template: "速切模板-苍角"
   - state_template: "速切模板-妮可"

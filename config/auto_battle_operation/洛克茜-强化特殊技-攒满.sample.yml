@@ -1,0 +1,30 @@
+# 初始时长 2.9 秒，不等同于风能已满的视觉确认；无闪避屏蔽。
+operations:
+- op_name: 设置状态
+  state: 自定义-洛克茜-充能尝试
+- op_name: 按键-特殊攻击-松开
+- op_name: 按键-特殊攻击-按下
+- op_name: 等待秒数
+  seconds: 0.5
+- op_name: 按键-特殊攻击-按下
+- op_name: 等待秒数
+  seconds: 0.5
+- op_name: 按键-特殊攻击-按下
+- op_name: 等待秒数
+  seconds: 0.5
+- op_name: 按键-特殊攻击-按下
+- op_name: 等待秒数
+  seconds: 0.5
+- op_name: 按键-特殊攻击-按下
+- op_name: 等待秒数
+  seconds: 0.5
+- op_name: 按键-特殊攻击-按下
+- op_name: 等待秒数
+  seconds: 0.4
+- op_name: 按键-特殊攻击-松开
+- op_name: 等待秒数
+  seconds: 1.5
+- op_name: 设置状态
+  state: 自定义-洛克茜-出场结束
+- op_name: 设置状态
+  state: 自定义-合轴时间
