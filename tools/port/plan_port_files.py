@@ -4,7 +4,7 @@ import ast
 import os
 
 SRC = r"D:\Temp\ref\ZenlessZoneZero-OneDragon\src"
-DST = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src")
+DST = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")
 
 
 def module_to_path(mod):

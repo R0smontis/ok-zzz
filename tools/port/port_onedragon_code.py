@@ -12,7 +12,7 @@ import sys
 
 SRC_REPO = r"D:\Temp\ref\ZenlessZoneZero-OneDragon"
 SRC = os.path.join(SRC_REPO, 'src')
-DST = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'src')
+DST = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'src')
 
 HEADER = (
     '# -*- coding: utf-8 -*-\n'

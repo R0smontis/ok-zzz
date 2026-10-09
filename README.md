@@ -203,7 +203,7 @@ Windows 10 2004及以上可使用WGC；关闭捕获边框是另一项系统能�
 
 ## 资产与代码来源说明
 
-- `tools/fetch_onedragon_assets.py` 可从一条龙仓库（本地克隆或 GitHub raw）拉取/更新
+- `tools/port/fetch_onedragon_assets.py` 可从一条龙仓库（本地克隆或 GitHub raw）拉取/更新
   画面定义、战斗配置与模板资产
 - 代码与资产的移植范围及各项目许可详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 
