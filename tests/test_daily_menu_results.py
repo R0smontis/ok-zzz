@@ -295,3 +295,26 @@ def test_compendium_does_not_repeat_open_confirmation_on_delayed_focus():
     fixture(op,'compendium-prefix-focus')
     assert compendium_lost_void(op,op.last_screenshot).result==R.RETRY
     op.ctx.controller.btn_press.assert_called_once_with('xbox_dpad_down',press_time=.12)
+
+
+def test_business_success_then_counter_overworld_completes(monkeypatch):
+    # Live 2026-10-09: after "丁尼广进，生意兴隆！" + A, the game closes the store page and
+    # returns to the counter instead of showing "正在营业"; the node waited until it failed.
+    op=store();fixture(op,'store-business-success-popup')
+    assert op.confirm().result==R.RETRY
+    op.last_screenshot=cv2.cvtColor(cv2.imread(str(BASE/'store-counter-after-business.png')),cv2.COLOR_BGR2RGB)
+    op.ctx.ocr_service=SimpleNamespace(get_ocr_result_list=lambda image,rect:[])
+    screens=[]
+    op.check_and_update_current_screen=lambda screen,screen_name_list:screens.append(screen_name_list) or '大世界-普通'
+    assert op.confirm().is_success
+    assert screens==[['大世界-普通']]
+    assert op.ctx.controller.btn_press.call_count==1
+
+
+def test_overworld_without_success_popup_is_not_business_success():
+    op=store()
+    op.last_screenshot=cv2.cvtColor(cv2.imread(str(BASE/'store-counter-after-business.png')),cv2.COLOR_BGR2RGB)
+    op.ctx.ocr_service=SimpleNamespace(get_ocr_result_list=lambda image,rect:[])
+    op.check_and_update_current_screen=lambda screen,screen_name_list:'大世界-普通'
+    assert op.confirm().result==R.RETRY
+    op.ctx.controller.btn_press.assert_not_called()

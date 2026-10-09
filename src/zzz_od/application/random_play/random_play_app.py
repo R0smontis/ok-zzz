@@ -79,6 +79,7 @@ class RandomPlayApp(ZApplication):
         self._pad_promoter_confirms=0
         self._pad_recommended=0
         self._pad_business_confirms=0
+        self._business_success_seen=False
 
     def _business_page(self):
         tabs=menu_words(self,Rect(1200,10,1900,100))
@@ -583,8 +584,14 @@ class RandomPlayApp(ZApplication):
             words=menu_words(self,Rect(400,300,1500,850))
             if (any(any(label in w for label in ('营业','生意兴隆','诚信经营','丁尼为本')) for w in words)
                     and '确认' in words and self._pad_business_confirms<6):
+                if any('生意兴隆' in w for w in words):
+                    self._business_success_seen=True
                 pad_press(self,'a');self._pad_business_confirms+=1
                 return self.round_retry('确认营业结果，等待实际营业页',wait=1)
+            # After the success popup the game closes the store page and returns to the counter.
+            if getattr(self,'_business_success_seen',False) and self.check_and_update_current_screen(
+                    self.last_screenshot, screen_name_list=['大世界-普通']) == '大世界-普通':
+                return self.round_success('已确认营业成功并返回大世界')
             return self.round_retry('等待录像店真实营业结果',wait=1)
         return self.round_by_find_and_click_area(self.last_screenshot, '影像店营业', '营业后确认',
                                                  retry_wait=1)
