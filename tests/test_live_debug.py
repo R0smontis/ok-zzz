@@ -321,3 +321,52 @@ def test_publish_strided_bgra_frame_matches_contiguous_resize(tmp_path):
     service.publish(view, 101, 1.0, None)
     expected = cv2.resize(np.ascontiguousarray(view), (1920, 1080), interpolation=cv2.INTER_AREA)
     assert np.array_equal(service.frame()['image'], expected)
+
+
+def test_dry_run_stops_before_named_node_without_running_it():
+    from types import SimpleNamespace
+    from onedragon.base.operation import dry_run
+    from onedragon.base.operation.operation import Operation
+    from onedragon.base.operation.operation_edge import node_from
+    from onedragon.base.operation.operation_node import operation_node
+    ran = []
+
+    class Probe(Operation):
+        @operation_node(name='入口', is_start_node=True)
+        def entry(self):
+            ran.append('入口')
+            return self.round_success()
+
+        @node_from(from_name='入口')
+        @operation_node(name='拆解确认')
+        def spend(self):
+            ran.append('拆解确认')
+            return self.round_success()
+
+    stopped = Mock()
+    run_context = SimpleNamespace(is_context_stop=False, is_context_pause=False, is_context_running=True,
+                                  stop_running=stopped, event_bus=Mock())
+    ctx = SimpleNamespace(run_context=run_context, unlisten_all_event=Mock(), controller=None,
+                          is_game_window_ready=True)
+    op = Probe(ctx, op_name='演练')
+    op.screenshot = lambda: None
+    dry_run.set_stop_before(['拆解确认'])
+    try:
+        result = op.execute()
+    finally:
+        hits = dry_run.hits()
+        dry_run.set_stop_before(())
+    assert ran == ['入口']
+    assert not result.success and '拆解确认' in result.status
+    stopped.assert_called_once()
+    assert hits == [{'operation': '演练', 'node': '拆解确认'}]
+
+
+def test_dry_run_list_is_only_accepted_on_task_start(tmp_path):
+    service = LiveDebugService(SubstituteGame(), tmp_path / 'live')
+    for bad in ({'op': 'task_stop', 'task': 'X', 'stop_before': ['a']},
+                {'op': 'task_start', 'task': 'X', 'stop_before': 'a'},
+                {'op': 'task_start', 'task': 'X', 'stop_before': [1]}):
+        with pytest.raises(LiveError):
+            service._validate(bad)
+    service._validate({'op': 'task_start', 'task': 'X', 'stop_before': ['点击拆解确认']})

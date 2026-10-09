@@ -22,6 +22,7 @@ import uuid
 
 import cv2
 
+from onedragon.base.operation import dry_run
 from src.runtime.frame_geometry import bgra_view
 
 
@@ -184,6 +185,7 @@ class LiveDebugService:
                 'capture_error': self.capture_error, 'runtime': self.runtime,
                 'frame': self.frame_metadata(self.frames[-1]) if self.frames else None,
                 'latest_event_seq': self.sequence, 'pending_commands': self.commands.qsize(),
+                'dry_run': {'stop_before': sorted(dry_run.stop_before()), 'hits': dry_run.hits()},
                 'commands': ['acquire', 'release', 'heartbeat', 'analyze', 'click', 'drag', 'scroll',
                              'key', 'action', 'task_start', 'task_pause', 'task_resume', 'task_stop']}
 
@@ -343,6 +345,11 @@ class LiveDebugService:
             raise LiveError('操作方式必须是messages或gamepad')
         if op.startswith('task_') and not isinstance(c.get('task'), str):
             raise LiveError('请指定任务class')
+        if 'stop_before' in c:
+            nodes = c['stop_before']
+            if (op != 'task_start' or not isinstance(nodes, list) or len(nodes) > 20
+                    or not all(isinstance(n, str) and 0 < len(n) <= 40 for n in nodes)):
+                raise LiveError('stop_before应为task_start的节点名称列表')
         if op == 'analyze' and 'roi' in c:
             if not isinstance(c['roi'], list) or len(c['roi']) != 4:
                 raise LiveError('roi应为[x,y,width,height]')
@@ -393,6 +400,8 @@ class LiveDebugService:
         if op.startswith('task_'):
             if self.owned:
                 self.release('操作自动任务')
+            if op == 'task_start':
+                dry_run.set_stop_before(c.get('stop_before') or ())
             return self.adapter.task(c['task'], op[5:])
         self._fresh_frame(c)
         self.lease_until = time.monotonic()+60

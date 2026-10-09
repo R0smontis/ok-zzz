@@ -97,3 +97,13 @@ POST `/release` 可立即中断当前输入并取消排队操作；POST `/cancel
 状态也包含 `capture_ready`、`interaction_class` 与捕获健康信息；分析结果额外核对普通大世界及控制器画面尺寸。
 Windows 10 2004及以上可尝试WGC，低于20348的系统保留捕获边框。全黑画面拒绝发布给任务和监控。
 捕获失败不会自动改用其他截图器；当前窗口持续无有效画面时停止输入，并报告截图问题。
+
+## 调试演练（stop_before）
+
+`task_start` 可带 `stop_before`：节点名称列表，最多 20 项。任务运行到这些节点之前会停止整个应用、不执行该节点，用于把会消耗资源或不可撤销的功能（拆解、兑换、接取委托、消耗次数）走到入口前做检查。
+
+```json
+{"op":"task_start","task":"App_DriveDiscDismantle","stop_before":["快速选择"]}
+```
+
+停止时写入日志 `调试演练：已到达 … 之前，停止执行`，`/status` 的 `dry_run.hits` 记录已触发的节点；列表只在带 `stop_before` 的 `task_start` 设置，且必须提供节点名称。该开关默认关闭，不带 `stop_before` 的启动不受影响。

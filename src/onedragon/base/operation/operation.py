@@ -507,6 +507,14 @@ class Operation(OperationBase):
                     op_result = self.op_fail(round_result.status)
                     break
             else:  # 继续下一个节点
+                from onedragon.base.operation import dry_run
+                if next_node.cn in dry_run.stop_before():
+                    # 调试演练：在会消耗资源或不可撤销的节点之前停止整个应用，不执行该节点。
+                    dry_run.record_hit(self.op_name, next_node.cn)
+                    log.info('%s 调试演练：已到达 %s 之前，停止执行', self.display_name, next_node.cn)
+                    self.ctx.run_context.stop_running()
+                    op_result = self.op_fail(f'调试演练停止于：{next_node.cn}')
+                    break
                 self._previous_round_result = round_result
                 self._previous_node = self._current_node
                 self._current_node = next_node
