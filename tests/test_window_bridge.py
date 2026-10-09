@@ -63,13 +63,43 @@ def test_bridge_rejects_unselected_and_mismatched_capture(monkeypatch):
     assert bridge._window_provider() == 0
 
 
-def test_capture_does_not_require_foreground_with_persisted_backend_names():
+def test_capture_does_not_require_foreground_for_any_interaction():
     from src.config import config
-    classes = config['windows']['interaction']
-    assert [cls.__name__ for cls in classes] == ['Pynput', 'PostMessage', 'ForegroundPostMessage', 'PyDirect', 'BackgroundGamepad']
-    for cls in classes:
-        backend = cls.__new__(cls)
-        assert backend.should_capture()
+    for cls in config['windows']['interaction']:
+        assert cls.__new__(cls).should_capture()
+
+
+@pytest.mark.parametrize('saved,expected', [('ForegroundPostMessage', 'Pynput'), ('PyDirect', 'Pynput'),
+                                            ('', 'Pynput'), ('PostMessage', 'PostMessage'),
+                                            ('BackgroundGamepad', 'BackgroundGamepad')])
+def test_saved_interaction_resolves_and_removed_choices_fall_back_to_foreground(
+        tmp_path, monkeypatch, saved, expected):
+    import json
+    from ok.device import DeviceManager as dm
+    from src.config import config
+    from src.controls.interaction import selected_gamepad_mode, selected_message_mode
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / 'configs').mkdir()
+    (tmp_path / 'configs' / 'devices.json').write_text(json.dumps({'interaction': saved}), encoding='utf-8')
+    monkeypatch.setattr(dm, 'HwndWindow', lambda *args, **kwargs: SimpleNamespace())
+    monkeypatch.setattr(dm, 'Handler', lambda *args, **kwargs: SimpleNamespace())
+    manager = dm.DeviceManager({'windows': dict(config['windows'])})
+    chosen = manager.win_interaction_class
+    assert chosen.__name__ == expected
+    manager.interaction = chosen.__new__(chosen)
+    assert selected_gamepad_mode(manager) is (expected == 'BackgroundGamepad')
+    assert selected_message_mode(manager) is (expected == 'PostMessage')
+
+
+def test_interaction_list_shows_program_specific_labels():
+    from PySide6.QtWidgets import QApplication
+    from ok.ui.qt.start.SelectInteractionListView import SelectInteractionListView
+    from src.controls.interaction import INTERACTIONS, install_interaction_labels
+    QApplication.instance() or QApplication([])
+    install_interaction_labels()
+    view = SelectInteractionListView(lambda: None)
+    assert [view.tr(c.__name__) for c in INTERACTIONS] == [c.label for c in INTERACTIONS]
+    assert view.tr('Default Interaction')
 
 
 def test_missing_gamepad_never_falls_back_to_foreground_input(monkeypatch):

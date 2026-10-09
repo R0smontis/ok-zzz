@@ -64,6 +64,7 @@ from zzz_od.operation.challenge_mission.exit_in_battle import ExitInBattle
 from zzz_od.operation.challenge_mission.restart_in_battle import RestartInBattle
 from zzz_od.operation.zzz_operation import ZOperation
 from zzz_od.application.hollow_zero.lost_void.mission_screen import common_choice, recover_connection, battle_result, failed_grade, single_event_choice, black_story_caption, entry_header, menu_matches, lottery_counts
+from src.controls.gamepad import press as pad
 
 
 class LostVoidRunLevel(ZOperation):
@@ -672,8 +673,7 @@ class LostVoidRunLevel(ZOperation):
                 if (target.name == LostVoidInteractNPC.AO_FEI_LI_YA.value
                         and self.ctx.lost_void.had_interacted_ophelia_on_current_level):
                     if getattr(self.ctx.controller, 'background_mode', False):
-                        ds4=self.ctx.game_config.background_gamepad_type == 'ds4'
-                        self.ctx.controller.btn_press('ds4_circle' if ds4 else 'xbox_b', press_time=.12)
+                        pad(self.ctx, 'b')
                         return self.round_wait('手柄关闭重复武备菜单，等待实际返回', wait=.5)
                     result = self.round_by_find_and_click_area(self.last_screenshot,
                         '迷失之地-武备选择', '按钮-返回', success_wait=1, retry_wait=.5)
@@ -733,8 +733,7 @@ class LostVoidRunLevel(ZOperation):
                     requests = requests if previous == caption else 0
                     if requests >= 3:
                         return self.round_fail('事件叙述确认后页面未关闭')
-                    ds4 = self.ctx.game_config.background_gamepad_type == 'ds4'
-                    self.ctx.controller.btn_press('ds4_cross' if ds4 else 'xbox_a', press_time=.12)
+                    pad(self.ctx, 'a')
                     self._black_story_confirm = (caption, requests + 1)
                     return self.round_wait('确认已核验的黑底事件叙述，等待画面变化', wait=1)
                 return self.round_wait(status='等待黑屏加载结束，未操作', wait=.5)
@@ -778,8 +777,7 @@ class LostVoidRunLevel(ZOperation):
         requests = getattr(self, '_challenge_confirm_requests', 0)
         if requests >= 3:
             return self.round_fail('挑战确认后弹窗仍未关闭')
-        ds4 = self.ctx.game_config.background_gamepad_type == 'ds4'
-        self.ctx.controller.btn_press('ds4_cross' if ds4 else 'xbox_a', press_time=.12)
+        pad(self.ctx, 'a')
         self._challenge_confirm_requests = requests + 1
         return self.round_success('按钮-挑战-确认', wait=.5)
 
@@ -911,17 +909,16 @@ class LostVoidRunLevel(ZOperation):
             return self.round_wait('等待对话选项黄色焦点，未操作', wait=.5)
         target = rows[0] if rows else None
         y1,y2 = bands[0]
-        ds4 = self.ctx.game_config.background_gamepad_type == 'ds4'
         if target is not None and not y1 <= target.center.y <= y2:
             if self._talk_pad_moves >= 6:
                 return self.round_fail('手柄对话选项焦点移动未生效')
             direction = 'up' if target.center.y < y1 else 'down'
-            self.ctx.controller.btn_press(f'ds4_dpad_{direction}' if ds4 else f'xbox_dpad_{direction}',press_time=.12)
+            pad(self.ctx, f'dpad_{direction}')
             self._talk_pad_moves += 1
             return self.round_wait('移动至首个对话选项，等待新画面核验',wait=.5)
         if self._talk_pad_requests >= 3:
             return self.round_fail('手柄确认对话选项后画面未变化')
-        self.ctx.controller.btn_press('ds4_cross' if ds4 else 'xbox_a',press_time=.12)
+        pad(self.ctx, 'a')
         self._talk_pad_requests += 1
         text = target.data if target is not None else '符号选项'
         return self.round_wait(f'手柄确认对话选项：{text}，等待新画面核验',wait=.5)
@@ -1266,9 +1263,7 @@ class LostVoidRunLevel(ZOperation):
             if requests >= 3:
                 return self.round_fail('挑战结果确认未生效')
             self._result_requests = requests + 1
-            ds4 = self.ctx.game_config.background_gamepad_type == 'ds4'
-            key = ('ds4_circle' if ds4 else 'xbox_b') if wanted == '完成' else ('ds4_cross' if ds4 else 'xbox_a')
-            self.ctx.controller.btn_press(key, press_time=.12)
+            pad(self.ctx, 'b' if wanted == '完成' else 'a')
             return self.round_wait('确认挑战结果，等待结算页关闭', wait=.8)
         if action is None and getattr(self, '_result_requests', 0):
             if (self.ctx.lost_void.in_normal_world(self.last_screenshot)
@@ -1349,8 +1344,7 @@ class LostVoidRunLevel(ZOperation):
                 return self.round_retry('未识别撤退按钮，未操作',wait=.5)
             if requests >= 3:
                 return self.round_fail('失败撤退未生效')
-            ds4 = self.ctx.game_config.background_gamepad_type == 'ds4'
-            self.ctx.controller.btn_press('ds4_circle' if ds4 else 'xbox_b',press_time=.12)
+            pad(self.ctx, 'b')
             self._retreat_requests = requests + 1
             return self.round_wait('失败撤退，等待结算画面',wait=.8)
         return self.round_by_find_and_click_area(screen_name='迷失之地-战斗失败', area_name='按钮-撤退',

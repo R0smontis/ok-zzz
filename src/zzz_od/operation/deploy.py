@@ -10,6 +10,7 @@ from onedragon.base.operation.operation_round_result import OperationRoundResult
 from onedragon.utils.i18_utils import gt
 from zzz_od.context.zzz_context import ZContext
 from zzz_od.operation.zzz_operation import ZOperation
+from src.controls.gamepad import press as pad
 
 
 class Deploy(ZOperation):
@@ -31,8 +32,7 @@ class Deploy(ZOperation):
                 if self._deploy_requests >= 5:
                     return self.round_fail('手柄出战后画面未变化，请检查游戏状态')
                 self._deploy_requests += 1
-                ds4 = self.ctx.game_config.background_gamepad_type == 'ds4'
-                self.ctx.controller.btn_press('ds4_options' if ds4 else 'xbox_start', press_time=.12)
+                pad(self.ctx, 'start')
                 return self.round_wait('手柄出战，等待画面变化', wait=1)
             if self._deploy_requests:
                 return self.round_success('已离开出战画面', wait=1)
@@ -55,8 +55,7 @@ class Deploy(ZOperation):
             for area in ('按钮-队员数量少-确认', '按钮-等级低-确定并出战'):
                 result = self.round_by_find_area(self.last_screenshot, '通用-出战', area)
                 if result.is_success:
-                    ds4 = self.ctx.game_config.background_gamepad_type == 'ds4'
-                    self.ctx.controller.btn_press('ds4_cross' if ds4 else 'xbox_a', press_time=.12)
+                    pad(self.ctx, 'a')
                     return self.round_wait(result.status, wait=1)
             if self.node_retry_times == self.node_max_retry_times - 1:
                 return self.round_success('无需确认', wait=1)

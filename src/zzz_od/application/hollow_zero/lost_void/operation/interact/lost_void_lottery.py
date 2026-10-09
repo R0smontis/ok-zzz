@@ -17,6 +17,7 @@ from zzz_od.application.hollow_zero.lost_void.operation.interact.lost_void_choos
 from zzz_od.context.zzz_context import ZContext
 from zzz_od.operation.zzz_operation import ZOperation
 from zzz_od.application.hollow_zero.lost_void.mission_screen import common_choice, lottery_counts
+from src.controls.gamepad import press as pad
 
 
 class LostVoidLottery(ZOperation):
@@ -118,9 +119,7 @@ class LostVoidLottery(ZOperation):
         return self.round_success()
 
     def _pad(self, action):
-        ds4 = self.ctx.game_config.background_gamepad_type == 'ds4'
-        key = ('ds4_circle' if ds4 else 'xbox_b') if action == 'back' else ('ds4_cross' if ds4 else 'xbox_a')
-        self.ctx.controller.btn_press(key, press_time=.12)
+        pad(self.ctx, 'b' if action == 'back' else 'a')
 
 
 

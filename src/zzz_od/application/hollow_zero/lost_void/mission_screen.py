@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 
 from onedragon.base.geometry.rectangle import Rect
+from src.controls.gamepad import press as pad
 
 MISSION_NAMES = ('战线肃清', '特遣调查')
 ENTRY_TITLES = Rect(700, 280, 1850, 430)
@@ -67,8 +68,7 @@ def recover_connection(op):
     op._connection_requests = requests + 1
     op._connection_wait_until = time.time() + 30
     if getattr(op.ctx.controller, 'background_mode', False):
-        key = 'ds4_cross' if op.ctx.game_config.background_gamepad_type == 'ds4' else 'xbox_a'
-        op.ctx.controller.btn_press(key, press_time=.12)
+        pad(op.ctx, 'a')
     else:
         op.ctx.controller.click(next(row.center for row in rows if str(row.data).replace(' ', '') == '继续连接'))
     return op.round_wait('服务器连接超时，确认继续连接并等待恢复', wait=2)

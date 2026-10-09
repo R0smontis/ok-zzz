@@ -43,6 +43,7 @@ from zzz_od.operation.back_to_normal_world import BackToNormalWorld
 from zzz_od.operation.choose_predefined_team import ChoosePredefinedTeam
 from zzz_od.operation.compendium.tp_by_compendium import TransportByCompendium
 from zzz_od.operation.deploy import Deploy
+from src.controls.gamepad import press as pad
 
 
 class LostVoidApp(ZApplication):
@@ -132,8 +133,7 @@ class LostVoidApp(ZApplication):
                 requests = getattr(self, '_resume_menu_requests', 0)
                 if requests >= 3:
                     return self.round_fail('战斗暂停菜单关闭未生效')
-                ds4 = self.ctx.game_config.background_gamepad_type == 'ds4'
-                self.ctx.controller.btn_press('ds4_circle' if ds4 else 'xbox_b',press_time=.12)
+                pad(self.ctx, 'b')
                 self._resume_menu_requests = requests + 1
                 return self.round_wait('手柄关闭战斗暂停菜单，等待恢复',wait=.8)
         result = self.round_by_find_area(self.last_screenshot, '迷失之地-大世界', '按钮-挑战-确认') if background else self.round_by_find_and_click_area(self.last_screenshot, '迷失之地-大世界', '按钮-挑战-确认')
@@ -652,18 +652,9 @@ class LostVoidApp(ZApplication):
         return result
 
     def _mission_pad(self, action):
-        ds4 = self.ctx.game_config.background_gamepad_type == 'ds4'
-        key = {'back': 'ds4_circle' if ds4 else 'xbox_b',
-               'regular': 'ds4_r1' if ds4 else 'xbox_rb',
-               'confirm': 'ds4_cross' if ds4 else 'xbox_a',
-               'left': 'ds4_dpad_left' if ds4 else 'xbox_dpad_left',
-               'right': 'ds4_dpad_right' if ds4 else 'xbox_dpad_right',
-               'up': 'ds4_dpad_up' if ds4 else 'xbox_dpad_up',
-               'down': 'ds4_dpad_down' if ds4 else 'xbox_dpad_down',
-               'strategy': 'ds4_triangle' if ds4 else 'xbox_y',
-               'claim_all': 'ds4_square' if ds4 else 'xbox_x',
-               'next': 'ds4_options' if ds4 else 'xbox_start'}[action]
-        self.ctx.controller.btn_press(key, press_time=.12)
+        pad(self.ctx, {'back': 'b', 'regular': 'rb', 'confirm': 'a',
+                       'left': 'dpad_left', 'right': 'dpad_right', 'up': 'dpad_up', 'down': 'dpad_down',
+                       'strategy': 'y', 'claim_all': 'x', 'next': 'start'}[action])
 
     @node_from(from_name='前往副本画面')
     @node_from(from_name='识别初始画面', status='已在目标副本详情')
@@ -1068,8 +1059,7 @@ class LostVoidApp(ZApplication):
             if requests >= 3:
                 return self.round_fail('最终结算确认未生效')
             self._final_result_requests = requests + 1
-            ds4 = self.ctx.game_config.background_gamepad_type == 'ds4'
-            self.ctx.controller.btn_press('ds4_circle' if ds4 else 'xbox_b', press_time=.12)
+            pad(self.ctx, 'b')
             return self.round_wait('仍在最终结算，确认完成并等待入口核验', wait=1)
         result = self._wait_for_lost_void_entry()
         if not result.is_success:

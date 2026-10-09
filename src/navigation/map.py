@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 from onedragon.base.geometry.rectangle import Rect
 from onedragon.utils import os_utils
+from src.controls.gamepad import is_ds4, pad_key, press as pad
 
 
 def _text(value):
@@ -49,11 +50,7 @@ def map_state(op, screen):
 
 
 def _press(op, button, duration=.12):
-    ds4 = op.ctx.game_config.background_gamepad_type == 'ds4'
-    names = {'back': 'ds4_circle' if ds4 else 'xbox_b',
-             'confirm': 'ds4_cross' if ds4 else 'xbox_a'}
-    key = names.get(button) or ('ds4_' if ds4 else 'xbox_') + button
-    op.ctx.controller.btn_press(key, press_time=duration)
+    pad(op.ctx, {'back': 'b', 'confirm': 'a'}.get(button, button), duration)
 
 
 def _match(value, target):
@@ -261,7 +258,7 @@ def choose_point(op, screen):
             values = cv2.matchTemplate(screen[975:1060, 1150:1250], raw, cv2.TM_SQDIFF_NORMED, mask=mask)
             zoom_visible = cv2.minMaxLoc(np.nan_to_num(values, nan=10, posinf=10, neginf=10))[0] < .18
         if (op.tp_name in ('吼吼饼铺', '咖啡店', '柜台', '房间') and zooms < 3 and zoom_visible):
-            _press(op, 'r2' if op.ctx.game_config.background_gamepad_type == 'ds4' else 'rt', .2)
+            _press(op, 'rt', .2)
             op._background_map_zooms = zooms + 1
             return op.round_retry(f'目标图标被遮挡，放大地图后重新识别：{op.tp_name}', wait=.8)
         return op.round_retry(f'未识别 {op.tp_name} 图标，未发送移动', wait=.6)
@@ -292,11 +289,11 @@ def choose_point(op, screen):
         duration = max(.10, duration)
     action = ('move_a' if delta>0 else 'move_d') if axis=='x' else ('move_w' if delta>0 else 'move_s')
     op._background_map_motion = (axis, x if axis=='x' else y, duration, .35 if slow else 1)
-    keys = op.ctx.game_config.get_action_keys('ds4' if op.ctx.game_config.background_gamepad_type=='ds4' else 'xbox')
+    keys = op.ctx.game_config.get_action_keys('ds4' if is_ds4(op.ctx) else 'xbox')
     key=keys[action]
     if slow:
         direction={'move_a':'left','move_d':'right','move_w':'up','move_s':'down'}[action]
-        key=('ds4_' if op.ctx.game_config.background_gamepad_type=='ds4' else 'xbox_')+'ls_slow_'+direction
+        key=pad_key(op.ctx, 'ls_slow_'+direction)
     op.ctx.controller.btn_press(key, press_time=duration)
     return op.round_retry(f'手柄定位 {op.tp_name}：图标 ({int(x)}, {int(y)})，当前详情 {state["point"] or "无"}', wait=.65)
 

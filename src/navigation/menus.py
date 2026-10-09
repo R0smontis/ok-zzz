@@ -1,6 +1,7 @@
 """Verified controller navigation for background application menus."""
 import numpy as np
 from onedragon.base.geometry.rectangle import Rect
+from src.controls.gamepad import is_ds4, press as pad
 
 TABS=('目标','日常','训练','作战','战术')
 
@@ -91,7 +92,7 @@ def lost_void_gateway(op, screen):
         return None
     def marker(rect):
         part=screen[rect.y1:rect.y2,rect.x1:rect.x2].astype(np.int16)
-        if op.ctx.game_config.background_gamepad_type=='ds4':
+        if is_ds4(op.ctx):
             active=(part[:,:,2]>90)&(part[:,:,2]>part[:,:,0]*1.3)&(part[:,:,2]>part[:,:,1]*1.2)
         else:
             active=(part[:,:,1]>70)&(part[:,:,1]>part[:,:,0]*1.5)&(part[:,:,1]>part[:,:,2]*1.3)
@@ -108,10 +109,7 @@ def lost_void_gateway(op, screen):
 
 
 def pad_press(op, button, duration=.12):
-    ds4=op.ctx.game_config.background_gamepad_type=='ds4'
-    names={'a':'cross','b':'circle','x':'square','y':'triangle','lb':'l1','rb':'r1'}
-    key='ds4_'+names.get(button,button) if ds4 else 'xbox_'+button
-    op.ctx.controller.btn_press(key,press_time=duration)
+    pad(op.ctx, button, duration)
 
 
 def menu_words(op, rect, screen=None):
@@ -196,7 +194,7 @@ def compendium_tab(op, screen, target):
         requests=getattr(op,'_compendium_back_requests',0)
         if requests>=3:
             return op.round_fail('快捷手册返回大世界未生效')
-        op.ctx.controller.btn_press('ds4_circle' if op.ctx.game_config.background_gamepad_type=='ds4' else 'xbox_b',press_time=.12)
+        pad(op.ctx, 'b')
         op._compendium_back_requests=requests+1
         return op.round_wait('手柄关闭快捷手册，等待实际大世界',wait=1)
     if current==targets[target]:
@@ -208,8 +206,6 @@ def compendium_tab(op, screen, target):
     if count>=3:
         return op.round_fail(f'快捷手册页签切换未生效：{current} → {targets[target]}')
     direction='lb' if TABS.index(targets[target])<TABS.index(current) else 'rb'
-    ds4=op.ctx.game_config.background_gamepad_type=='ds4'
-    key=('ds4_l1' if direction=='lb' else 'ds4_r1') if ds4 else 'xbox_'+direction
-    op.ctx.controller.btn_press(key,press_time=.12)
+    pad(op.ctx, direction)
     op._compendium_tab_requests=(signature,count+1)
     return op.round_wait(f'手柄切换快捷手册页签：{current} → {targets[target]}，等待实际画面',wait=.8)

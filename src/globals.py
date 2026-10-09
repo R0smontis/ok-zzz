@@ -23,6 +23,8 @@ class Globals:
         install_win32_compat()
         from src.controls.capture_compat import install_capture_compat
         install_capture_compat()
+        from src.controls.interaction import install_interaction_labels
+        install_interaction_labels()
         from src.runtime.logging_bridge import install_runtime_logging
         install_runtime_logging()
         from src.tasks.option_widgets import install_option_widgets

@@ -29,6 +29,7 @@ from zzz_od.application.hollow_zero.lost_void.operation.interact.lost_void_choos
 from zzz_od.context.zzz_context import ZContext
 from zzz_od.application.hollow_zero.lost_void.mission_screen import common_choice
 from zzz_od.operation.zzz_operation import ZOperation
+from src.controls.gamepad import press as pad
 
 
 class LostVoidBangbooStore(ZOperation):
@@ -140,10 +141,7 @@ class LostVoidBangbooStore(ZOperation):
         return self.round_success(target_item.name, wait=1)
 
     def _pad(self, action):
-        ds4 = self.ctx.game_config.background_gamepad_type == 'ds4'
-        keys = {'confirm': 'ds4_cross' if ds4 else 'xbox_a',
-                'back': 'ds4_circle' if ds4 else 'xbox_b'}
-        self.ctx.controller.btn_press(keys.get(action, ('ds4_' if ds4 else 'xbox_')+'dpad_'+action), press_time=.12)
+        pad(self.ctx, {'confirm': 'a', 'back': 'b'}.get(action, 'dpad_'+action))
 
     def _gold_balance(self):
         matches = self.ctx.ocr_service.get_ocr_result_list(image=self.last_screenshot, rect=Rect(1620,20,1790,85))

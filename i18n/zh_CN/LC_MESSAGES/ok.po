@@ -636,3 +636,6 @@ msgstr "刷本计划"
 
 msgid "BackgroundGamepad"
 msgstr "手柄后台操作"
+
+msgid "roxy"
+msgstr "洛克茜"

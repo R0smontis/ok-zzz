@@ -15,6 +15,7 @@ from zzz_od.application.zzz_application import ZApplication
 from zzz_od.context.zzz_context import ZContext
 from zzz_od.operation.back_to_normal_world import BackToNormalWorld
 from zzz_od.operation.transport import Transport
+from src.controls.gamepad import press as pad
 
 
 class HouHouBakeryApp(ZApplication):
@@ -93,8 +94,7 @@ class HouHouBakeryApp(ZApplication):
                 words += ('继续',)
             for word in words:
                 if self.round_by_ocr(self.last_screenshot, word).is_success:
-                    key = 'ds4_cross' if self.ctx.game_config.background_gamepad_type == 'ds4' else 'xbox_a'
-                    self.ctx.controller.btn_press(key, press_time=.12)
+                    pad(self.ctx, 'a')
                     if word in ('确定', '确认'):
                         self.claimed = True
                     self._background_box_open = True

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """ok-zzz 应用配置（ok-script config 字典）。"""
 from ok import ConfigOption
-from src.controls.interaction import Pynput, PostMessage, ForegroundPostMessage, PyDirect, BackgroundGamepad
+from src.controls.interaction import INTERACTIONS
 from src.controls.hotkey_settings import validate_hotkey
 from src.runtime.inference import recognition_config
 from src.controls.application_input import task_input_config
@@ -65,9 +65,9 @@ config = {
         # 绝区零 PC 客户端：进程名与窗口类（P1 实机校准项，可在 configs 覆盖）
         'exe': ['ZenlessZoneZero.exe'],
         'hwnd_class': 'UnityWndClass',
-        # Pynput: 前台键鼠; PostMessage: 后台消息键鼠(需实测 ZZZ 是否接受);
-        # 游戏手柄后台模式由 ZzzController 的虚拟手柄承担（见 tasks/auto_combat_task）
-        'interaction': [Pynput, PostMessage, ForegroundPostMessage, PyDirect, BackgroundGamepad],
+        # 选择只决定 ZzzController 的输入模式；列表首项也是旧选项（已移除的
+        # ForegroundPostMessage/PyDirect，行为与前台键鼠相同）的回退目标。
+        'interaction': INTERACTIONS,
         'capture_method': ['WGC', 'BitBlt_RenderFull', 'BitBlt'],
         'check_hdr': False,
         'force_no_hdr': False,

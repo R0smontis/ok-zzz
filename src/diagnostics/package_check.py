@@ -50,7 +50,9 @@ def run_package_check():
         assert (root / relative).is_file(), f'缺少资源：{relative}'
     translations = gettext.translation('ok', str(root / 'i18n'), languages=['zh_CN'])
     assert translations.gettext('matrix_team_mode') == '矩阵行动编队方式'
-    assert translations.gettext('BackgroundGamepad') == '手柄后台操作'
+    from src.controls.interaction import INTERACTIONS, install_interaction_labels
+    install_interaction_labels()
+    assert [cls.__name__ for cls in INTERACTIONS] == ['Pynput', 'PostMessage', 'BackgroundGamepad']
 
     qt = QApplication.instance() or QApplication([])
     app = SimpleNamespace(tr=translations.gettext)

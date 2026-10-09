@@ -12,6 +12,7 @@ from onedragon.utils.log_utils import log
 from zzz_od.context.zzz_context import ZContext
 from zzz_od.operation.zzz_operation import ZOperation
 from zzz_od.application.hollow_zero.lost_void.mission_screen import collection_tab
+from src.controls.gamepad import press as pad
 
 
 class UpdatePriorityOperation(ZOperation):
@@ -56,9 +57,7 @@ class UpdatePriorityOperation(ZOperation):
             if tab == '藏品':
                 return self.round_success('已核验藏品页签', wait=.3)
             if tab in ('地图', '属性'):
-                ds4 = self.ctx.game_config.background_gamepad_type == 'ds4'
-                key = ('ds4_r1' if ds4 else 'xbox_rb') if tab == '地图' else ('ds4_l1' if ds4 else 'xbox_lb')
-                self.ctx.controller.btn_press(key, press_time=.12)
+                pad(self.ctx, 'rb' if tab == '地图' else 'lb')
                 return self.round_wait('切换藏品页签，等待画面核验', wait=.5)
             if self.ctx.lost_void.in_normal_world(self.last_screenshot):
                 keys = self.ctx.game_config.get_gamepad_action_keys().get('minimap', [])
@@ -165,8 +164,7 @@ class UpdatePriorityOperation(ZOperation):
                 return self.round_success('已核验藏品面板关闭')
             if collection_tab(self.last_screenshot) is None:
                 return self.round_retry('等待藏品面板返回结果，未操作', wait=.5)
-            ds4 = self.ctx.game_config.background_gamepad_type == 'ds4'
-            self.ctx.controller.btn_press('ds4_circle' if ds4 else 'xbox_b', press_time=.12)
+            pad(self.ctx, 'b')
             return self.round_wait('手柄关闭藏品面板，等待画面核验', wait=.5)
         return self.round_by_find_and_click_area(screen_name='迷失之地-藏品面板', area_name='返回按钮',
                                                  success_wait=1, retry_wait=1,

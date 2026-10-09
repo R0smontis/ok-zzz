@@ -23,6 +23,7 @@ from zzz_od.application.hollow_zero.lost_void.operation.interact.lost_void_artif
 from zzz_od.context.zzz_context import ZContext
 from zzz_od.operation.zzz_operation import ZOperation
 from zzz_od.application.hollow_zero.lost_void.mission_screen import focused_gear
+from src.controls.gamepad import press as pad
 
 
 def normalize_gear_name(text):
@@ -100,13 +101,8 @@ class LostVoidChooseGear(ZOperation):
         return self.round_success(wait=0.5)
 
     def _pad(self, action):
-        ds4=self.ctx.game_config.background_gamepad_type == 'ds4'
-        keys={'left':'ds4_dpad_left' if ds4 else 'xbox_dpad_left',
-              'right':'ds4_dpad_right' if ds4 else 'xbox_dpad_right',
-              'confirm':'ds4_cross' if ds4 else 'xbox_a',
-              'back':'ds4_circle' if ds4 else 'xbox_b',
-              'unlock':'ds4_triangle' if ds4 else 'xbox_y'}
-        self.ctx.controller.btn_press(keys[action],press_time=.12)
+        pad(self.ctx, {'left': 'dpad_left', 'right': 'dpad_right', 'confirm': 'a',
+                       'back': 'b', 'unlock': 'y'}[action])
 
     def _choose_gear_with_pad(self):
         if self._pad_scan is None:

@@ -10,8 +10,7 @@ def main():
     import polib
     from src.tasks.app_option_ui import OPTION_LABELS, option_schema
     from zzz_od.application.app_options_data import APP_OPTIONS
-    labels = {**OPTION_LABELS, 'Game Hotkey Config': '游戏战斗键位',
-              'BackgroundGamepad': '手柄后台操作'}
+    labels = {**OPTION_LABELS, 'Game Hotkey Config': '游戏战斗键位'}
     for app in APP_OPTIONS:
         for option in app.get('options', []):
             schema = option_schema(app['app_id'], option['key'])

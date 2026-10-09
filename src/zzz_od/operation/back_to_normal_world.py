@@ -16,6 +16,7 @@ from zzz_od.hollow_zero.event import hollow_event_utils
 from zzz_od.hollow_zero.hollow_exit_by_menu import HollowExitByMenu
 from zzz_od.operation.map_transport import MapTransport
 from zzz_od.operation.zzz_operation import ZOperation
+from src.controls.gamepad import press as pad
 
 
 class BackToNormalWorld(ZOperation):
@@ -69,7 +70,7 @@ class BackToNormalWorld(ZOperation):
             if lost_void_gateway_visible(self, self.last_screenshot):
                 if self._background_menu_back >= 6:
                     return self.round_fail('深层调查入口返回未生效')
-                self.ctx.controller.btn_press('ds4_circle' if self.ctx.game_config.background_gamepad_type == 'ds4' else 'xbox_b', press_time=.12)
+                pad(self.ctx, 'b')
                 self._background_menu_back += 1
                 return self.round_retry('手柄离开已核验的深层调查入口，等待实际画面', wait=1)
             from src.navigation.map import return_from_map
@@ -83,7 +84,7 @@ class BackToNormalWorld(ZOperation):
                 requests=getattr(self,'_background_menu_back',0)
                 if requests>=6:
                     return self.round_fail('营业结果确认未关闭')
-                self.ctx.controller.btn_press('ds4_cross' if self.ctx.game_config.background_gamepad_type=='ds4' else 'xbox_a',press_time=.12)
+                pad(self.ctx, 'a')
                 self._background_menu_back=requests+1
                 return self.round_retry('确认已开始营业的结果，等待实际菜单',wait=1)
             rows = self.ctx.ocr_service.get_ocr_result_list(image=self.last_screenshot, rect=Rect(600, 850, 1920, 1060))
@@ -97,8 +98,7 @@ class BackToNormalWorld(ZOperation):
                 requests = getattr(self, '_background_menu_back', 0)
                 if requests >= 6:
                     return self.round_fail('手柄返回大世界未生效，当前菜单仍显示返回')
-                key = 'ds4_circle' if self.ctx.game_config.background_gamepad_type == 'ds4' else 'xbox_b'
-                self.ctx.controller.btn_press(key, press_time=.12)
+                pad(self.ctx, 'b')
                 self._background_menu_back = requests + 1
                 return self.round_retry('手柄返回，等待实际大世界画面', wait=1)
 

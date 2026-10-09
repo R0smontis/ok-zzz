@@ -22,6 +22,7 @@ from zzz_od.application.hollow_zero.lost_void.operation.interact.lost_void_artif
 from zzz_od.context.zzz_context import ZContext
 from zzz_od.operation.zzz_operation import ZOperation
 from zzz_od.application.hollow_zero.lost_void.mission_screen import common_choice, focused_card, battle_result, single_event_choice, lottery_counts
+from src.controls.gamepad import press as pad
 
 
 class LostVoidChooseCommon(ZOperation):
@@ -204,12 +205,7 @@ class LostVoidChooseCommon(ZOperation):
         return (('武备' if self.to_choose_gear else '藏品'), *names, *quantity) if names and confirm else None
 
     def _pad(self, action):
-        ds4 = self.ctx.game_config.background_gamepad_type == 'ds4'
-        if action == 'submit':
-            key = 'ds4_square' if ds4 else 'xbox_x'
-        else:
-            key = ('ds4_cross' if ds4 else 'xbox_a') if action == 'confirm' else ('ds4_' if ds4 else 'xbox_') + 'dpad_' + action
-        self.ctx.controller.btn_press(key, press_time=.12)
+        pad(self.ctx, {'submit': 'x', 'confirm': 'a'}.get(action, 'dpad_' + action))
 
     def _choose_multiple_with_pad(self, screen, candidates, chosen):
         count = self._get_chosen_count_from_confirm_button(screen, self.to_choose_num)

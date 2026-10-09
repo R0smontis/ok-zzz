@@ -11,6 +11,7 @@ from onedragon.base.geometry.rectangle import Rect
 from onedragon.utils.i18_utils import gt
 from zzz_od.context.zzz_context import ZContext
 from zzz_od.operation.zzz_operation import ZOperation
+from src.controls.gamepad import press as pad
 
 
 class RestartInBattle(ZOperation):
@@ -87,9 +88,7 @@ class RestartInBattle(ZOperation):
         return {str(m.data).replace(' ', '') for m in matches}
 
     def _pad(self, button):
-        ds4 = self.ctx.game_config.background_gamepad_type == 'ds4'
-        mapped = {'start':'options','x':'square','y':'triangle','a':'cross','b':'circle'} if ds4 else {}
-        self.ctx.controller.btn_press(('ds4_' if ds4 else 'xbox_')+mapped.get(button,button),press_time=.12)
+        pad(self.ctx, button)
 
     def _confirm_focus(self):
         hsv = cv2.cvtColor(self.last_screenshot, cv2.COLOR_RGB2HSV)

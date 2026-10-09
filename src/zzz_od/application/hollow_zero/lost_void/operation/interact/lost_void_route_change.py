@@ -8,6 +8,7 @@ from onedragon.base.operation.operation_round_result import OperationRoundResult
 from zzz_od.context.zzz_context import ZContext
 from zzz_od.operation.zzz_operation import ZOperation
 from zzz_od.application.hollow_zero.lost_void.mission_screen import dialogue_visible
+from src.controls.gamepad import press as pad
 
 
 class LostVoidRouteChange(ZOperation):
@@ -30,8 +31,7 @@ class LostVoidRouteChange(ZOperation):
                     return self.round_retry('等待路径迭换菜单，未操作', wait=.5)
                 if getattr(self, '_back_requested', False):
                     return self.round_wait('等待路径菜单关闭', wait=.5)
-                ds4=self.ctx.game_config.background_gamepad_type == 'ds4'
-                self.ctx.controller.btn_press('ds4_circle' if ds4 else 'xbox_b', press_time=.12)
+                pad(self.ctx, 'b')
                 self._back_requested = True
                 return self.round_wait('返回路径菜单，等待画面确认', wait=.5)
             result = self.round_by_find_and_click_area(self.last_screenshot, '迷失之地-路径迭换', '按钮-返回')
