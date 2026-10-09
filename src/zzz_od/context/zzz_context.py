@@ -112,7 +112,7 @@ class ZContext(ContextEventBus):
         return self._get_or_create('map_service', create)
 
     def navigate_background_screen(self, operation, screen, target):
-        from src.background_navigation import compendium_tab
+        from src.navigation.menus import compendium_tab
         return compendium_tab(operation, screen, target)
 
     @property

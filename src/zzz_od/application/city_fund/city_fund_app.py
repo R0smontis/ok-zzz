@@ -13,7 +13,7 @@ from zzz_od.context.zzz_context import ZContext
 from zzz_od.operation.back_to_normal_world import BackToNormalWorld
 from zzz_od.operation.goto.goto_menu import GotoMenu
 from onedragon.base.geometry.rectangle import Rect
-from src.background_navigation import menu_words, main_menu_target, selected_tab, pad_press
+from src.navigation.menus import menu_words, main_menu_target, selected_tab, pad_press
 
 
 class CityFundApp(ZApplication):

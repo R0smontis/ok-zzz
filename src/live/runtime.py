@@ -7,7 +7,7 @@ import win32gui
 from PySide6.QtCore import QObject, Signal, Slot
 from ok import og
 
-from src.live_debug import LiveError
+from src.live.service import LiveError
 
 
 def runtime_xbox_pad(context):
@@ -76,7 +76,7 @@ class GameRuntime:
         self.input_trace = None
 
     def start_observing(self):
-        from src.user_input_trace import GameInputTrace
+        from src.controls.user_input_trace import GameInputTrace
         self.input_trace = GameInputTrace(lambda: self.target()['hwnd'], self.service.event)
         try:
             self.input_trace.start()
@@ -122,7 +122,7 @@ class GameRuntime:
         if self.target()['geometry'] != target['geometry']:
             return None
         now = time.time()
-        from src.diagnostics import recorder
+        from src.diagnostics.recorder import recorder
         recorder.observe(image, captured_at=now)
         return image, target['hwnd'], now, target['geometry']
 
@@ -130,7 +130,7 @@ class GameRuntime:
         executor = og.executor
         context = getattr(self.app, '_context', None)
         current = getattr(executor, 'current_task', None)
-        from src.inference import runtime_status
+        from src.runtime.inference import runtime_status
         result = {'executor_paused': bool(executor.paused), 'window': self.target(),
             'capture_ready': bool(executor.can_capture()),
             'interaction_class': type(executor.interaction).__name__,
@@ -185,7 +185,7 @@ class GameRuntime:
         try:
             context = self.gui.call(self._stop_automation)
             from onedragon.base.controller.pc_game_window import PcGameWindow
-            from src.window_input import WindowMessageInput
+            from src.controls.window_input import WindowMessageInput
             window = PcGameWindow()
             def bound_hwnd():
                 owned_target = self.control_target
@@ -287,8 +287,8 @@ class GameRuntime:
             return backend.scroll(int(c['amount']), Point(c['x'], c['y']))
 
     def analyze(self, image, command):
-        from src.frame_geometry import normalize_bgr
-        from src.diagnostics import private_frame
+        from src.runtime.frame_geometry import normalize_bgr
+        from src.diagnostics.recorder import private_frame
         from zzz_od.auto_battle.battle_presence import (find_enemy_health_bar,
             find_enemy_direction_arrow, has_chain_timer)
         context = self.gui.call(lambda: self.app.context)

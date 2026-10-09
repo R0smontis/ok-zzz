@@ -107,7 +107,7 @@ def choose_area(op, screen):
 def _template(name):
     base = Path(os_utils.get_work_dir()) / 'assets/template/map' / name
     if not (base/'raw.png').exists():
-        base = Path(__file__).resolve().parents[1] / 'assets/template/map' / name
+        base = Path(__file__).resolve().parents[2] / 'assets/template/map' / name
     raw = cv2.imread(str(base/'raw.png'))
     mask = cv2.imread(str(base/'mask.png'), cv2.IMREAD_GRAYSCALE)
     if raw is None or mask is None:

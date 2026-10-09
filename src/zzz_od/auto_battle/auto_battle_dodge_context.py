@@ -190,7 +190,7 @@ class AutoBattleDodgeContext:
             if state_name is not None:
                 service.update_state(StateRecord(state_name, screenshot_time))
             return state_name is not None
-        from src.diagnostics import record_event
+        from src.diagnostics.recorder import record_event
         now = time.time()
         hud = service.get_state_recorder('按键可用-普通攻击')
         if not (0 <= now-screenshot_time <= .25 and hud is not None
@@ -329,7 +329,7 @@ class AutoBattleDodgeContext:
                     state_name = YoloStateEventEnum.DODGE_AUDIO.value
 
             should_dodge = state_name is not None
-            from src.diagnostics import record_event
+            from src.diagnostics.recorder import record_event
             record_event('dodge_detection', event=state_name, class_idx=int(result.class_idx),
                          confidence=getattr(result, 'confidence', None),
                          captured_at=screenshot_time, age=time.time()-screenshot_time)

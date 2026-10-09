@@ -394,7 +394,7 @@ class ConditionalOperator(ConditionalOperatorLoader):
         status: str,
         execution_info: ExecutionInfo,
     ) -> None:
-        from src.diagnostics import recorder, record_event
+        from src.diagnostics.recorder import recorder, record_event
         if recorder.active:
             record_event('battle_decision', trigger=trigger, expression=expression, status=status,
                          operations=self._op_list_summary(execution_info))

@@ -36,7 +36,7 @@
 - [洛克茜游戏技能与教程资料](https://zzz.honeyhunterworld.com/1621-char/?lang=CN)：长按自旋、松开后风炮和风眼自动衔接的交叉核对；页面可能包含测试数据，不用它推断本机技能已成功执行。
 - [OneDragon 上游固定版本](https://github.com/OneDragon-Anything/ZenlessZoneZero-OneDragon/tree/2ada106befbf175d5494392cbc48bec6630a3d15/config)：参考角色注册、操作模板和 2026-10-04 录制时长说明。洛克茜 6 组头像资源来自此固定提交，按项目 GPL-3.0 继续分发。
 
-下载来源、提交及 SHA-256 记录在 `.runtime/character-references-20261007/manifest.json`。覆盖前的模板/合并配置保存在 `debug/character-templates/20261007/original/`。
+下载来源、提交及 SHA-256 记录在归档目录 `D:/okzzz-archive/runtime-20261008/character-references-20261007/manifest.json`；覆盖前的模板/合并配置在 `D:/okzzz-archive/debug-20261008/character-templates/20261007/original/`，也可从 git 历史取回。
 
 ## 验证范围
 

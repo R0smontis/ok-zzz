@@ -114,7 +114,7 @@ class Transport(ZOperation):
         :return:
         """
         if getattr(self.ctx.controller, 'background_mode', False):
-            from src.background_map_navigation import map_state
+            from src.navigation.map import map_state
             if map_state(self, screen) is not None:
                 return True
         area_name_list: list[str] = []

@@ -17,7 +17,7 @@ from onedragon.base.controller.pc_screenshot.screencapper_base import Screencapp
 from onedragon.base.geometry.rectangle import Rect
 from onedragon.envs.env_config import ScreenshotMethodEnum
 from onedragon.utils.log_utils import log
-from src.frame_geometry import resize_for_recognition
+from src.runtime.frame_geometry import resize_for_recognition
 
 
 class PcScreenshotController:

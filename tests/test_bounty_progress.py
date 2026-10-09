@@ -110,7 +110,7 @@ def test_failure_is_reported_in_task_panel_with_reason():
 @pytest.fixture(scope='module')
 def real_ocr():
     from ok.task.TaskExecutor import TaskExecutor
-    from src.gpu_ocr import install_gpu_ocr
+    from src.runtime.gpu_ocr import install_gpu_ocr
     from onedragon.base.matcher.ocr.ok_ocr_matcher import OkOcrMatcher
     install_gpu_ocr()
     executor = TaskExecutor.__new__(TaskExecutor)
@@ -124,7 +124,7 @@ def real_ocr():
 def test_user_screenshot_progress_replays_with_real_ocr(app, real_ocr, width, height, fixture):
     import cv2
     from pathlib import Path
-    from src.frame_geometry import normalize_bgr
+    from src.runtime.frame_geometry import normalize_bgr
     from onedragon.base.screen.screen_loader import ScreenContext
     from onedragon.base.matcher.ocr.ocr_service import OcrService
     header = cv2.imread(str(Path(__file__).parent / 'fixtures/lost_void' / fixture))
@@ -144,7 +144,7 @@ def test_user_screenshot_progress_replays_with_real_ocr(app, real_ocr, width, he
 def test_gamepad_opens_and_claims_bounty_list_on_real_screens(app, real_ocr):
     import cv2
     from pathlib import Path
-    from src.frame_geometry import normalize_bgr
+    from src.runtime.frame_geometry import normalize_bgr
     from onedragon.base.screen.screen_loader import ScreenContext
     from onedragon.base.matcher.ocr.ocr_service import OcrService
     fixtures = Path(__file__).parent / 'fixtures/lost_void'

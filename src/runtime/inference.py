@@ -149,7 +149,7 @@ class ManagedSession:
             _status[self.label] = status
         log.info('%s 推理后端：%s%s', self.label, providers,
                  f'；GPU回退原因：{self.fallback_reason}' if self.fallback_reason else '')
-        from src.diagnostics import record_event
+        from src.diagnostics.recorder import record_event
         record_event('inference_backend', model=self.label, **status)
 
     def __getattr__(self, name):

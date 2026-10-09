@@ -46,7 +46,7 @@ class CompendiumChooseMissionType(ZOperation):
     @operation_node(name='选择副本', is_start_node=True, node_max_retry_times=20)
     def choose_mission_type(self) -> OperationRoundResult:
         if getattr(self.ctx.controller,'background_mode',False) and self.mission_type.mission_type_name=='迷失之地':
-            from src.background_navigation import compendium_lost_void
+            from src.navigation.menus import compendium_lost_void
             return compendium_lost_void(self,self.last_screenshot)
         if self.mission_type.is_agent_plan:
             return self.round_success(status='代理人方案培养')
@@ -175,7 +175,7 @@ class CompendiumChooseMissionType(ZOperation):
     @operation_node(name='确认')
     def confirm(self) -> OperationRoundResult:
         if getattr(self,'_pad_lost_go_sent',False):
-            from src.background_navigation import menu_words,pad_press
+            from src.navigation.menus import menu_words,pad_press
             words=menu_words(self,Rect(650,420,1300,750))
             if '确认' in words and any('传送' in w or '前往' in w for w in words):
                 pad_press(self,'a')

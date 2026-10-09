@@ -3,7 +3,7 @@ import threading
 import time
 
 from onedragon.base.conditional_operation.atomic_op import AtomicOp
-from src.diagnostics import record_event
+from src.diagnostics.recorder import record_event
 
 WARNING_CODES = {'闪避识别-红光': 1, '闪避识别-黄光': 2, '闪避识别-声音': 3}
 

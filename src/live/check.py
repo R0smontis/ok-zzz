@@ -6,8 +6,8 @@ import time
 import cv2
 import numpy as np
 
-from src.live_client import LiveClient
-from src.live_debug import LiveDebugService
+from src.live.client import LiveClient
+from src.live.service import LiveDebugService
 
 
 class SubstituteGame:

@@ -14,7 +14,7 @@ from pygetwindow import Win32Window
 from onedragon.base.geometry.point import Point
 from onedragon.base.geometry.rectangle import Rect
 from onedragon.utils.log_utils import log
-from src.frame_geometry import FrameGeometry
+from src.runtime.frame_geometry import FrameGeometry
 
 
 class PcGameWindow:

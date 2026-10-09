@@ -3,7 +3,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 import pytest
-from src.frame_geometry import bgra_view, normalize_bgr
+from src.runtime.frame_geometry import bgra_view, normalize_bgr
 
 
 def test_large_frame_downscales_to_rgb_exactly(ctx):

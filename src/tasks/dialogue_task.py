@@ -7,7 +7,7 @@ from ok import TriggerTask
 
 from src.tasks.zzz_base_task import ZzzBaseTask
 from zzz_od.application.commission_assistant.dialogue_detector import DialogueDetector
-from src.diagnostics import record_event
+from src.diagnostics.recorder import record_event
 
 
 class AutoDialogueTriggerTask(ZzzBaseTask, TriggerTask):

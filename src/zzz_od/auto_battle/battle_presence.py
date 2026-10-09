@@ -270,12 +270,12 @@ def detect_battle_presence(screen, battle_ctx):
     if battle_ctx.is_normal_attack_btn_available(screen):
         panel = find_enemy_health_bar(screen)
         if panel:
-            from src.diagnostics import record_event
+            from src.diagnostics.recorder import record_event
             record_event('enemy_panel', **panel, throttle='enemy_panel')
             return '敌人血条'
         arrow = find_enemy_direction_arrow(screen)
         if arrow:
-            from src.diagnostics import record_event
+            from src.diagnostics.recorder import record_event
             record_event('enemy_direction_arrow', **arrow, throttle='enemy_direction_arrow')
             return '敌人方向箭头'
         return None

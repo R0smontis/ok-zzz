@@ -10,8 +10,8 @@ from onedragon.base.geometry.rectangle import Rect
 from onedragon.base.operation.operation_round_result import OperationRoundResultEnum as R
 from zzz_od.game_data.map_area import MapAreaService
 from zzz_od.operation.map_transport import MapTransport
-from src.background_map_navigation import map_state, choose_area, choose_point, confirm_point, point_candidates, return_from_map
-from src.background_map_navigation import _coffee_occlusion_candidates
+from src.navigation.map import map_state, choose_area, choose_point, confirm_point, point_candidates, return_from_map
+from src.navigation.map import _coffee_occlusion_candidates
 from test_lost_void_background_menus import operation
 
 BASE=Path(__file__).parent/'fixtures/daily_map'

@@ -229,19 +229,30 @@ python -m PyInstaller --noconfirm deploy/ok-zzz.spec
 目录结构：
 
 ```
+main.py                # 入口：GUI、--check-package、--live-client
 src/
   config.py            # ok-script 应用配置
   globals.py           # my_app 全局单例（桥接 ok-script 运行时）
-  tasks/               # ok-script 任务（自动战斗触发器、战斗演示、诊断）
+  tasks/               # ok-script 任务与界面（一条龙日常、应用任务、自动战斗、诊断、调试页）
+  controls/            # 输入投递到所选窗口、截图兼容、后台输入策略、物理输入观察
+  navigation/          # 手柄后台导航：菜单（menus）与地图传送（map），逐帧核验
+  live/                # 实时调试：服务（service）、运行时桥接（runtime）、客户端（client）
+  runtime/             # 帧归一化、GPU/ONNX 推理与 OCR、线程与日志、启动设置
+  diagnostics/         # 画面与日志录制（recorder）及离线自检（package/model/lost_void check）
   zzz_od/              # 游戏逻辑（移植自一条龙）
-    context/           #   ZContext 总装配
+    application/       #   各应用（日常、体力、迷失之地……）
     auto_battle/       #   战斗引擎（DSL 场景/原子操作/闪避）
+    operation/         #   传送、快捷手册、返回大世界等通用操作
     controller/        #   控制器（键鼠 + 虚拟手柄）
-    config/            #   键位/模型/战斗助手配置
-  onedragon/           # 一条龙框架层子集（画面/模板/CV/条件引擎）
-assets/  config/       # 画面 YAML、模板图、战斗 DSL 配置（沿一条龙布局）
-tools/                 # 资产拉取 / 模型下载 / 代码移植脚本
+    context/ config/   #   ZContext 总装配；键位/模型/战斗助手配置
+  onedragon/           # 一条龙框架层子集（画面/模板/CV/条件引擎/Qt 组件）
+assets/  config/       # 画面 YAML、模板图、模型、战斗 DSL 配置（沿一条龙布局）
+tests/                 # 离线回归测试；fixtures/ 为实机截图
+tools/                 # 模型下载、选项生成、实时调试客户端；port/ 为一次性移植脚本
+deploy/                # PyInstaller 打包配置
 ```
+
+运行期生成、不入库的目录：`config/<两位编号>/`（各账号实例配置与运行记录）、`configs/`、`logs/`、`.log/`、`debug/`、`build/`、`dist/`。
 
 ## 许可
 

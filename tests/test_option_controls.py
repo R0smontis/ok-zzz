@@ -19,7 +19,7 @@ _QT_APP = None
 
 def test_global_recognition_settings_accept_strict_qt_translation(monkeypatch, tmp_path):
     global _QT_APP
-    from src.inference import recognition_config
+    from src.runtime.inference import recognition_config
     from src.tasks.option_widgets import install_option_widgets
     from ok.ui.qt.settings.GlobalConfigCard import GlobalConfigCard
     _QT_APP = QApplication.instance() or QApplication([])

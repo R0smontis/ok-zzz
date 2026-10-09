@@ -2,28 +2,28 @@ import sys
 import os
 
 if __name__ == '__main__':
-    from src.performance_policy import configure_native_threads
+    from src.runtime.performance_policy import configure_native_threads
     configure_native_threads()
     if getattr(sys, 'frozen', False):
         os.chdir(os.path.dirname(sys.executable))
-    from src.startup_runtime import ensure_output_streams
+    from src.runtime.startup import ensure_output_streams
     check_output = None
     if '--check-package-output' in sys.argv:
         index = sys.argv.index('--check-package-output')
         check_output = sys.argv[index + 1]
     ensure_output_streams(check_output)
     if '--live-client' in sys.argv:
-        from src.live_client import run
+        from src.live.client import run
         arguments = list(sys.argv[1:])
         arguments.remove('--live-client')
         raise SystemExit(run(arguments))
     elif '--check-package' in sys.argv:
-        from src.package_check import run_package_check
+        from src.diagnostics.package_check import run_package_check
         raise SystemExit(run_package_check())
     else:
         import ok
         from src.config import config
-        from src.gpu_ocr import install_gpu_ocr
+        from src.runtime.gpu_ocr import install_gpu_ocr
         install_gpu_ocr()  # Before TaskExecutor starts its background OCR initialization.
         application = ok.OK(config)
         try:

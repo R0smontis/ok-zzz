@@ -10,9 +10,9 @@ from urllib.error import HTTPError
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from src.live_debug import LiveDebugService, LiveError
-from src.live_debug_check import SubstituteGame, wait_for_frame, check_live_debug
-from src.live_client import LiveClient
+from src.live.service import LiveDebugService, LiveError
+from src.live.check import SubstituteGame, wait_for_frame, check_live_debug
+from src.live.client import LiveClient
 
 
 @pytest.fixture
@@ -204,7 +204,7 @@ def test_debug_ownership_blocks_automatic_inputs_and_allows_release():
 
 def test_gui_calls_run_on_gui_thread():
     qt = QApplication.instance() or QApplication([])
-    from src.live_runtime import GuiCalls
+    from src.live.runtime import GuiCalls
     gui = GuiCalls()
     result = []
     thread = threading.Thread(target=lambda: result.append(gui.call(threading.get_ident)))
@@ -289,7 +289,7 @@ def test_hidden_preview_resumes_latest_frame_without_stopping_monitor(live):
 def test_publish_resizes_without_blocking_events(live, monkeypatch):
     import cv2
     import numpy as np
-    from src import live_debug
+    from src.live import service as live_debug
     service, _, game = live
     real_resize = cv2.resize
     acquired = []

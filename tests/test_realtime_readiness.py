@@ -7,7 +7,7 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
-from src.hotkey_settings import HOTKEYS, sync_hotkeys, validate_hotkey
+from src.controls.hotkey_settings import HOTKEYS, sync_hotkeys, validate_hotkey
 
 
 class MemoryGameConfig(SimpleNamespace):

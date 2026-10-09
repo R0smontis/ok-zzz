@@ -2,7 +2,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 import os
 
-from src import performance_policy as policy
+from src.runtime import performance_policy as policy
 
 
 def test_native_pool_policy_is_bounded_and_passive(monkeypatch):

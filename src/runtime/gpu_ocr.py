@@ -5,7 +5,7 @@ from onnxocr.predict_det import TextDetector
 from onnxocr.predict_rec import TextRecognizer
 from onnxocr.predict_cls import TextClassifier
 from pathlib import Path
-from src.inference import create_session, gpu_requested
+from src.runtime.inference import create_session, gpu_requested
 
 
 class GpuPredictBase(PredictBase):
@@ -43,7 +43,7 @@ class GpuPaddleOcr(ONNXPaddleOcr):
 
 
 def install_gpu_ocr():
-    from src.performance_policy import limit_loaded_blas
+    from src.runtime.performance_policy import limit_loaded_blas
     limit_loaded_blas()
     import cv2
     # Agent checks already run concurrently; avoid a full OpenCV worker pool

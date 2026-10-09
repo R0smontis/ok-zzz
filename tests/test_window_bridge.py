@@ -87,7 +87,7 @@ def test_missing_gamepad_never_falls_back_to_foreground_input(monkeypatch):
 @pytest.mark.parametrize('preferred', ['pc', 'pc_99'])
 def test_selected_game_rebinds_after_window_restart(monkeypatch, preferred):
     from ok.device.DeviceManager import DeviceManager
-    from src.capture_compat import install_device_selection_compat
+    from src.controls.capture_compat import install_device_selection_compat
     monkeypatch.setattr(DeviceManager, '_replace_pc_devices',
                         lambda manager, devices: manager.device_dict.update(devices))
     install_device_selection_compat()
@@ -105,7 +105,7 @@ def test_selected_game_rebinds_after_window_restart(monkeypatch, preferred):
 ])
 def test_window_rebind_never_selects_unrelated_or_disconnected_device(monkeypatch, preferred, exe, devices):
     from ok.device.DeviceManager import DeviceManager
-    from src.capture_compat import install_device_selection_compat
+    from src.controls.capture_compat import install_device_selection_compat
     monkeypatch.setattr(DeviceManager, '_replace_pc_devices',
                         lambda manager, devices: manager.device_dict.update(devices))
     install_device_selection_compat()
@@ -116,7 +116,7 @@ def test_window_rebind_never_selects_unrelated_or_disconnected_device(monkeypatc
 
 def test_window_restart_schedules_throttled_device_refresh(monkeypatch):
     import win32gui
-    from src.capture_compat import refresh_restarted_window
+    from src.controls.capture_compat import refresh_restarted_window
     monkeypatch.setattr(win32gui,'IsWindow',lambda hwnd:hwnd==202)
     manager=SimpleNamespace(windows_capture_config={'exe':['ZenlessZoneZero.exe']},
         get_preferred_device=lambda:{'device':'windows','real_hwnd':101},refresh=Mock())
@@ -129,7 +129,7 @@ def test_window_restart_schedules_throttled_device_refresh(monkeypatch):
     ('windows',True,(2560,1440)),('windows',False,(320,240))])
 def test_window_refresh_preserves_other_selection_and_ignores_splash(monkeypatch,device,old_valid,size):
     import win32gui
-    from src.capture_compat import refresh_restarted_window
+    from src.controls.capture_compat import refresh_restarted_window
     monkeypatch.setattr(win32gui,'IsWindow',lambda hwnd:old_valid)
     manager=SimpleNamespace(windows_capture_config={'exe':['ZenlessZoneZero.exe']},
         get_preferred_device=lambda:{'device':device,'real_hwnd':101},refresh=Mock())

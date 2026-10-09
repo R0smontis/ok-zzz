@@ -7,7 +7,7 @@ import win32gui
 import win32api
 
 from onedragon.base.geometry.point import Point
-from src.window_input import WindowMessageInput
+from src.controls.window_input import WindowMessageInput
 
 
 def check_background_input():

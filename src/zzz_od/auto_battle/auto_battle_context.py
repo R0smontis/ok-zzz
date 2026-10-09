@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 import cv2
 import numpy as np
 from cv2.typing import MatLike
-from src.diagnostics import record_battle_start, record_event
+from src.diagnostics.recorder import record_battle_start, record_event
 
 from onedragon.base.conditional_operation.state_recorder import StateRecord
 from onedragon.base.controller.input_guard import execution_input_allowed, execution_action
@@ -76,7 +76,7 @@ class AutoBattleContext:
 
         self.auto_op: AutoBattleOperator | None = None
         self._op_cache: dict[str, AutoBattleOperator] = {}  # 缓存自动战斗配置
-        from src.recognition_queue import SingleFlightChecks
+        from src.runtime.recognition_queue import SingleFlightChecks
         self.recognition_checks = SingleFlightChecks()
 
         # 识别区域

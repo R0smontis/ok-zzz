@@ -4,7 +4,7 @@ from unittest.mock import Mock
 import threading
 import time
 import pytest
-from src import inference
+from src.runtime import inference
 
 
 def fake_session(provider, *, fail=False):
@@ -88,7 +88,7 @@ def test_runtime_gpu_failure_retries_input_once_and_keeps_cpu(session_factory):
 
 
 def test_ocr_models_initialize_directly_with_gpu_sessions(session_factory):
-    from src.gpu_ocr import GpuPaddleOcr
+    from src.runtime.gpu_ocr import GpuPaddleOcr
     ocr = GpuPaddleOcr(use_angle_cls=True)
     assert len(session_factory) == 3  # No temporary CPU OCR sessions.
     assert all(provider == 'DmlExecutionProvider' for provider, *_ in session_factory)
@@ -98,7 +98,7 @@ def test_ocr_models_initialize_directly_with_gpu_sessions(session_factory):
 
 
 def test_framework_ocr_routes_to_gpu_only_for_onnxocr(monkeypatch):
-    from src import gpu_ocr
+    from src.runtime import gpu_ocr
     from ok.task.TaskExecutor import TaskExecutor
     original = Mock(return_value='original')
     monkeypatch.setattr(TaskExecutor, '_create_ocr_lib', original)
@@ -130,7 +130,7 @@ def test_old_model_gpu_flags_upgrade_once_and_cpu_setting_overrides(monkeypatch,
 
 
 def test_diagnostic_snapshot_contains_actual_gpu_backend_and_cached_team(monkeypatch):
-    from src.diagnostics import runtime_snapshot
+    from src.diagnostics.recorder import runtime_snapshot
     from ok import og
     party = SimpleNamespace(agent_list=[SimpleNamespace(agent=SimpleNamespace(agent_name='克拉蕾'),
         matched_template_id='claret', energy=50, special_ready=True, ultimate_ready=False)],

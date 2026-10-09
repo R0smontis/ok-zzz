@@ -13,7 +13,8 @@ from ok import og
 from ok.ui.qt.tasks.TaskCard import TaskCard
 from ok.util.config import Config
 
-from src import diagnostics, user_input_trace
+from src.diagnostics import recorder as diagnostics
+from src.controls import user_input_trace
 from src.tasks import diagnostic_task
 from src.tasks.option_widgets import install_option_widgets
 

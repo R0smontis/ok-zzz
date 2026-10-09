@@ -33,7 +33,7 @@ from onedragon.base.controller.pc_screenshot.pc_screenshot_controller import (
 )
 from onedragon.base.geometry.point import Point
 from onedragon.utils.log_utils import log
-from src.window_input import WindowMessageInput
+from src.controls.window_input import WindowMessageInput
 from onedragon.base.controller.input_guard import execution_input_allowed
 
 

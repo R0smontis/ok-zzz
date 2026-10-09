@@ -11,7 +11,7 @@ import cv2
 import numpy as np
 import pytest
 
-from src import diagnostics
+from src.diagnostics import recorder as diagnostics
 
 
 def read_jsonl(path):
@@ -245,7 +245,7 @@ def test_diagnostic_toggle_keeps_combat_and_stage_enabled(recorder, tmp_path, mo
         interaction=SimpleNamespace(on_run=Mock()), enqueue_onetime_task=Mock(),
         remove_onetime_task=Mock(), _wake_executor=Mock(), next_frame=lambda: screen(), paused=False)
     monkeypatch.setattr(og, 'my_app', SimpleNamespace(_context=None))
-    from src import user_input_trace
+    from src.controls import user_input_trace
     fake_inputs = SimpleNamespace(start=Mock(), stop=Mock())
     monkeypatch.setattr(user_input_trace, 'GameInputTrace', Mock(return_value=fake_inputs))
     task = diagnostic_task.DiagnosticRecordingTask(executor=executor, app=SimpleNamespace(tr=lambda s: s))

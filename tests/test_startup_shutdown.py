@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QApplication
 
 
 def test_windowed_startup_keeps_diagnostics_with_missing_stdio(tmp_path, monkeypatch):
-    from src.startup_runtime import ensure_output_streams
+    from src.runtime.startup import ensure_output_streams
     monkeypatch.setattr(sys, 'stdout', None)
     monkeypatch.setattr(sys, 'stderr', None)
     path = tmp_path / 'logs/startup.log'
@@ -25,7 +25,7 @@ def test_windowed_startup_keeps_diagnostics_with_missing_stdio(tmp_path, monkeyp
 
 
 def test_existing_console_output_is_preserved(monkeypatch):
-    from src.startup_runtime import ensure_output_streams
+    from src.runtime.startup import ensure_output_streams
     output, error = Mock(), Mock()
     monkeypatch.setattr(sys, 'stdout', output)
     monkeypatch.setattr(sys, 'stderr', error)
@@ -34,7 +34,7 @@ def test_existing_console_output_is_preserved(monkeypatch):
 
 
 def test_standalone_update_has_no_worker_or_error(monkeypatch):
-    from src.startup_runtime import install_update_compat
+    from src.runtime.startup import install_update_compat
     from ok.ui.qt.about.UpdateCard import UpdateCard
     from ok.ui.qt.MainWindow import MainWindow
     qt = QApplication.instance() or QApplication([])
@@ -57,7 +57,7 @@ def test_standalone_update_has_no_worker_or_error(monkeypatch):
 
 
 def test_launcher_managed_update_remains_available(monkeypatch):
-    from src.startup_runtime import install_update_compat
+    from src.runtime.startup import install_update_compat
     from ok.ui.qt.about.UpdateCard import UpdateCard
     qt = QApplication.instance() or QApplication([])
     install_update_compat()
@@ -80,7 +80,7 @@ def test_exit_callback_stops_existing_resources_once(monkeypatch):
     from ok import og
     from ok.util.handler import ExitEvent
     from src.globals import Globals
-    from src.diagnostics import recorder
+    from src.diagnostics.recorder import recorder
     task = SimpleNamespace(_stop_engine=Mock())
     context = SimpleNamespace(run_context=SimpleNamespace(stop_running=Mock()), after_app_shutdown=Mock())
     globals_ = Globals.__new__(Globals)

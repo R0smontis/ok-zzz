@@ -12,7 +12,7 @@ from zzz_od.application.city_fund.city_fund_app import CityFundApp
 from zzz_od.application.ridu_weekly.ridu_weekly_app import RiduWeeklyApp
 from zzz_od.operation.back_to_normal_world import BackToNormalWorld
 from test_lost_void_background_menus import operation
-from src.background_navigation import compendium_category, compendium_lost_void, lost_void_gateway
+from src.navigation.menus import compendium_category, compendium_lost_void, lost_void_gateway
 
 BASE=Path(__file__).parent/'fixtures/daily_map'
 

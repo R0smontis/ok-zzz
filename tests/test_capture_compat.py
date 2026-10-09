@@ -4,7 +4,7 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
-from src.capture_compat import blank_frame, install_capture_compat, install_window_position_compat
+from src.controls.capture_compat import blank_frame, install_capture_compat, install_window_position_compat
 
 
 @pytest.mark.parametrize('build,expected', [(18362, False), (19041, True), (19045, True), (20348, True)])
@@ -12,7 +12,7 @@ def test_wgc_does_not_require_optional_border_suppression(monkeypatch, build, ex
     from ok.util import window
     from ok.device.capture_methods import update
     from ok.rotypes import roapi
-    from src.capture_compat import install_windows_graphics_compat
+    from src.controls.capture_compat import install_windows_graphics_compat
     original = Mock(return_value=True)
     monkeypatch.setattr(window, 'windows_graphics_available', original)
     monkeypatch.setattr(update, 'windows_graphics_available', original)
@@ -97,7 +97,7 @@ def test_blank_detection_keeps_dark_but_visible_gameplay():
 
 def test_wgc_black_frames_are_rejected_before_task_and_live_observers(monkeypatch):
     from ok.device.capture_methods.windows_graphics import WindowsGraphicsCaptureMethod as WGC
-    from src.capture_compat import install_wgc_blank_frame_guard
+    from src.controls.capture_compat import install_wgc_blank_frame_guard
     frame = np.zeros((720,1280,3), np.uint8)
     original = Mock(return_value=frame)
     monkeypatch.setattr(WGC, 'do_get_frame', original)

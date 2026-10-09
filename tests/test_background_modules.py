@@ -7,13 +7,13 @@ import pytest
 import win32con
 
 from onedragon.base.geometry.point import Point
-from src.window_input import WindowMessageInput
+from src.controls.window_input import WindowMessageInput
 from test_runtime_interactions import task_factory
 
 
 @pytest.fixture
 def backend(monkeypatch):
-    import src.window_input as source
+    import src.controls.window_input as source
     from onedragon.base.controller import pc_controller_base as controller
     posts, selected = [], [101]
     window = SimpleNamespace(get_hwnd=lambda: selected[0], is_win_valid=True, init_win=Mock(),
@@ -51,7 +51,7 @@ def test_click_drag_scroll_hover_and_text_do_not_use_desktop(backend):
 
 
 def test_restarted_window_aborts_and_releases_original_target(backend, monkeypatch):
-    import src.window_input as source
+    import src.controls.window_input as source
     device, posts, selected = backend
     def post(*args):
         posts.append(args)
@@ -102,7 +102,7 @@ def test_controller_routes_every_menu_operation_to_messages(backend):
 
 @pytest.mark.parametrize('choice', ['自动后台', '窗口消息后台', '手柄后台'])
 def test_application_input_policy_never_activates_and_restores_after_error(monkeypatch, choice):
-    import src.application_input as policy
+    import src.controls.application_input as policy
     monkeypatch.setattr(policy, 'task_input_mode', lambda: choice)
     controller = SimpleNamespace(background_mode=False, message_mode=False, cancel_inputs=Mock(), sync_game_config=Mock())
     ctx = SimpleNamespace(controller=controller, game_config=SimpleNamespace())
@@ -144,7 +144,7 @@ def test_gamepad_mode_switch_does_not_add_camera_movement():
 
 
 def test_real_windows_receiver_accepts_background_messages():
-    from src.background_input_check import check_background_input
+    from src.controls.background_input_check import check_background_input
     result = check_background_input()
     assert result['native_receiver'] == 'passed'
     assert result['game_input'] == 'none'

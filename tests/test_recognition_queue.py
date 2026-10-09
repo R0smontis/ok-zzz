@@ -1,7 +1,7 @@
 import threading
 from concurrent.futures import Future, ThreadPoolExecutor
 from unittest.mock import Mock
-from src.recognition_queue import SingleFlightChecks
+from src.runtime.recognition_queue import SingleFlightChecks
 
 
 def test_slow_gpu_never_builds_a_backlog_of_old_frames():

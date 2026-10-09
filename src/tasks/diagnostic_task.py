@@ -3,7 +3,7 @@ import math
 
 from ok import TriggerTask
 from onedragon.utils import os_utils
-from src.diagnostics import install_frame_observer, recorder, runtime_snapshot, VIDEO_FPS, VIDEO_RESOLUTIONS
+from src.diagnostics.recorder import install_frame_observer, recorder, runtime_snapshot, VIDEO_FPS, VIDEO_RESOLUTIONS
 from src.tasks.zzz_base_task import ZzzBaseTask
 
 

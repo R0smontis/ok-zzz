@@ -19,17 +19,17 @@ class Globals:
 
     def __init__(self, exit_event):
         super().__init__()
-        from src.win32_compat import install_win32_compat
+        from src.controls.win32_compat import install_win32_compat
         install_win32_compat()
-        from src.capture_compat import install_capture_compat
+        from src.controls.capture_compat import install_capture_compat
         install_capture_compat()
-        from src.runtime_logging import install_runtime_logging
+        from src.runtime.logging_bridge import install_runtime_logging
         install_runtime_logging()
         from src.tasks.option_widgets import install_option_widgets
         install_option_widgets()
-        from src.gpu_ocr import install_gpu_ocr
+        from src.runtime.gpu_ocr import install_gpu_ocr
         install_gpu_ocr()
-        from src.startup_runtime import install_update_compat
+        from src.runtime.startup import install_update_compat
         install_update_compat()
         self.exit_event = exit_event
         self._context = None
@@ -47,7 +47,7 @@ class Globals:
         live_debug = getattr(self, 'live_debug', None)
         if live_debug is not None:
             live_debug.stop()
-        from src.diagnostics import recorder
+        from src.diagnostics.recorder import recorder
         recorder.stop('程序退出')
         executor = getattr(og, 'executor', None)
         for task in getattr(executor, 'trigger_tasks', ()):
@@ -107,9 +107,9 @@ class Globals:
 
     def _sync_game_hotkeys(self, game_config):
         from src.config import key_config_option
-        from src.hotkey_settings import sync_hotkeys
+        from src.controls.hotkey_settings import sync_hotkeys
         sync_hotkeys(og.global_config.get_config(key_config_option), game_config)
-        from src.interaction import selected_gamepad_mode, selected_message_mode
+        from src.controls.interaction import selected_gamepad_mode, selected_message_mode
         game_config._framework_background_mode = selected_gamepad_mode()
         game_config._framework_message_mode = selected_message_mode()
 

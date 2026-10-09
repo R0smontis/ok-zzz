@@ -8,7 +8,7 @@ import time
 from ok import TriggerTask
 from onedragon.utils.log_utils import log
 from src.tasks.zzz_base_task import ZzzBaseTask
-from src.diagnostics import record_event
+from src.diagnostics.recorder import record_event
 
 
 def list_battle_templates(sub_dir: str, suffix: str = '.merged.yml') -> list[str]:
@@ -117,7 +117,7 @@ class BattleTriggerTask(ZzzBaseTask, TriggerTask):
                 battle_ctx.clear_all_states()
                 battle_ctx.start_context_async()
                 self._engine_started = True
-                from src.interaction import selected_gamepad_mode
+                from src.controls.interaction import selected_gamepad_mode
                 self._last_settings = (config_name, bool(self.config.get('后台模式', False)) or selected_gamepad_mode())
                 self._watchdog_stop = threading.Event()
                 threading.Thread(target=self._watch_input, args=(self._watchdog_stop,),
@@ -401,7 +401,7 @@ class BattleTriggerTask(ZzzBaseTask, TriggerTask):
             self.log_error(error, notify=True)
             self.disable()
             return False
-        from src.inference import recognition_interval
+        from src.runtime.inference import recognition_interval
         self.trigger_interval = max(float(interval), recognition_interval())
         return self.enabled and super().should_trigger()
 
@@ -409,7 +409,7 @@ class BattleTriggerTask(ZzzBaseTask, TriggerTask):
         if not self.enabled:
             return
         config_name = str(self.config.get(self.config_key, '全配队通用'))
-        from src.interaction import selected_gamepad_mode
+        from src.controls.interaction import selected_gamepad_mode
         settings = (config_name, bool(self.config.get('后台模式', False)) or selected_gamepad_mode())
         if self._engine_started and (
                 self._last_settings != settings or

@@ -16,7 +16,7 @@ from onedragon.base.operation.one_dragon_finalizer import (
 )
 from onedragon.utils.log_utils import log
 from src.tasks.zzz_base_task import ZzzBaseTask
-from src.application_input import application_inputs
+from src.controls.application_input import application_inputs
 
 # 任务 UI 专用键（不写回应用配置）
 UI_KEYS = ('结束后', '关机延迟秒')

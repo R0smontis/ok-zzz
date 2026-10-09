@@ -11,7 +11,7 @@ from cv2.typing import MatLike
 
 from onedragon.base.config.config_item import get_config_item_from_enum
 from onedragon.base.geometry.point import Point
-from src.background_navigation import pad_press, menu_words, selected_tab
+from src.navigation.menus import pad_press, menu_words, selected_tab
 from onedragon.base.geometry.rectangle import Rect
 from onedragon.base.matcher.match_result import MatchResult
 from onedragon.base.operation.application import application_const

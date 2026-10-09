@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from src.user_input_trace import GameInputTrace, key_name
+from src.controls.user_input_trace import GameInputTrace, key_name
 
 
 @pytest.fixture
@@ -99,7 +99,7 @@ def test_mouse_client_coordinates_click_scroll_and_injected_source(trace):
 
 def test_mouse_moves_throttled_independently_per_source(trace, monkeypatch):
     recorder, events, _ = trace
-    monkeypatch.setattr('src.user_input_trace.time.monotonic', lambda: 100)
+    monkeypatch.setattr('src.controls.user_input_trace.time.monotonic', lambda: 100)
     recorder.mouse_filter(0x200, mouse())
     recorder.mouse_filter(0x200, mouse(x=501))
     recorder.mouse_filter(0x200, mouse(flags=1))

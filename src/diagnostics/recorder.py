@@ -37,7 +37,7 @@ def private_frame(frame):
 
 def visual_evidence(frame):
     from zzz_od.auto_battle.battle_presence import has_enemy_health_bar, has_target_reticle
-    from src.frame_geometry import normalize_bgr
+    from src.runtime.frame_geometry import normalize_bgr
     normalized = normalize_bgr(frame)
     if normalized is None:
         return {'target_reticle': False, 'enemy_health_bar': False}
@@ -49,7 +49,7 @@ def runtime_snapshot(executor):
     """Read cached state only: no device discovery, recognition, or input."""
     from ok import og
     result = {'executor_paused': bool(getattr(executor, 'paused', False))}
-    from src.inference import runtime_status
+    from src.runtime.inference import runtime_status
     result['recognition'] = runtime_status()
     manager = getattr(executor, 'device_manager', None)
     window = getattr(manager, 'hwnd_window', None)
@@ -315,7 +315,7 @@ class DiagnosticRecorder:
             self._logs(s, 'start')
             if s['input_hwnd_provider'] is not None:
                 try:
-                    from src.user_input_trace import GameInputTrace
+                    from src.controls.user_input_trace import GameInputTrace
                     s['input_trace'] = GameInputTrace(s['input_hwnd_provider'], self.record,
                         enabled_provider=lambda: self.active and (
                             s['input_enabled_provider'] is None or s['input_enabled_provider']()))
@@ -486,7 +486,7 @@ recorder = DiagnosticRecorder()
 def record_event(kind, **details):
     """Diagnostics must never change task execution on failure."""
     try:
-        from src.runtime_logging import log_runtime_event
+        from src.runtime.logging_bridge import log_runtime_event
         log_runtime_event(kind, details)
         recorder.record(kind, **details)
         from ok import og

@@ -223,7 +223,7 @@ def test_private_overlay_dll_can_coexist_with_window_and_cursor_readers():
     import win32gui
     import pyautogui
     from pygetwindow import Win32Window
-    from src.win32_compat import install_win32_compat
+    from src.controls.win32_compat import install_win32_compat
     install_win32_compat()
     from ok.ui.overlay import win32_gdi
     assert win32_gdi.user32 is not ctypes.windll.user32
@@ -241,7 +241,7 @@ def test_private_overlay_dll_can_coexist_with_window_and_cursor_readers():
 def test_engine_progress_reaches_framework_log(caplog):
     import logging
     from onedragon.utils.log_utils import log
-    from src.runtime_logging import install_runtime_logging
+    from src.runtime.logging_bridge import install_runtime_logging
     install_runtime_logging()
     with caplog.at_level(logging.INFO,logger='ok'):
         log.info('测试路线节点完成 %s','编辑器回归')
@@ -249,7 +249,7 @@ def test_engine_progress_reaches_framework_log(caplog):
 
 
 def test_unlimited_recording_does_not_stop_after_old_limit(tmp_path):
-    from src.diagnostics import DiagnosticRecorder
+    from src.diagnostics.recorder import DiagnosticRecorder
     rec=DiagnosticRecorder()
     rec.start(tmp_path,mode='截图',duration=0)
     try:
@@ -264,7 +264,7 @@ def test_unlimited_recording_does_not_stop_after_old_limit(tmp_path):
 
 def test_large_recording_rotates_video_without_stopping(tmp_path,monkeypatch):
     import cv2
-    from src import diagnostics
+    from src.diagnostics import recorder as diagnostics
     monkeypatch.setattr(diagnostics,'MAX_VIDEO_BYTES',20)
     rec=diagnostics.DiagnosticRecorder()
     folder=Path(rec.start(tmp_path,duration=0,mode='视频'))

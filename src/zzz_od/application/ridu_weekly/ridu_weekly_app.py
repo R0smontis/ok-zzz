@@ -7,7 +7,7 @@ from cv2.typing import MatLike
 import cv2
 import numpy as np
 from onedragon.base.geometry.rectangle import Rect
-from src.background_navigation import menu_words, pad_press, compendium_tab
+from src.navigation.menus import menu_words, pad_press, compendium_tab
 
 from onedragon.base.operation.operation_edge import node_from
 from onedragon.base.operation.operation_node import operation_node

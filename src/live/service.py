@@ -22,7 +22,7 @@ import uuid
 
 import cv2
 
-from src.frame_geometry import bgra_view
+from src.runtime.frame_geometry import bgra_view
 
 
 class LiveError(ValueError):
@@ -204,7 +204,7 @@ class LiveDebugService:
             cached = self.encoded_frames.get(key)
             if cached is not None:
                 return cached, item['id']
-        from src.diagnostics import private_frame
+        from src.diagnostics.recorder import private_frame
         frame = private_frame(item['image'])  # publish already owns a 1920x1080 frame.
         if preview:
             frame = cv2.resize(frame, (960, 540))
@@ -334,7 +334,7 @@ class LiveDebugService:
         if op == 'scroll':
             number(c.get('amount'), -10, 10, 'amount')
         if op == 'key':
-            from src.hotkey_settings import validate_hotkey
+            from src.controls.hotkey_settings import validate_hotkey
             if not validate_hotkey('key', c.get('key'))[0]:
                 raise LiveError('按键无效')
         if op == 'action' and c.get('action') not in self.adapter.actions:

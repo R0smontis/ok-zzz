@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """ok-zzz 应用配置（ok-script config 字典）。"""
 from ok import ConfigOption
-from src.interaction import Pynput, PostMessage, ForegroundPostMessage, PyDirect, BackgroundGamepad
-from src.hotkey_settings import validate_hotkey
-from src.inference import recognition_config
-from src.application_input import task_input_config
+from src.controls.interaction import Pynput, PostMessage, ForegroundPostMessage, PyDirect, BackgroundGamepad
+from src.controls.hotkey_settings import validate_hotkey
+from src.runtime.inference import recognition_config
+from src.controls.application_input import task_input_config
 
 version = "0.1.0"
 

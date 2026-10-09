@@ -8,7 +8,7 @@ import pytest
 
 from onedragon.base.geometry.rectangle import Rect
 from onedragon.base.operation.operation_round_result import OperationRoundResultEnum as R
-from src.background_navigation import compendium_tab
+from src.navigation.menus import compendium_tab
 from zzz_od.context.zzz_context import ZContext
 from zzz_od.game_data.map_area import MapAreaService
 from zzz_od.operation.transport import Transport

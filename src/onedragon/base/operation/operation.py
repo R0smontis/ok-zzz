@@ -716,7 +716,7 @@ class Operation(OperationBase):
             self.op_callback(result)
 
     def _emit_debug_round_trace(self, from_node_name: str, node_name: str, status_text: str) -> None:
-        from src.diagnostics import record_event
+        from src.diagnostics.recorder import record_event
         record_event('operation_node', operation=self.op_name, previous=from_node_name,
                      node=node_name, status=status_text, throttle=f'node:{self.op_name}')
         arrow = f"{from_node_name} -> {node_name}" if from_node_name != "none" else node_name

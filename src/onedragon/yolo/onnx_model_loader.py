@@ -138,7 +138,7 @@ class OnnxModelLoader:
         """
         onnx_path = os.path.join(self.model_dir_path, 'model.onnx')
         log.info('加载模型 %s', onnx_path)
-        from src.inference import create_session
+        from src.runtime.inference import create_session
         self.session = create_session(onnx_path, gpu=self.gpu, label=self.model_name)
         log.info('创建ONNX Runtime会话完成 providers=%s', self.session.get_providers())
         self.get_input_details()

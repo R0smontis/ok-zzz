@@ -8,9 +8,9 @@ def check_realtime_models(root):
     import numpy as np
     from onedragon.envs.repo_config import RepoConfig
     from zzz_od.yolo.flash_classifier import FlashClassifier
-    from src.gpu_ocr import install_gpu_ocr
+    from src.runtime.gpu_ocr import install_gpu_ocr
     from ok.task.TaskExecutor import TaskExecutor
-    from src.inference import directml_adapter
+    from src.runtime.inference import directml_adapter
     from onedragon.base.matcher.ocr.ok_ocr_matcher import OkOcrMatcher
 
     resource = RepoConfig().get_model_resource('flash_classifier')

@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 def run_package_check():
     os.environ['QT_QPA_PLATFORM'] = 'offscreen'
-    from src.win32_compat import install_win32_compat
+    from src.controls.win32_compat import install_win32_compat
     install_win32_compat()
     from PySide6.QtWidgets import QApplication
     from PySide6.QtCore import Qt, QPointF
@@ -32,13 +32,13 @@ def run_package_check():
                  'librosa', 'soundcard', 'win32api', 'win32timezone'):
         importlib.import_module(name)
     root = Path(os_utils.get_work_dir())
-    from src.model_check import check_realtime_models
+    from src.diagnostics.model_check import check_realtime_models
     model_check = check_realtime_models(root)
-    from src.background_input_check import check_background_input
+    from src.controls.background_input_check import check_background_input
     background_input_check = check_background_input()
-    from src.lost_void_check import check_lost_void_runtime
+    from src.diagnostics.lost_void_check import check_lost_void_runtime
     lost_void_check = check_lost_void_runtime(root)
-    from src.live_debug_check import check_live_debug
+    from src.live.check import check_live_debug
     live_debug_check = check_live_debug(root)
     for relative in ('assets/game_data/compendium_data.yml',
                      'assets/template/target_state/enemy_attribute_icon/raw.png',
@@ -59,7 +59,7 @@ def run_package_check():
     from onedragon.base.controller.pc_game_window import PcGameWindow
     from src.globals import Globals
     from src.tasks.option_widgets import install_option_widgets
-    from src.gpu_ocr import install_gpu_ocr
+    from src.runtime.gpu_ocr import install_gpu_ocr
     install_option_widgets()
     install_gpu_ocr()
     assert callable(Globals._window_provider)
@@ -188,7 +188,7 @@ def run_package_check():
         import pyautogui
         assert Win32Window(win32gui.GetDesktopWindow())._hWnd
         assert len(pyautogui.position()) == 2
-        from src.diagnostics import DiagnosticRecorder
+        from src.diagnostics.recorder import DiagnosticRecorder
         import cv2
         import numpy as np
         from zzz_od.controller.zzz_controller import ZzzController
@@ -232,7 +232,7 @@ def run_package_check():
             assert video.get(cv2.CAP_PROP_FRAME_WIDTH) == 1920 and video.get(cv2.CAP_PROP_FRAME_HEIGHT) == 1080
         finally:
             video.release()
-        from src.user_input_trace import GameInputTrace
+        from src.controls.user_input_trace import GameInputTrace
         input_trace = GameInputTrace(lambda: 0, lambda *args, **kwargs: None)
         try:
             input_trace.start()
@@ -269,7 +269,7 @@ def run_package_check():
         yellow_handler = event_handlers(['闪避识别-黄光'])[0]
         assert yellow_handler.operations[0].op_name == AtomicRealtimeResponse.OP_NAME
         assert yellow_handler.operations[0].data == ['闪避识别-黄光']
-        from src.frame_geometry import FrameGeometry
+        from src.runtime.frame_geometry import FrameGeometry
         geometry_sizes = [(1280,720),(1600,900),(1920,1080),(2560,1440),(3840,2160)]
         for width,height in geometry_sizes:
             source=np.full((height,width,3),(10,40,230),np.uint8)

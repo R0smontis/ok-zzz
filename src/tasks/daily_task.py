@@ -11,7 +11,7 @@
 from onedragon.utils.log_utils import log
 from src.tasks.zzz_base_task import ZzzBaseTask
 from ok import BaseTask
-from src.application_input import application_inputs
+from src.controls.application_input import application_inputs
 
 
 class OneDragonDailyTask(ZzzBaseTask, BaseTask):

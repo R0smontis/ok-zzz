@@ -20,7 +20,7 @@ from zzz_od.game_data.agent import CommonAgentStateEnum
 
 
 def test_real_lost_void_startup_resources_and_model():
-    from src.lost_void_check import check_lost_void_runtime
+    from src.diagnostics.lost_void_check import check_lost_void_runtime
     result = check_lost_void_runtime(Path(__file__).resolve().parents[1])
     assert result['startup_nodes'] == ['检测游戏窗口', '初始化加载', '识别初始画面']
     assert result['navigation_nodes'] == 'passed' and result['blank_inference'] == 'passed'

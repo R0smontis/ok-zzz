@@ -63,7 +63,7 @@ class BackToNormalWorld(ZOperation):
             return self.round_success(status=current_screen)
 
         if getattr(self.ctx.controller, 'background_mode', False):
-            from src.background_navigation import lost_void_gateway_visible
+            from src.navigation.menus import lost_void_gateway_visible
             # This gamepad gateway has a top-left back icon and no textual
             # footer. A mouse click on that icon does not operate this menu.
             if lost_void_gateway_visible(self, self.last_screenshot):
@@ -72,7 +72,7 @@ class BackToNormalWorld(ZOperation):
                 self.ctx.controller.btn_press('ds4_circle' if self.ctx.game_config.background_gamepad_type == 'ds4' else 'xbox_b', press_time=.12)
                 self._background_menu_back += 1
                 return self.round_retry('手柄离开已核验的深层调查入口，等待实际画面', wait=1)
-            from src.background_map_navigation import return_from_map
+            from src.navigation.map import return_from_map
             map_result = return_from_map(self, self.last_screenshot)
             if map_result is not None:
                 return map_result

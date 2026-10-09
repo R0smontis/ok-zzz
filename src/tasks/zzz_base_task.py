@@ -25,7 +25,7 @@ class ZzzBaseTask(BaseTask):
             return '关机延迟秒必须是非负整数'
 
     def enable(self):
-        from src.application_input import task_input_mode
+        from src.controls.application_input import task_input_mode
         if getattr(self, 'use_background_application', False) and task_input_mode() != '跟随交互方式':
             from ok.core.events import communicate
             if not self._enabled:

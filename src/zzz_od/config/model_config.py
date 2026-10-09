@@ -24,7 +24,7 @@ class ModelConfig(BasicModelConfig):
             self.update('_gpu_runtime_version', 1)
 
     def _gpu_enabled(self, key):
-        from src.inference import gpu_requested
+        from src.runtime.inference import gpu_requested
         return gpu_requested() and self.get(key, True)
 
     @property

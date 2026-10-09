@@ -9,7 +9,7 @@ from onedragon.base.controller.pc_button.pc_button_controller import PcButtonCon
 from onedragon.base.controller.pc_button import pc_button_utils
 from onedragon.base.geometry.point import Point
 from onedragon.utils.log_utils import log
-from src.diagnostics import record_event
+from src.diagnostics.recorder import record_event
 
 # 部分 pywin32 版本未导出侧键常量，沿用 Win32 定义的值。
 WM_XBUTTONDOWN = 0x020b

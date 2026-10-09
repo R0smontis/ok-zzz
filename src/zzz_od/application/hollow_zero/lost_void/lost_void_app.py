@@ -122,7 +122,7 @@ class LostVoidApp(ZApplication):
             return self.round_success('迷失之地-大世界')
         background = getattr(self.ctx.controller, 'background_mode', False)
         if background:
-            from src.background_navigation import lost_void_gateway_visible
+            from src.navigation.menus import lost_void_gateway_visible
             if lost_void_gateway_visible(self,self.last_screenshot):
                 return self.round_success('可前往副本画面')
             matches = self.ctx.ocr_service.get_ocr_result_list(image=self.last_screenshot,
@@ -198,7 +198,7 @@ class LostVoidApp(ZApplication):
         if getattr(self.ctx.controller,'background_mode',False):
             if self._entry_header() is not None or len(menu_matches(self.ctx,self.last_screenshot))>=2:
                 return self._wait_for_lost_void_entry()
-            from src.background_navigation import lost_void_gateway
+            from src.navigation.menus import lost_void_gateway
             result=lost_void_gateway(self,self.last_screenshot)
             return result if result is not None else self._wait_for_lost_void_entry()
         result = self.round_by_ocr_and_click(self.last_screenshot, '迷失之地')

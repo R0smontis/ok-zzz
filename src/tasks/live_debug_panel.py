@@ -59,8 +59,8 @@ class LiveDebugPanel(QWidget):
     def start(self):
         if self.service is not None and self.service.started:
             return
-        from src.live_debug import LiveDebugService
-        from src.live_runtime import GameRuntime, GuiCalls
+        from src.live.service import LiveDebugService
+        from src.live.runtime import GameRuntime, GuiCalls
         from onedragon.utils import os_utils
         try:
             self.gui = GuiCalls(self)

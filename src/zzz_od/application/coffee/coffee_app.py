@@ -13,7 +13,7 @@ import numpy as np
 from onedragon.base.config.config_item import get_config_item_from_enum
 from onedragon.base.geometry.point import Point
 from onedragon.base.geometry.rectangle import Rect
-from src.background_navigation import menu_words, pad_press
+from src.navigation.menus import menu_words, pad_press
 from onedragon.base.matcher.match_result import MatchResultList
 from onedragon.base.operation.application import application_const
 from onedragon.base.operation.operation_edge import node_from

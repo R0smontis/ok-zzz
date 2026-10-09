@@ -14,7 +14,7 @@ from zzz_od.auto_battle.auto_battle_context import AutoBattleContext
 from zzz_od.auto_battle.auto_battle_agent_context import TeamInfo
 from zzz_od.auto_battle.battle_presence import has_enemy_health_bar, detect_chain_presence
 from zzz_od.controller.zzz_controller import ZzzController
-from src.frame_geometry import FrameGeometry
+from src.runtime.frame_geometry import FrameGeometry
 
 SIZES = [(1280,720),(1600,900),(1920,1080),(2560,1440),(3840,2160)]
 FIXTURES = Path(__file__).parent/'fixtures/combat_recording'

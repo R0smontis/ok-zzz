@@ -14,8 +14,8 @@ from cv2.typing import MatLike
 from zzz_od.config.game_config import GameConfig
 from zzz_od.controller.zzz_pc_controller import ZPcController
 from onedragon.base.controller.input_guard import execution_input_allowed, execution_action
-from src.diagnostics import record_event
-from src.frame_geometry import FrameGeometry, normalize_bgr
+from src.diagnostics.recorder import record_event
+from src.runtime.frame_geometry import FrameGeometry, normalize_bgr
 
 
 class ZzzController(ZPcController):
@@ -125,7 +125,7 @@ class ZzzController(ZPcController):
 
     def screenshot(self, independent: bool = False) -> tuple[float, MatLike | None]:
         if self.frame_provider is not None and not independent:
-            from src.inference import recognition_interval
+            from src.runtime.inference import recognition_interval
             wait = recognition_interval()-(time.monotonic()-getattr(self, '_last_frame_request', 0))
             if wait > 0:
                 time.sleep(wait)
