@@ -10,7 +10,8 @@ from onedragon.base.geometry.rectangle import Rect
 from onedragon.base.operation.operation_round_result import OperationRoundResultEnum as R
 from src.navigation.suibian import (SuibianPadFlow, adventure_locations, adventure_step, arrival_step,
                                     auto_manage_step, duration_tiles, entry_tile_focused, is_entry,
-                                    neighbourhood_focused, yum_cha_step)
+                                    card_focused, craft_step, manage_page, neighbourhood_focused, sales_step, slot_focused,
+                                    yum_cha_step)
 from test_lost_void_background_menus import operation
 
 BASE = Path(__file__).parent / 'fixtures/suibian'
@@ -212,3 +213,79 @@ def test_wishes_are_never_submitted_and_missing_procurement_is_reported():
     result = yum_cha_step(op, screen)
     assert result.is_success and result.status == '定期采办未解锁'
     assert pressed(op) == ['xbox_b', 'xbox_b'] and 'xbox_x' not in pressed(op)
+
+
+def test_manage_pages_are_read_from_scene_labels():
+    assert manage_page(frame('craft-running')[2]) == ('制造坊', '开物', '售卖')
+    assert manage_page(frame('sales-selling')[2])[0] == '售卖铺'
+    assert manage_page(frame('manage')[2]) is None
+    assert manage_page(frame('research-page')[2]) == ('开物坊', '售卖', '制造')
+
+
+def test_craft_selects_the_verified_card_and_corrects_pages_with_shoulders():
+    op, screen, rows = frame('manage')
+    cards = [r for r in rows if r.data in ('开物清单', '制造台', '货架')]
+    assert [r.data for r in cards if card_focused(screen, r)] == ['开物清单']
+    craft_step(op, screen)
+    assert pressed(op) == ['xbox_dpad_right']  # never enter 开物 by accident
+    op, screen, _ = frame('sales-selling', op)
+    craft_step(op, screen)
+    op, screen, _ = frame('research-page', op)
+    craft_step(op, screen)
+    assert pressed(op) == ['xbox_dpad_right', 'xbox_lb', 'xbox_rb']
+
+
+def test_first_visit_guide_is_advanced_and_bounded():
+    op, screen, _ = frame('guide-research')
+    result = craft_step(op, screen)
+    assert result.result == R.WAIT and '开物坊' in result.status
+    assert pressed(op) == ['xbox_a']
+    for _ in range(19):
+        craft_step(op, screen)
+    assert craft_step(op, screen).is_fail
+
+
+def test_craft_collects_then_starts_the_first_craftable_good():
+    op, screen, _ = frame('craft-finished')
+    craft_step(op, screen)
+    assert pressed(op) == ['xbox_y']
+    op, screen, _ = frame('craft-collected', op)
+    craft_step(op, screen)
+    op, screen, rows = frame('craft-idle-slot', op)
+    assert slot_focused(screen, next(r for r in rows if r.data == '开工'))
+    craft_step(op, screen)
+    op, screen, _ = frame('craft-list-locked-focus', op)
+    craft_step(op, screen)  # 清神益气囊 is locked: move down to 适性符（可制造）
+    op, screen, _ = frame('craft-list-craftable-focus', op)
+    craft_step(op, screen)
+    assert pressed(op) == ['xbox_y', 'xbox_a', 'xbox_a', 'xbox_dpad_down', 'xbox_a']
+    op, screen, _ = frame('craft-running', op)
+    craft_step(op, screen)  # nothing idle any more
+    craft_step(op, screen)
+    assert pressed(op)[-1] == 'xbox_b'
+    op, screen, _ = frame('entry', op)
+    result = craft_step(op, screen)
+    assert result.is_success and result.status == '制造收获；开始制造适性符'
+
+
+def test_running_craft_is_left_alone():
+    op, screen, _ = frame('craft-running')
+    craft_step(op, screen)
+    craft_step(op, screen)
+    assert pressed(op) == ['xbox_b'] and op._craft_done
+
+
+def test_sales_picks_up_coins_once_and_reports_shelves():
+    op, screen, _ = frame('craft-running')
+    sales_step(op, screen)
+    assert pressed(op) == ['xbox_rb']
+    op, screen, _ = frame('sales-selling', op)
+    sales_step(op, screen)
+    assert pressed(op) == ['xbox_rb', 'xbox_r_thumb']
+    op, screen, _ = frame('sales-picked', op)
+    sales_step(op, screen)
+    sales_step(op, screen)
+    op, screen, _ = frame('entry', op)
+    result = sales_step(op, screen)
+    assert result.is_success and result.status == '货架售卖中'
+    assert pressed(op) == ['xbox_rb', 'xbox_r_thumb', 'xbox_b']

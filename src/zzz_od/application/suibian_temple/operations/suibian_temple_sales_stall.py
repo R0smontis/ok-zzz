@@ -36,6 +36,12 @@ class SuibianTempleSalesStall(ZOperation):
             op_name=f'{gt("随便观", "game")} {gt("售卖铺", "game")}'
         )
 
+    def execute(self):
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from src.navigation.suibian import SuibianPadFlow, sales_step
+            return SuibianPadFlow(self.ctx, self.op_name, sales_step).execute()
+        return ZOperation.execute(self)
+
     @operation_node(name='前往售卖铺', is_start_node=True)
     def goto_sales_stall(self) -> OperationRoundResult:
         current_screen_name = self.check_and_update_current_screen(self.last_screenshot, screen_name_list=['随便观-售卖铺'])

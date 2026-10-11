@@ -59,6 +59,23 @@ def _lit(mask, x0, x1, y0, y1, minimum):
     return bool(part.size) and float(np.mean(part)) > minimum
 
 
+def _guide(op, rows):
+    """First-visit tutorials block every page with 「A 下一步」; advance them, logging what they say.
+
+    The user asked for unexpected windows to be closed and the task continued. A guide can
+    walk through a real action (the 开物 guide researches its first good), so this is bounded.
+    """
+    step = _find(rows, '下一步', Rect(1560, 70, 1860, 140))
+    if step is None:
+        return None
+    if _count(op, '_guide_steps', 20):
+        return op.round_fail('新手引导步骤过多，请在游戏中手动完成')
+    text = next((_text(r.data) for r in rows if r.center.y < 75 and r.center.x > 900), '')
+    log.info('随便观新手引导：%s', text)
+    pad(op.ctx, 'a')
+    return op.round_wait(f'手柄推进新手引导：{text}', wait=1.2)
+
+
 def is_entry(rows):
     return _find(rows, '邻里街坊') is not None and (_find(rows, '派驻邦布') or _find(rows, '经营方针')) is not None
 
@@ -94,6 +111,9 @@ def open_entry_tile(op, screen, rows, name):
 def arrival_step(op, screen):
     """After the teleport: close the daily 经营日志 popup until the entry page is verified."""
     rows = _rows(op, screen)
+    guide = _guide(op, rows)
+    if guide is not None:
+        return guide
     if is_entry(rows):
         return op.round_success('随便观-入口')
     if _count(op, '_arrival_rounds', 12):
@@ -110,6 +130,9 @@ def auto_manage_step(op, screen):
     Only a locked tab (随便观 Lv.35) is verified; hosting control itself is left to the game.
     """
     rows = _rows(op, screen)
+    guide = _guide(op, rows)
+    if guide is not None:
+        return guide
     if _count(op, '_manage_rounds', 12):
         return op.round_fail('经营方针画面未核验')
     log_tab = _find(rows, '经营日志', Rect(1150, 90, 1750, 190))
@@ -218,6 +241,9 @@ def adventure_step(op, screen):
     _current (location whose panel is open), _results (what happened, for the log).
     """
     rows = _rows(op, screen)
+    guide = _guide(op, rows)
+    if guide is not None:
+        return guide
     if _count(op, '_adventure_rounds', 90):
         return op.round_fail('游历处理轮数过多，已停止')
     op.__dict__.setdefault('_done', set())
@@ -331,6 +357,9 @@ def yum_cha_step(op, screen):
     so the step reports it instead of pressing anything there.
     """
     rows = _rows(op, screen)
+    guide = _guide(op, rows)
+    if guide is not None:
+        return guide
     if _count(op, '_yum_rounds', 30):
         return op.round_fail('饮茶仙处理轮数过多，已停止')
     tiles = [r for r in rows if 640 < r.center.y < 720 and _text(r.data) in ('饮茶仙', '好物铺', '德丰大押', '邦巢')]
@@ -365,3 +394,173 @@ def yum_cha_step(op, screen):
         pad(op.ctx, 'start')
         return op.round_wait('手柄打开邻里街坊', wait=1.5)
     return op.round_wait('等待饮茶仙画面', wait=.8)
+
+
+_PAGES = {'制造': '制造坊', '售卖': '售卖铺', '开物': '开物'}
+
+
+def manage_page(rows):
+    """On a 经营 sub-page: (page, left neighbour, right neighbour) read from the scene labels."""
+    title = next((_text(r.data).replace('製', '制') for r in rows
+                  if 1380 < r.center.x < 1600 and 480 < r.center.y < 530 and len(_text(r.data)) >= 2), None)
+    side = lambda inside: next((name for name in (_text(r.data).replace('製', '制') for r in rows
+                                                  if inside(r.center.x) and 490 < r.center.y < 545)
+                                if name in _PAGES), None)  # NEW! badges sit beside the labels
+    left, right = side(lambda x: x < 260), side(lambda x: x > 1650)
+    if title is None or left is None or right is None:
+        return None
+    return title, left, right
+
+
+def card_focused(screen, label):
+    """经营 cards: the focused card's side edges turn bright yellow; the page itself is orange."""
+    x = label.center.x
+    part = screen[300:800]
+    yellow = (part[:, :, 0] > 200) & (part[:, :, 1] > 190) & (part[:, :, 2] < 90)
+    column = yellow.mean(axis=0)
+    edge = lambda x0, x1: float(column[max(0, x0):x1].max(initial=0))
+    return edge(x - 240, x - 195) > .5 and edge(x + 195, x + 240) > .5
+
+
+def goto_manage_page(op, screen, rows, target):
+    """From the entry or any 经营 page to the target sub-page (制造坊 / 售卖铺); None once there."""
+    page = manage_page(rows)
+    if page is not None:
+        if page[0] == target:
+            return None
+        if _count(op, '_page_switches', 4):
+            return op.round_fail(f'手柄切换到{target}未生效')
+        pad(op.ctx, 'lb' if _PAGES[page[1]] == target else 'rb')
+        return op.round_wait(f'手柄切换经营页面：{page[0]} → {target}', wait=1.2)
+    cards = [r for r in rows if 680 < r.center.y < 730 and _text(r.data) in ('开物清单', '制造台', '货架')]
+    if len(cards) == 3:
+        wanted = next(r for r in cards if _text(r.data) == {'制造坊': '制造台', '售卖铺': '货架'}[target])
+        focused = [r for r in cards if card_focused(screen, r)]
+        if _count(op, '_card_moves', 5):
+            return op.round_fail(f'手柄选择{target}未生效')
+        if focused and focused[0] is not wanted:
+            pad(op.ctx, 'dpad_right' if wanted.center.x > focused[0].center.x else 'dpad_left')
+            return op.round_wait(f'手柄选择{target}', wait=.6)
+        if not focused and not getattr(op, '_card_waited', False):
+            op._card_waited = True  # the cards slide in; read a settled frame first
+            return op.round_wait('等待经营卡片焦点', wait=.6)
+        # Unverified focus still lands on a 经营 page, which LB/RB then corrects.
+        pad(op.ctx, 'a')
+        return op.round_wait('手柄进入经营页面', wait=1.5)
+    if is_entry(rows):
+        result = open_entry_tile(op, screen, rows, '经营')
+        return result if result is not None else op.round_retry('未核验随便观入口按钮', wait=.8)
+    return op.round_wait('等待经营画面', wait=.8)
+
+
+def back_to_entry(op, rows, result):
+    """B until the entry page shows, then succeed with the given result."""
+    if is_entry(rows):
+        return op.round_success(result)
+    if _count(op, '_entry_backs', 5):
+        return op.round_fail('手柄返回随便观入口未生效')
+    pad(op.ctx, 'b')
+    return op.round_wait('手柄返回随便观入口', wait=1.2)
+
+
+def slot_focused(screen, label):
+    """制造台 / 货架 slots: outline on both edges, 160 px either side of the slot centre."""
+    mask = focus_mask(screen)
+    x = label.center.x
+    return _lit(mask, x-166, x-154, 700, 1020, .3) and _lit(mask, x+154, x+166, 700, 1020, .3)
+
+
+def craft_step(op, screen):
+    """制造坊: collect finished goods (Y 一键收获), then start the first craftable good on idle 开工 slots."""
+    rows = _rows(op, screen)
+    guide = _guide(op, rows)
+    if guide is not None:
+        return guide
+    if _count(op, '_craft_rounds', 60):
+        return op.round_fail('制造处理轮数过多，已停止')
+    op.__dict__.setdefault('_craft_results', [])
+    if getattr(op, '_craft_done', False):
+        return back_to_entry(op, rows, '；'.join(op._craft_results) or '没有可收获或可开工的制造台')
+    if _find(rows, '获得', Rect(700, 360, 1220, 460)) and _find(rows, '确认'):
+        pad(op.ctx, 'a')
+        return op.round_wait('手柄确认制造收获', wait=1.2)
+    if _find(rows, '号制造台的目标货品'):
+        return _choose_good(op, screen, rows)
+    moving = goto_manage_page(op, screen, rows, '制造坊')
+    if moving is not None:
+        return moving
+    if any('制造完毕' in _text(r.data) for r in rows):
+        if _count(op, '_craft_collects', 3):
+            return op.round_fail('一键收获未生效')
+        pad(op.ctx, 'y')
+        op._craft_results.append('制造收获')
+        return op.round_wait('手柄一键收获制造台', wait=1.5)
+    idle = [r for r in rows if _text(r.data) == '开工' and r.center.y > 900]
+    if not idle or getattr(op, '_craft_tried', 0) >= len(idle):
+        op._craft_done = True
+        return op.round_wait('制造台已处理', wait=.3)
+    slot = idle[0]
+    if not slot_focused(screen, slot):
+        if _count(op, '_slot_moves', 6):
+            return op.round_fail('手柄选择制造台未生效')
+        focused = [r for r in rows if r.center.y > 900 and slot_focused(screen, r)]
+        pad(op.ctx, 'dpad_left' if not focused or focused[0].center.x > slot.center.x else 'dpad_right')
+        return op.round_wait('手柄选择空闲制造台', wait=.6)
+    op._craft_tried = getattr(op, '_craft_tried', 0) + 1
+    pad(op.ctx, 'a')
+    return op.round_wait('手柄打开制造台货品列表', wait=1.5)
+
+
+def _good_name(row):
+    return re.sub(r'[\d（(].*$', '', _text(row.data))
+
+
+def _choose_good(op, screen, rows):
+    craftable = [r for r in rows if '可制造' in _text(r.data) and r.center.x < 1150]
+    mask = focus_mask(screen)
+    focused = next((r for r in rows if r.center.x < 1150 and re.search(r'[一-鿿]{2,}', _text(r.data))
+                    and 250 < r.center.y < 820 and _lit(mask, 92, 104, r.center.y + 10, r.center.y + 130, .4)
+                    and _lit(mask, 1140, 1152, r.center.y + 10, r.center.y + 130, .4)), None)
+    start = _find(rows, '开始制造', Rect(1300, 900, 1700, 1000))
+    if not craftable:
+        op._craft_results.append('没有可制造的货品')
+        op._craft_done = True
+        pad(op.ctx, 'b')
+        return op.round_wait('没有可制造的货品，返回', wait=1.2)
+    target = craftable[0]
+    if focused is None:
+        return op.round_retry('货品焦点未核验，未操作', wait=.6)
+    name = _good_name(target)
+    if focused is target and start is not None and _find(rows, name, Rect(1380, 380, 1800, 430)):
+        if _count(op, '_craft_starts', 3):
+            return op.round_fail('开始制造未生效')
+        pad(op.ctx, 'a')
+        op._craft_results.append(f'开始制造{name}')
+        return op.round_wait(f'手柄开始制造 {name}', wait=1.5)
+    if _count(op, '_good_moves', 12):
+        return op.round_fail(f'手柄选择货品 {name} 未生效')
+    pad(op.ctx, 'dpad_down' if target.center.y > focused.center.y else 'dpad_up')
+    return op.round_wait(f'手柄选择货品 {name}', wait=.6)
+
+
+def sales_step(op, screen):
+    """售卖铺: pick up dropped coins (RS 拾遗) and report shelves; refilling shelves is not automated yet."""
+    rows = _rows(op, screen)
+    guide = _guide(op, rows)
+    if guide is not None:
+        return guide
+    if _count(op, '_sales_rounds', 30):
+        return op.round_fail('售卖处理轮数过多，已停止')
+    if getattr(op, '_sales_done', None) is not None:
+        return back_to_entry(op, rows, op._sales_done)
+    moving = goto_manage_page(op, screen, rows, '售卖铺')
+    if moving is not None:
+        return moving
+    picks = next((re.search(r'(\d+)/(\d+)', _text(r.data)) for r in rows if '拾遗次数' in _text(r.data)), None)
+    if picks and int(picks.group(1)) < int(picks.group(2)) and not getattr(op, '_picked', False):
+        op._picked = True
+        pad(op.ctx, 'r_thumb')
+        return op.round_wait(f'手柄拾遗（今日 {picks.group(1)}/{picks.group(2)}）', wait=1.5)
+    short = any('库存不足' in _text(r.data) for r in rows)
+    op._sales_done = '货架库存不足，后台暂不更换货品' if short else '货架售卖中'
+    return op.round_wait(op._sales_done, wait=.3)

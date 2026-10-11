@@ -46,6 +46,12 @@ class SuibianTempleCraft(ZOperation):
         self.scroll_after_choose: bool = False  # 选择后是否已经滑动了
         self.drag_times: int = 0  # 下拉次数
 
+    def execute(self):
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from src.navigation.suibian import SuibianPadFlow, craft_step
+            return SuibianPadFlow(self.ctx, self.op_name, craft_step).execute()
+        return ZOperation.execute(self)
+
     @operation_node(name='前往制造', is_start_node=True)
     def goto_craft(self) -> OperationRoundResult:
         current_screen_name = self.check_and_update_current_screen(self.last_screenshot, screen_name_list=['随便观-制造坊'])
