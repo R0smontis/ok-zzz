@@ -7,9 +7,9 @@ area_list:
   id_mark: true
   pc_rect:
   - 1332
-  - 922
+  - 880
   - 1588
-  - 970
+  - 960
   text: 邻里街坊
   lcs_percent: 0.5
   template_sub_dir: ''

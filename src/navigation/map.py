@@ -138,10 +138,13 @@ def _candidates_for_template(screen, name, point):
     return candidates
 
 
+ICON_POINTS = {'吼吼饼铺': 'daily_bakery', '咖啡店': 'daily_coffee',
+               '柜台': '3d_map_tp_icon_1', '房间': '3d_map_tp_icon_1'}
+"""Points found by their map icon; every other point is reached by name through 快捷导航."""
+
+
 def point_candidates(screen, point):
-    names = {'吼吼饼铺': 'daily_bakery', '咖啡店': 'daily_coffee',
-             '柜台': '3d_map_tp_icon_1', '房间': '3d_map_tp_icon_1'}
-    name = names.get(point)
+    name = ICON_POINTS.get(point)
     if name is None:
         return []
     candidates = _candidates_for_template(screen, name, point)
@@ -366,3 +369,128 @@ def return_from_map(op, screen):
     _press(op, 'back')
     op._background_map_back = attempts + 1
     return op.round_retry('手柄关闭地图，等待实际大世界画面', wait=1)
+
+
+def _cjk(row, minimum=2):
+    return sum('一' <= c <= '鿿' for c in str(row.data)) >= minimum
+
+
+def _outlined(mask, y0, y1, x0, x1):
+    part = mask[max(0, y0):y1, max(0, x0):x1]
+    return bool(part.size) and float(np.mean(part)) > .4
+
+
+def quick_nav_state(op, screen):
+    """快捷导航 page: 3x3 region tiles above, the selected region's named points below.
+
+    The controller focus is an outline: a tile lights both side edges, a point lights the
+    edge under its label. Returns None for any other page.
+    """
+    if not isinstance(screen, np.ndarray) or screen.shape[:2] != (1080, 1920):
+        return None
+    rows = _rows(op, screen, Rect(0, 90, 1920, 1075))
+    from src.navigation.menus import focus_mask, label_focused
+    if any('是否传送至该地点' in _text(r.data) for r in rows):
+        ok = next((r for r in rows if _text(r.data) == '确认' and 560 < r.center.y < 700), None)
+        return dict(dialog=True, confirm_focused=ok is not None and label_focused(screen, ok.center, 120))
+    mask = focus_mask(screen)
+    tiles = []
+    for r in rows:
+        col, row = int(r.center.x // 636), next((i for i, y in enumerate((312, 591, 870)) if abs(r.center.y - y) < 40), None)
+        if row is None or not _cjk(r) or col > 2 or r.center.x - 636 * col < 300:
+            continue  # tile names sit at the bottom right of their tile
+        x0, x1, y0, y1 = 12 + 636 * col, 636 + 636 * col, 102 + 279 * row, 368 + 279 * row
+        lit = _outlined(mask, y0 + 20, y1 - 20, x0 - 2, x0 + 10) and _outlined(mask, y0 + 20, y1 - 20, x1 - 10, x1 + 2)
+        tiles.append((_text(r.data), r.center, lit))
+    points = sorted(((_text(r.data), r.center, _outlined(mask, 1060, 1071, r.center.x - 110, r.center.x + 110))
+                     for r in rows if _cjk(r) and 1015 < r.center.y < 1065), key=lambda p: p[1].x)
+    if len(tiles) < 3 or not points:
+        return None
+    return dict(dialog=False, tiles=tiles, points=points)
+
+
+def needs_quick_nav(tp_name):
+    return tp_name not in ICON_POINTS
+
+
+def quick_nav(op, screen):
+    """Teleport to op.area_name / op.tp_name by name: map → 快捷导航 → region → point → 确认.
+
+    Each press needs the current focus verified on a fresh frame; the final confirm is only
+    pressed on the dialog that a verified press on the target point opened.
+    """
+    steps = getattr(op, '_quick_nav_steps', 0)
+    if steps >= 40:
+        return op.round_fail(f'快捷导航未能到达 {op.area_name} / {op.tp_name}')
+    op._quick_nav_steps = steps + 1
+    confirms = getattr(op, '_quick_nav_confirms', 0)
+    state = quick_nav_state(op, screen)
+    if state is None:
+        if map_state(op, screen) is not None:
+            if confirms:
+                return op.round_fail('确认传送后仍停留在地图，未核验传送')
+            opens = getattr(op, '_quick_nav_opens', 0)
+            if opens >= 3:
+                return op.round_fail('手柄打开快捷导航未生效')
+            op._quick_nav_opens = opens + 1
+            _press(op, 'start')
+            return op.round_wait('手柄打开快捷导航，等待实际画面', wait=1.2)
+        if confirms:
+            return op.round_success(f'已确认传送至 {op.area_name} / {op.tp_name}，等待加载')
+        return op.round_wait('未核验地图或快捷导航画面，未操作', wait=.8)
+    if state['dialog']:
+        if getattr(op, '_quick_nav_chosen', None) != op.tp_name:
+            _press(op, 'back')
+            return op.round_wait('关闭未经核验的传送确认', wait=.8)
+        if confirms >= 3:
+            return op.round_fail(f'{op.tp_name} 的传送确认未生效')
+        if not state['confirm_focused']:
+            _press(op, 'dpad_right')
+            return op.round_wait('手柄移至确认按钮', wait=.6)
+        _press(op, 'confirm')
+        op._quick_nav_confirms = confirms + 1
+        return op.round_wait(f'手柄确认传送至 {op.area_name} / {op.tp_name}，等待实际画面', wait=2)
+    op._quick_nav_chosen = None
+    names = ', '.join(name for name, _, _ in state['tiles'])
+    target_tile = next((t for t in state['tiles'] if _match(t[0], op.area_name)), None)
+    if target_tile is None:
+        return op.round_fail(f'快捷导航中没有区域 {op.area_name}：{names}')
+    lit_tiles = [t for t in state['tiles'] if t[2]]
+    focused_points = [p for p in state['points'] if p[2]]
+    if len(focused_points) == 1:
+        # Focus is on the point strip, which lists the points of the lit (selected) region.
+        if lit_tiles != [target_tile]:
+            _press(op, 'back')
+            return op.round_wait('点位列表不属于目标区域，返回区域选择', wait=.8)
+        current = focused_points[0]
+        if _match(current[0], op.tp_name):
+            _press(op, 'confirm')
+            op._quick_nav_chosen = op.tp_name
+            return op.round_wait(f'手柄选择传送点 {op.tp_name}，等待传送确认', wait=1.2)
+        wanted = next((p for p in state['points'] if _match(p[0], op.tp_name)), None)
+        if wanted is not None:
+            direction = 'right' if wanted[1].x > current[1].x else 'left'
+        else:
+            # Off-screen points scroll in; sweep right first, then left once the strip stops moving.
+            seen = tuple(p[0] for p in state['points'])
+            prior, unchanged = getattr(op, '_quick_nav_strip', (None, 0))
+            unchanged = unchanged + 1 if seen == prior else 0
+            direction = getattr(op, '_quick_nav_strip_direction', 'right')
+            if unchanged >= 6:
+                if direction == 'left':
+                    return op.round_fail(f'{op.area_name} 中没有传送点 {op.tp_name}：{", ".join(seen)}')
+                direction, unchanged = 'left', 0
+            op._quick_nav_strip = (seen, unchanged)
+            op._quick_nav_strip_direction = direction
+        _press(op, 'dpad_' + direction)
+        return op.round_wait(f'手柄查找传送点：{current[0]} → {op.tp_name}', wait=.6)
+    if len(lit_tiles) != 1 or focused_points:
+        return op.round_wait(f'快捷导航焦点未唯一核验，未操作：{names}', wait=.6)
+    current = lit_tiles[0]
+    if current is target_tile:
+        _press(op, 'confirm')
+        return op.round_wait(f'手柄选择区域 {op.area_name}，等待传送点列表', wait=1.2)
+    dx, dy = target_tile[1].x - current[1].x, target_tile[1].y - current[1].y
+    direction = ('down' if dy > 0 else 'up') if abs(dy) > 140 else ('right' if dx > 0 else 'left')
+    _press(op, 'dpad_' + direction)
+    return op.round_wait(f'手柄选择区域：{current[0]} → {op.area_name}', wait=.6)

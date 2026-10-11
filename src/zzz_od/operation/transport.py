@@ -95,6 +95,11 @@ class Transport(ZOperation):
         已在地图画面，调用 MapTransport 执行传送
         :return:
         """
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from src.navigation.map import needs_quick_nav, quick_nav
+            if needs_quick_nav(self.tp_name):
+                # Points without a recognisable map icon are picked by name from 快捷导航.
+                return quick_nav(self, self.last_screenshot)
         op = MapTransport(self.ctx, self.area_name, self.tp_name)
         return self.round_by_op_result(op.execute())
 

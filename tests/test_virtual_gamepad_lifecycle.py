@@ -123,3 +123,17 @@ def test_context_adopts_detected_game_exe_only_when_unset(tmp_path, monkeypatch)
     account.game_path = 'D:/custom/game.exe'
     Globals._adopt_game_path(SimpleNamespace(game_account_config=account))
     assert account.game_path == 'D:/custom/game.exe'
+
+
+def test_frozen_game_picture_is_reported_once_per_episode():
+    import numpy as np
+    from src.globals import Globals
+    app = Globals.__new__(Globals)
+    still = np.zeros((1080, 1920, 3), np.uint8)
+    assert not app._watch_frozen_frames(still, now=0)
+    assert not app._watch_frozen_frames(still, now=10)
+    assert app._watch_frozen_frames(still, now=16)
+    assert not app._watch_frozen_frames(still, now=40)  # Already reported.
+    moving = still.copy(); moving[::16, ::16] = 255
+    assert not app._watch_frozen_frames(moving, now=41)
+    assert app._watch_frozen_frames(moving, now=60)  # A new frozen episode.
