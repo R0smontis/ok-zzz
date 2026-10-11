@@ -15,7 +15,7 @@ from ok.util.config import Config
 from ok.ui.qt.tasks.ConfigCard import ConfigCard
 from qfluentwidgets import FluentIcon
 from src.tasks.option_widgets import install_option_widgets
-from src.tasks.app_tasks import App_ChargePlan
+from src.tasks.app_tasks import App_ChargePlan, App_NotoriousHunt
 from src.tasks.daily_task import OneDragonDailyTask
 from src.tasks.plan_widgets import ChargePlanWidget, AppSettingsDialog, parse_charge_plans
 
@@ -217,6 +217,69 @@ def test_cancel_settings_does_not_modify_saved_task_config(editor):
 def test_invalid_plan_never_reaches_engine(value):
     with pytest.raises((ValueError,TypeError)):
         parse_charge_plans(value)
+
+
+@pytest.mark.parametrize('cls', [App_ChargePlan, App_NotoriousHunt])
+def test_edited_plans_survive_config_reload(editor, cls):
+    task, card = editor(cls)
+    assert task.config['plan_list'] == ''  # not yet loaded from the engine: apply keeps engine plans
+    card.config_widget_by_key['plan_list'].add_button.click()
+    saved = task.config['plan_list']
+    assert len(json.loads(saved)) == 1
+    card.close()
+    reloaded, card = editor(cls)
+    assert reloaded.config['plan_list'] == saved
+    card.close()
+
+
+def test_notorious_hunt_plans_use_hunt_targets_without_mission_names(editor):
+    task, card = editor(App_NotoriousHunt)
+    widget = card.config_widget_by_key['plan_list']
+    assert isinstance(widget, ChargePlanWidget) and widget.hunt
+    assert widget.title.text() == '狩猎计划' and widget.add_button.text() == '添加狩猎计划'
+    widget.add_button.click()
+    row = json.loads(task.config['plan_list'])[0]
+    assert (row['tab_name'], row['category_name'], row['mission_name']) == ('训练', '恶名狩猎', None)
+    controls = widget.editors[0]
+    assert 'category_name' not in controls and 'mission_name' not in controls
+    assert controls['mission_type_name'].findData('代理人方案培养') >= 0
+    controls['mission_type_name'].setCurrentIndex(controls['mission_type_name'].findData('彷徨猎手'))
+    controls['level'].setCurrentIndex(controls['level'].findData('等级Lv.65'))
+    controls['notorious_hunt_buff_num'].setValue(3)
+    saved = json.loads(task.config['plan_list'])[0]
+    assert saved['mission_type_name'] == '彷徨猎手' and saved['mission_name'] is None
+    assert saved['level'] == '等级Lv.65' and saved['notorious_hunt_buff_num'] == 3
+    assert saved['plan_id'] == row['plan_id']
+    card.close()
+
+
+def test_notorious_hunt_save_reaches_engine_and_keeps_run_counts(editor, tmp_path, monkeypatch, ctx):
+    from onedragon.utils import os_utils
+    from zzz_od.application.charge_plan.charge_plan_config import ChargePlanItem
+    from zzz_od.application.notorious_hunt.notorious_hunt_config import NotoriousHuntConfig
+    task, card = editor(App_NotoriousHunt)
+    monkeypatch.setattr(os_utils, 'get_work_dir', lambda: str(tmp_path))
+    engine = NotoriousHuntConfig(0, 'one_dragon')
+    original = ChargePlanItem(category_name='恶名狩猎', mission_type_name='初生死路屠夫', mission_name=None,
+                              plan_times=3, run_times=2)
+    engine.add_plan(original)
+    edited = original.to_dict()
+    edited.update(plan_times=4, run_times=0, notorious_hunt_buff_num=2)
+    fake = SimpleNamespace(current_instance_idx=0, compendium_service=ctx.compendium_service,
+                           run_context=SimpleNamespace(get_config=lambda *a, **k: engine))
+    monkeypatch.setattr(og, 'my_app', SimpleNamespace(context=fake))
+    task.config['plan_list'] = json.dumps([edited], ensure_ascii=False)
+    task.apply_options()
+    reloaded = NotoriousHuntConfig(0, 'one_dragon')
+    assert [plan.plan_id for plan in reloaded.plan_list] == [original.plan_id]
+    plan = reloaded.plan_list[0]
+    assert (plan.plan_times, plan.run_times, plan.notorious_hunt_buff_num) == (4, 2, 2)
+    for bad in ({'category_name': '实战模拟室'}, {'mission_type_name': '不存在的目标'}):
+        task.config['plan_list'] = json.dumps([{**edited, **bad}], ensure_ascii=False)
+        with pytest.raises(ValueError):
+            task.apply_options()
+    assert NotoriousHuntConfig(0, 'one_dragon').plan_list[0].plan_times == 4
+    card.close()
 
 
 def test_private_overlay_dll_can_coexist_with_window_and_cursor_readers():

@@ -7,6 +7,8 @@ from onedragon.base.operation.operation_edge import node_from
 from onedragon.base.operation.operation_node import operation_node
 from onedragon.base.operation.operation_notify import node_notify, NotifyTiming
 from onedragon.base.operation.operation_round_result import OperationRoundResult
+from onedragon.base.geometry.rectangle import Rect
+from src.controls.gamepad import press as pad
 from zzz_od.application.email_app import email_app_const
 from zzz_od.application.zzz_application import ZApplication
 from zzz_od.context.zzz_context import ZContext
@@ -48,6 +50,13 @@ class EmailApp(ZApplication):
         就算时灰色的也能识别到
         :return:
         """
+        if getattr(self.ctx.controller, 'background_mode', False):
+            # The mail page ignores window-message clicks; X is 全部领取 (also when greyed out: nothing happens).
+            result = self.round_by_find_area(self.last_screenshot, '邮件', '全部领取')
+            if not result.is_success:
+                return self.round_retry(result.status, wait=1)
+            pad(self.ctx, 'x')
+            return self.round_success(result.status, wait=1)
         return self.round_by_find_and_click_area(self.last_screenshot, '邮件', '全部领取', success_wait=1, retry_wait=1)
 
     @node_from(from_name='全部领取')
@@ -61,6 +70,14 @@ class EmailApp(ZApplication):
             '确认',  # 正常领取的情况
             '确定',  # 某种物品爆满了
         ]
+        if getattr(self.ctx.controller, 'background_mode', False):
+            # Only the reward popup has these words; it sits in the middle of the screen.
+            rows = self.ctx.ocr_service.get_ocr_result_list(image=self.last_screenshot, rect=Rect(560, 300, 1360, 860))
+            words = [str(r.data).strip() for r in rows] if isinstance(rows, (list, tuple)) else []
+            if not any(word in target_word_list for word in words):
+                return self.round_retry('未匹配到目标文本', wait=1)
+            pad(self.ctx, 'a')
+            return self.round_success('手柄确认领取', wait=1)
         return self.round_by_ocr_and_click_by_priority(
             target_cn_list=target_word_list,
             success_wait=1,
@@ -77,6 +94,9 @@ class EmailApp(ZApplication):
         领取后的确认按钮可以不按 直接点击外层也可以返回
         :return:
         """
+        if getattr(self.ctx.controller, 'background_mode', False):
+            pad(self.ctx, 'b')
+            return self.round_success('手柄返回菜单', wait=1)
         return self.round_by_find_and_click_area(self.last_screenshot, '菜单', '返回', success_wait=1, retry_wait=1)
 
     @node_from(from_name='返回菜单')

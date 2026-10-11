@@ -3,6 +3,7 @@
 # 来源: https://github.com/OneDragon-Anything/ZenlessZoneZero-OneDragon
 # 路径: zzz_od/application/intel_board/intel_board_app.py
 # 本文件随 ok-zzz 以 GPL-3.0 继续分发。
+from typing import ClassVar
 from enum import StrEnum
 
 from onedragon.base.operation.application import application_const
@@ -18,6 +19,7 @@ from onedragon.utils.log_utils import log
 from zzz_od.application.intel_board import intel_board_const
 from zzz_od.application.intel_board.intel_board_config import IntelBoardConfig
 from zzz_od.application.intel_board.intel_board_run_record import IntelBoardRunRecord
+from onedragon.base.geometry.rectangle import Rect
 from zzz_od.application.zzz_application import ZApplication
 from zzz_od.context.zzz_context import ZContext
 from zzz_od.operation.back_to_normal_world import BackToNormalWorld
@@ -33,6 +35,8 @@ class CommissionType(StrEnum):
 
 
 class IntelBoardApp(ZApplication):
+
+    STATUS_NO_SITE: ClassVar[str] = '未加入站点，情报板没有可接取的委托：请先在游戏内加入站点'
 
     """情报板:刷新/筛选动态情报板的代行委托(恶名狩猎/专业挑战室),代行出战清理板面。代行他人委托不耗自身电量(获贡献点;这些玩法自行挑战消耗电量)。"""
     def __init__(self, ctx: ZContext):
@@ -87,6 +91,10 @@ class IntelBoardApp(ZApplication):
     @operation_node(name='点击情报板')
     def click_board(self) -> OperationRoundResult:
         # 2. OCR 点击情报板
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from onedragon.base.geometry.rectangle import Rect
+            from src.navigation.menus import grid_target
+            return grid_target(self, self.last_screenshot, '情报板', Rect(1240, 240, 1900, 1000))
         return self.round_by_ocr_and_click(self.last_screenshot, '情报板', success_wait=1, retry_wait=1)
 
     @node_from(from_name='检查进度', success=False)
@@ -105,6 +113,10 @@ class IntelBoardApp(ZApplication):
     @node_from(from_name='刷新委托', status='未筛选')
     @operation_node(name='打开筛选', node_max_retry_times=60)
     def open_filter(self) -> OperationRoundResult:
+        rows = self.ctx.ocr_service.get_ocr_result_list(image=self.last_screenshot, rect=Rect(600, 550, 1320, 720))
+        if isinstance(rows, (list, tuple)) and any('加入站点' in str(r.data) for r in rows):
+            # Without a 站点 the board has no commissions to filter or accept.
+            return self.round_fail(IntelBoardApp.STATUS_NO_SITE)
         result = self.round_by_find_area(self.last_screenshot, '情报板', '点数兑换')
         if result.is_success:
             return self.round_by_click_area(

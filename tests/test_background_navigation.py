@@ -87,12 +87,20 @@ def test_background_map_open_requires_actual_screen_change_and_bounds_attempts()
     assert op.ctx.controller.btn_press.call_count==3
 
 
-def test_verified_compendium_back_is_bounded_and_requires_visible_return_prompt():
+def test_verified_compendium_back_is_bounded_and_refuses_unrelated_footer():
     op,rows=compendium_fixture()
+    other=SimpleNamespace(data='确认',center=Rect(1110,995,1160,1030).center)
+    rows.append(other)
     assert compendium_tab(op,op.last_screenshot,'大世界-普通').result==R.RETRY
     op.ctx.controller.btn_press.assert_not_called()
-    rows.append(SimpleNamespace(data='返回',center=Rect(1110,995,1160,1030).center))
-    for _ in range(3):assert compendium_tab(op,op.last_screenshot,'大世界-普通').result==R.WAIT
+    other.data='B返回'  # OCR can merge the controller glyph into the label.
+    for _ in range(4):assert compendium_tab(op,op.last_screenshot,'大世界-普通').result==R.WAIT
     assert compendium_tab(op,op.last_screenshot,'大世界-普通').is_fail
-    assert op.ctx.controller.btn_press.call_count==3
+    assert op.ctx.controller.btn_press.call_count==4
     assert all(call.args==('xbox_b',) for call in op.ctx.controller.btn_press.call_args_list)
+
+
+def test_keyboard_prompt_compendium_is_woken_by_controller_back():
+    op,_=compendium_fixture()  # Captured with keyboard prompts: no footer hints at all.
+    assert compendium_tab(op,op.last_screenshot,'大世界-普通').result==R.WAIT
+    op.ctx.controller.btn_press.assert_called_once_with('xbox_b',press_time=.12)

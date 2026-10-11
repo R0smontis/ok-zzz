@@ -51,6 +51,9 @@ OPTION_LABELS = {
     'Switch Agent Key': '切换角色按键',
 }
 
+# 计划清单由引擎保存为列表；任务界面以 JSON 文本承载，并保留引擎维护的完成次数。
+PLAN_LIST_APPS = ('charge_plan', 'notorious_hunt')
+
 
 def choice_schema(options, labels=None):
     return {'type': 'drop_down', 'options': list(options),
@@ -193,20 +196,24 @@ def configure_app_options(task):
             task.config_description[key] = '仅矩阵行动生效；按角色一、二、三的顺序组成主战队伍'
     if task.app_id == 'lost_void':
         task.config_description['extra_task'] = '完成悬赏委托：按画面当前目标判断，满额后领取并结束；需要继续刷本可选“完成周计划次数”'
-    if task.app_id == 'charge_plan':
-        if task.config.get('plan_list') is None:
+    if task.app_id in PLAN_LIST_APPS:
+        # '' 表示尚未从引擎读取；已保存的计划文本优先，重启后不丢失界面中的修改。
+        if task.config.get('plan_list') in ('', None):
             from ok import og
-            rows = []
             if getattr(og, 'my_app', None) is not None and hasattr(og.my_app, 'context'):
-                app = task.ctx.run_context.get_config('charge_plan', instance_idx=task.ctx.current_instance_idx)
-                rows = [item.to_dict() for item in app.plan_list]
-            import json
-            task.config['plan_list'] = json.dumps(rows, ensure_ascii=False)
+                app = task.ctx.run_context.get_config(task.app_id, instance_idx=task.ctx.current_instance_idx)
+                import json
+                task.config['plan_list'] = json.dumps([item.to_dict() for item in app.plan_list], ensure_ascii=False)
         task.default_config['plan_list'] = '[]'
+        if 'plan_list' not in task._option_keys:
+            task._option_keys.append('plan_list')
+    if task.app_id == 'notorious_hunt':
+        task.config_type['plan_list'] = {'type': 'charge_plans', 'mode': 'notorious_hunt', 'label': '狩猎计划'}
+        task.config_description['plan_list'] = ('从上到下挑战；选择狩猎目标、等级、增益与编队，'
+                                                '未配置计划时只领取奖励')
+    if task.app_id == 'charge_plan':
         task.config_type['plan_list'] = {'type': 'charge_plans'}
         task.config_type['combat_simulation_double_reward_config'] = {'type': 'charge_plans', 'single': True}
         task.config_type['double_reward'] = {'sub_configs': {True: ['combat_simulation_double_reward_config']}}
         task.config_description['plan_list'] = '从上到下执行；下拉选择类别、类型与副本，填写次数与编队；多条计划在列表内滚动查看'
         task.config_description['combat_simulation_double_reward_config'] = '有实战模拟室双倍奖励次数时优先执行这一条计划'
-        if 'plan_list' not in task._option_keys:
-            task._option_keys.append('plan_list')

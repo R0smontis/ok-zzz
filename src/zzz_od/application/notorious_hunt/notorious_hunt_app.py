@@ -16,6 +16,8 @@ from zzz_od.application.notorious_hunt.notorious_hunt_config import NotoriousHun
 from zzz_od.application.notorious_hunt.notorious_hunt_run_record import (
     NotoriousHuntRunRecord,
 )
+from onedragon.base.geometry.rectangle import Rect
+from src.controls.gamepad import press as pad
 from zzz_od.application.zzz_application import ZApplication
 from zzz_od.context.zzz_context import ZContext
 from zzz_od.operation.back_to_normal_world import BackToNormalWorld
@@ -143,6 +145,18 @@ class NotoriousHuntApp(ZApplication):
     @node_from(from_name='查找下一条计划', status=STATUS_ROUND_FINISHED)
     @operation_node(name='点击奖励入口')
     def click_reward_entry(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            # The target page binds the weekly reward panel to X and ignores window-message clicks.
+            rows = self.ctx.ocr_service.get_ocr_result_list(image=self.last_screenshot, rect=Rect(400, 200, 1500, 400))
+            words = [str(r.data) for r in rows] if isinstance(rows, (list, tuple)) else []
+            if any('周期挑战' in w for w in words):
+                return self.round_success('奖励入口')
+            presses = getattr(self, '_pad_reward_presses', 0)
+            if presses >= 3:
+                return self.round_fail('手柄打开周期挑战奖励未生效')
+            self._pad_reward_presses = presses + 1
+            pad(self.ctx, 'x')
+            return self.round_wait('手柄打开周期挑战奖励，等待实际面板', wait=1)
         return self.round_by_click_area(
             '恶名狩猎', '奖励入口',
             success_wait=1, retry_wait=1
@@ -152,6 +166,12 @@ class NotoriousHuntApp(ZApplication):
     @node_notify(when=NotifyTiming.CURRENT_DONE)
     @operation_node(name='全部领取', node_max_retry_times=2)
     def claim_all(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            result = self.round_by_find_area(self.last_screenshot, '恶名狩猎', '全部领取')
+            if not result.is_success:
+                return self.round_retry(result.status, wait=0.5)
+            pad(self.ctx, 'x')  # Greyed out when everything is claimed: nothing happens.
+            return self.round_success(result.status, wait=1)
         return self.round_by_find_and_click_area(
             self.last_screenshot, '恶名狩猎', '全部领取',
             success_wait=1, retry_wait=0.5

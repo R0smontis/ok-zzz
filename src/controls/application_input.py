@@ -40,6 +40,12 @@ def application_inputs(task):
             ctx._task_input_mode = 'messages'
             ctx.init_controller(activate=False)
         controller = ctx.controller
+        from src.controls.window_input import ELEVATION_MESSAGE, input_blocked_by_elevation
+        game_win = getattr(controller, 'game_win', None)
+        if game_win is not None and input_blocked_by_elevation(game_win.get_hwnd()):
+            task.info['执行结果'] = '需要管理员权限'
+            task.log_error(ELEVATION_MESSAGE, notify=True)
+            raise PermissionError(ELEVATION_MESSAGE)
         task.info['任务交互方式'] = ('手柄后台' if controller.background_mode else
             '窗口消息后台' if controller.message_mode else '跟随交互方式（前台）')
         task.log_info(f'任务交互方式：{task.info["任务交互方式"]}')

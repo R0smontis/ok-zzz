@@ -89,6 +89,10 @@ class ExpertChallenge(ZOperation):
         if result.is_success:
             return self.round_success(result.status)
 
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from src.navigation.menus import pad_next_step
+            return pad_next_step(self)
+
         result = self.round_by_find_and_click_area(self.last_screenshot, '实战模拟室', '下一步')
         if result.is_success:
             time.sleep(0.5)
@@ -188,6 +192,12 @@ class ExpertChallenge(ZOperation):
     @node_from(from_name='战斗超时')
     @operation_node(name='点击挑战结果退出')
     def click_result_exit(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from onedragon.base.geometry.rectangle import Rect
+            from src.navigation.menus import press_labelled
+            if press_labelled(self, self.last_screenshot, '退出', Rect(1400, 980, 1900, 1070)):
+                return self.round_fail(ExpertChallenge.STATUS_FIGHT_TIMEOUT, wait=2)  # Same outcome as the mouse path.
+            return self.round_retry('未核验退出按钮，未操作', wait=1)
         result = self.round_by_find_and_click_area(screen_name='战斗-挑战结果-失败', area_name='按钮-退出',
                                                    until_not_find_all=[('战斗-挑战结果-失败', '按钮-退出')],
                                                    success_wait=1, retry_wait=1)
@@ -199,6 +209,13 @@ class ExpertChallenge(ZOperation):
     @node_from(from_name='自动战斗', status='普通战斗-撤退')
     @operation_node(name='战斗失败')
     def battle_fail(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            # Retreat instead of rewinding a lost fight: 倒带 restarts the same losing battle.
+            from onedragon.base.geometry.rectangle import Rect
+            from src.navigation.menus import press_labelled
+            if press_labelled(self, self.last_screenshot, '撤退', Rect(400, 800, 1500, 960)):
+                return self.round_success('战斗结果-撤退', wait=2)
+            return self.round_retry('未核验撤退按钮，未操作', wait=1)
         result = self.round_by_find_and_click_area(self.last_screenshot, '战斗画面', '战斗结果-撤退')
         if result.is_success:
             return self.round_success(result.status, wait=5)

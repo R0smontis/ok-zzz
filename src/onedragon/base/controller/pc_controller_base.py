@@ -4,6 +4,7 @@
 # 路径: one_dragon/base/controller/pc_controller_base.py
 # 本文件随 ok-zzz 以 GPL-3.0 继续分发。
 import contextlib
+import sys
 import ctypes
 import time
 from functools import lru_cache
@@ -132,6 +133,44 @@ class PcControllerBase(ControllerBase):
                 self.btn_controller.reset()
             self.btn_controller = self.ds4_controller
             self.btn_controller.reset()
+
+    def release_virtual_gamepads(self) -> None:
+        """Unplug the ViGEm pads while the process is still alive.
+
+        vgamepad only removes a pad in __del__, which never runs when the process is killed or Windows
+        ends the session; ViGEmBus 1.21.442 has crashed (0x50) during such teardown.
+        """
+        pads = [c for c in (self.xbox_controller, self.ds4_controller) if c is not None]
+        if self.btn_controller in pads:
+            self.btn_controller = self.keyboard_controller
+        self.background_mode = False
+        self.xbox_controller = self.ds4_controller = None
+        for controller in pads:
+            with contextlib.suppress(Exception):
+                controller.reset()
+            pad, controller.pad = controller.pad, None
+            if pad is not None:
+                with contextlib.suppress(Exception):
+                    pad.__del__()  # vigem_target_remove + vigem_target_free
+                # Same layout, no-op finalizer: the interpreter's later __del__ must not remove twice.
+                pad.__class__ = type('ReleasedPad', (type(pad),), {'__del__': lambda self: None})
+
+    def disconnect_virtual_gamepad_bus(self) -> None:
+        """Unplug pads, then close ok-zzz's ViGEmBus handle while the bus is still healthy.
+
+        ViGEmBus 1.21.442 (DMF NotifyUserWithRequestMultiple) puts a NULL file context back into its pool
+        when a client's handle close is processed after the bus module was torn down, e.g. when Windows
+        kills processes during shutdown. Closing explicitly on exit or session end keeps ok-zzz out of that race.
+        """
+        self.release_virtual_gamepads()
+        module = sys.modules.get('vgamepad.win.virtual_gamepad')
+        bus = getattr(module, 'VBUS', None)
+        if bus is None or getattr(bus, '_okzzz_disconnected', False):
+            return
+        with contextlib.suppress(Exception):
+            bus.__del__()  # vigem_disconnect + vigem_free
+        bus.__class__ = type('DisconnectedBus', (type(bus),), {'__del__': lambda self: None})
+        bus._okzzz_disconnected = True
 
     def enable_keyboard(self):
         if self.btn_controller is not self.keyboard_controller:
@@ -584,3 +623,4 @@ def get_current_mouse_pos() -> Point:
     """获取鼠标当前坐标。"""
     pos = pyautogui.position()
     return Point(pos.x, pos.y)
+

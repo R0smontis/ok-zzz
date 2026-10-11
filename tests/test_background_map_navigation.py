@@ -173,3 +173,58 @@ def test_verified_map_return_is_bounded_and_uses_ds4_when_configured():
     assert return_from_map(op,screen).is_fail
     assert op.ctx.controller.btn_press.call_count==4
     assert all(c.args==('ds4_circle',) for c in op.ctx.controller.btn_press.call_args_list)
+
+
+def test_focused_neighbour_covering_target_keeps_steering_instead_of_zooming(monkeypatch):
+    import src.navigation.map as navigation
+    op,screen=fixture('bakery-clear-icon','布亚斯特城区','吼吼饼铺')
+    state={'info':False,'detail':True,'title':'布亚斯特城区','point':'吼吼饼铺','can_go':False,'selected':None,'rows':[]}
+    monkeypatch.setattr(navigation,'map_state',lambda op,screen: dict(state))
+    found=[[(507.,220.,.9)]]
+    monkeypatch.setattr(navigation,'point_candidates',lambda screen,point: found[0])
+    assert choose_point(op,screen).result==R.RETRY  # Moves toward the icon (y axis: 320 px away).
+    first=op.ctx.controller.btn_press.call_args.args[0]
+    assert first=='xbox_ls_up'
+    found[0]=[]
+    state['point']='算枢广场'  # Cursor now rests on the neighbour; its focus marker hides the bakery.
+    for _ in range(4):
+        assert choose_point(op,screen).result==R.RETRY
+    pressed=[c.args[0] for c in op.ctx.controller.btn_press.call_args_list[1:]]
+    assert 'xbox_rt' not in pressed and pressed  # Steered toward the expected spot, did not zoom.
+    assert pressed[0] in ('xbox_ls_left','xbox_ls_slow_left','xbox_ls_up','xbox_ls_slow_up')
+    assert choose_point(op,screen).result==R.RETRY  # Dead reckoning is bounded; then the old zoom fallback.
+    op.ctx.controller.click.assert_not_called()
+
+
+def test_counter_room_pair_steers_to_the_targets_side_once_partner_is_named(monkeypatch):
+    import src.navigation.map as navigation
+    op,screen=fixture('bakery-clear-icon','录像店','房间')
+    state={'info':False,'detail':True,'title':'录像店','point':'','can_go':False,'selected':None,'rows':[]}
+    monkeypatch.setattr(navigation,'map_state',lambda op,screen: dict(state))
+    found=[[(697.,683.,.9)]]  # Only the counter icon is visible; the room is cut off at the top.
+    monkeypatch.setattr(navigation,'point_candidates',lambda screen,point: found[0])
+    assert choose_point(op,screen).result==R.RETRY
+    assert op.ctx.controller.btn_press.call_args.args[0] in ('xbox_ls_down','xbox_ls_slow_down')  # Toward it at first.
+    state['point']='柜台';found[0]=[]  # Focused counter no longer matches the template.
+    for _ in range(3):
+        assert choose_point(op,screen).result==R.RETRY
+        assert op.ctx.controller.btn_press.call_args.args[0] in ('xbox_ls_up','xbox_ls_slow_up')
+    state['point']='';found[0]=[(697.,700.,.9),(700.,180.,.8)]  # Counter below and room above both visible.
+    assert choose_point(op,screen).result==R.RETRY
+    assert op.ctx.controller.btn_press.call_args.args[0] in ('xbox_ls_up','xbox_ls_slow_up')
+    assert 'xbox_rt' not in [c.args[0] for c in op.ctx.controller.btn_press.call_args_list]
+    found[0]=[(700.,560.,.8)]  # The room now sits just below centre: still tracked, not filtered away.
+    assert choose_point(op,screen).result==R.RETRY
+    assert op.ctx.controller.btn_press.call_args.args[0] in ('xbox_ls_down','xbox_ls_slow_down','xbox_ls_left','xbox_ls_slow_left','xbox_ls_right','xbox_ls_slow_right')
+
+
+def test_player_cone_over_the_target_icon_becomes_a_candidate(monkeypatch):
+    import src.navigation.map as navigation
+    op,screen=fixture('map-room-player-marker','录像店','房间')
+    assert not point_candidates(screen,'房间')  # The room icon is covered by the player cone.
+    marks=navigation._player_marker_candidates(screen)
+    assert len(marks)==1 and abs(marks[0][0]-1095)<12 and abs(marks[0][1]-728)<12
+    state={'info':False,'detail':False,'title':'录像店','point':'','can_go':False,'selected':None,'rows':[]}
+    monkeypatch.setattr(navigation,'map_state',lambda op,screen: dict(state))
+    assert choose_point(op,screen).result==R.RETRY
+    assert op.ctx.controller.btn_press.call_args.args[0] in ('xbox_ls_right','xbox_ls_slow_right')  # Toward x≈1095.

@@ -125,6 +125,33 @@ def test_application_input_policy_never_activates_and_restores_after_error(monke
     assert controller.sync_game_config.call_args.kwargs['activate'] is False
 
 
+@pytest.mark.parametrize('ours,game,blocked', [(False, True, True), (True, True, False), (False, False, False)])
+def test_elevated_game_stops_application_before_any_input(monkeypatch, ours, game, blocked):
+    import win32gui
+    import src.controls.application_input as policy
+    import src.controls.window_input as source
+    monkeypatch.setattr(source, '_process_elevated', lambda pid=None: game if pid else ours)
+    assert source.input_blocked_by_elevation(win32gui.GetDesktopWindow()) is blocked
+    monkeypatch.setattr(source, 'input_blocked_by_elevation', lambda hwnd: blocked)
+    monkeypatch.setattr(policy, 'task_input_mode', lambda: '手柄后台')
+    controller = SimpleNamespace(background_mode=True, message_mode=False, cancel_inputs=Mock(),
+                                 sync_game_config=Mock(), game_win=SimpleNamespace(get_hwnd=lambda: 101))
+    ctx = SimpleNamespace(controller=controller, game_config=SimpleNamespace(), init_controller=lambda activate: None)
+    task = SimpleNamespace(ctx=ctx, log_info=Mock(), log_error=Mock(), info={})
+    body = Mock()
+    if blocked:
+        with pytest.raises(PermissionError, match='管理员'):
+            with policy.application_inputs(task):
+                body()
+        body.assert_not_called()
+        assert task.info['执行结果'] == '需要管理员权限'
+    else:
+        with policy.application_inputs(task):
+            body()
+        body.assert_called_once()
+    controller.cancel_inputs.assert_called_once()
+
+
 def test_enabling_application_does_not_run_focus_stealing_hook(task_factory):
     from src.tasks.app_tasks import App_LostVoid
     task = task_factory(App_LostVoid)

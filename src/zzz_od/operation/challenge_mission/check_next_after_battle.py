@@ -10,6 +10,7 @@ from onedragon.base.operation.operation_edge import node_from
 from onedragon.base.operation.operation_node import operation_node
 from onedragon.base.operation.operation_round_result import OperationRoundResult
 from onedragon.utils.i18_utils import gt
+from src.controls.gamepad import press as pad
 from zzz_od.application.charge_plan import charge_plan_const
 from zzz_od.application.charge_plan.charge_plan_config import ChargePlanConfig
 from zzz_od.context.zzz_context import ZContext
@@ -35,6 +36,8 @@ class ChooseNextOrFinishAfterBattle(ZOperation):
     @node_from(from_name='恢复电量', status='战斗结果-完成')
     @operation_node(name='判断再来一次', is_start_node=True)
     def check_next(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            return self._check_next_by_gamepad()
         # 特训目标(代理人方案培养)结算画面左下角显示“已达成”时 说明本条计划无需再打 直接点完成结束
         if self.try_next and self.is_agent_plan:
             result = self.round_by_find_area(self.last_screenshot, '战斗画面', '战斗结果-已达成')
@@ -53,6 +56,33 @@ class ChooseNextOrFinishAfterBattle(ZOperation):
 
         return self.round_by_find_and_click_area(self.last_screenshot, '战斗画面', '战斗结果-完成',
                                                  success_wait=5, retry_wait=1)
+
+    def _check_next_by_gamepad(self) -> OperationRoundResult:
+        """The result screen ignores window-message clicks: X is 再来一次 and B is 完成.
+
+        Press once, then wait for the result buttons to disappear before reporting the choice.
+        """
+        finish = self.round_by_find_area(self.last_screenshot, '战斗画面', '战斗结果-完成')
+        again = self.round_by_find_area(self.last_screenshot, '战斗画面', '战斗结果-再来一次')
+        sent = getattr(self, '_pad_result_choice', None)
+        if not finish.is_success and not again.is_success:
+            if sent is not None:
+                return self.round_success(status=sent)
+            return self.round_retry('未识别战斗结果按钮，未操作', wait=1)
+        if self.try_next and self.is_agent_plan and self.round_by_find_area(
+                self.last_screenshot, '战斗画面', '战斗结果-已达成').is_success:
+            choice, button = ChooseNextOrFinishAfterBattle.STATUS_AGENT_PLAN_FINISHED, 'b'
+        elif self.try_next and again.is_success:
+            choice, button = '战斗结果-再来一次', 'x'
+        else:
+            choice, button = '战斗结果-完成', 'b'
+        requests = getattr(self, '_pad_result_requests', 0)
+        if requests >= 4:
+            return self.round_fail(f'手柄选择{choice}未生效')
+        self._pad_result_requests = requests + 1
+        self._pad_result_choice = choice
+        pad(self.ctx, button)
+        return self.round_wait(f'手柄选择{choice}，等待画面变化', wait=1.5)
 
     @node_from(from_name='判断再来一次', status='战斗结果-再来一次')
     @operation_node(name='恢复电量')

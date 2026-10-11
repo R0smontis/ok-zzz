@@ -16,6 +16,33 @@ WM_XBUTTONDOWN = 0x020b
 WM_XBUTTONUP = 0x020c
 MK_XBUTTON1 = 0x0020
 MK_XBUTTON2 = 0x0040
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+
+ELEVATION_MESSAGE = ('游戏以管理员权限运行，而 ok-zzz 未以管理员身份启动：Windows 会拦截发往游戏的点击与按键，'
+                     '菜单操作无法生效。请关闭 ok-zzz 后右键「以管理员身份运行」。')
+
+
+def _process_elevated(pid=None):
+    import win32security
+    handle = win32api.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid) if pid else win32api.GetCurrentProcess()
+    try:
+        token = win32security.OpenProcessToken(handle, win32con.TOKEN_QUERY)
+        return bool(win32security.GetTokenInformation(token, win32security.TokenElevation))
+    finally:
+        if pid:
+            win32api.CloseHandle(handle)
+
+
+def input_blocked_by_elevation(hwnd):
+    """Windows UIPI drops window messages and SendInput from a non-elevated process to an elevated one."""
+    if not hwnd:
+        return False
+    try:
+        import win32process
+        _, pid = win32process.GetWindowThreadProcessId(hwnd)
+        return not _process_elevated() and _process_elevated(pid)
+    except Exception:
+        return False  # Unknown: let the task try and report its own failures.
 
 
 class WindowMessageInput(PcButtonController):

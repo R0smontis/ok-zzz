@@ -15,6 +15,8 @@ from src.controls.gamepad import press as pad
 
 class Deploy(ZOperation):
 
+    STATUS_EMPTY_TEAM = '出战队伍为空：请在游戏内为该副本配好队伍，或在计划中选择预备编队'
+
     def __init__(self, ctx: ZContext):
         """
         在出战页面 点击出战
@@ -35,6 +37,10 @@ class Deploy(ZOperation):
                 pad(self.ctx, 'start')
                 return self.round_wait('手柄出战，等待画面变化', wait=1)
             if self._deploy_requests:
+                if self._empty_team_popup():
+                    # The popup covers the 出战 button; it is not a successful deploy.
+                    pad(self.ctx, 'a')
+                    return self.round_fail(Deploy.STATUS_EMPTY_TEAM)
                 return self.round_success('已离开出战画面', wait=1)
             return self.round_retry('尚未识别出战画面，未操作', wait=.5)
         return self.round_by_find_and_click_area(
@@ -42,6 +48,14 @@ class Deploy(ZOperation):
             success_wait=1, retry_wait=1,
             until_not_find_all=[('通用-出战', '按钮-出战')]
         )
+
+    def _empty_team_popup(self) -> bool:
+        from onedragon.base.geometry.rectangle import Rect
+        ocr = getattr(self.ctx, 'ocr_service', None)
+        if ocr is None:
+            return False
+        rows = ocr.get_ocr_result_list(image=self.last_screenshot, rect=Rect(560, 380, 1360, 720))
+        return isinstance(rows, (list, tuple)) and any('至少选择' in str(r.data) for r in rows)
 
     @node_from(from_name='出战')
     @node_notify(when=NotifyTiming.CURRENT_FAIL, detail=True)

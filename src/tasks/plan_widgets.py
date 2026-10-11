@@ -26,7 +26,18 @@ def _form_palette(widget):
     widget.setPalette(palette)
 
 
-def parse_charge_plans(value, *, single=False):
+NOTORIOUS_HUNT = '恶名狩猎'
+
+
+def new_notorious_hunt_plan(compendium):
+    """恶名狩猎计划固定在训练页，按狩猎目标区分，不选择具体副本。"""
+    from zzz_od.application.charge_plan.charge_plan_config import ChargePlanItem
+    targets = compendium.get_notorious_hunt_plan_mission_type_list(NOTORIOUS_HUNT)
+    return ChargePlanItem(tab_name='训练', category_name=NOTORIOUS_HUNT,
+                          mission_type_name=targets[0].value if targets else '', mission_name=None).to_dict()
+
+
+def parse_charge_plans(value, *, single=False, category=None):
     from zzz_od.application.charge_plan.charge_plan_config import ChargePlanItem, CardNumEnum
     from dataclasses import fields
     data = json.loads(value) if isinstance(value, str) else copy.deepcopy(value)
@@ -39,6 +50,8 @@ def parse_charge_plans(value, *, single=False):
         if not isinstance(row, dict) or set(row)-allowed-{'skipped'}:
             raise ValueError(f'计划 {number} 含未知字段或格式错误')
         item = ChargePlanItem(**{key: val for key, val in row.items() if key in allowed})
+        if category is not None and item.category_name != category:
+            raise ValueError(f'计划 {number} 的副本类别应为{category}')
         for key in ('category_name', 'mission_type_name', 'mission_name', 'level', 'auto_battle_config'):
             val = getattr(item, key)
             if val is not None and not isinstance(val, str):
@@ -65,10 +78,17 @@ class ChargePlanWidget(ConfigLabelAndWidget):
         ('auto_battle_config', '战斗模板'), ('card_num', '卡片数量'),
         ('plan_times', '计划次数'), ('predefined_team_idx', '预备编队'),
         ('notorious_hunt_buff_num', '狩猎增益编号')]
+    hunt_fields = [('mission_type_name', '狩猎目标'), ('level', '副本等级'),
+        ('auto_battle_config', '战斗模板'), ('plan_times', '计划次数'),
+        ('predefined_team_idx', '预备编队'), ('notorious_hunt_buff_num', '狩猎增益编号')]
 
     def __init__(self, description, config, key, schema):
         super().__init__(description, config, key)
         self.single = bool(schema.get('single'))
+        self.hunt = schema.get('mode') == 'notorious_hunt'
+        if self.hunt:
+            self.fields = self.hunt_fields
+        self.add_text = '添加狩猎计划' if self.hunt else '添加刷本计划'
         self.layout.setDirection(QHBoxLayout.TopToBottom)
         self.layout.takeAt(1)  # Remove the horizontal row's flexible spacer.
         self.layout.setSpacing(12)
@@ -88,7 +108,7 @@ class ChargePlanWidget(ConfigLabelAndWidget):
         self._refresh_theme()
         qconfig.themeChangedFinished.connect(self._refresh_theme)
         self.add_widget(self.scroll, stretch=0)
-        self.add_button = PushButton(FluentIcon.ADD, '添加刷本计划', self)
+        self.add_button = PushButton(FluentIcon.ADD, self.add_text, self)
         self.add_widget(self.add_button, stretch=0)
         self.add_button.setVisible(not self.single)
         self.add_button.clicked.connect(self.add_plan)
@@ -109,14 +129,18 @@ class ChargePlanWidget(ConfigLabelAndWidget):
 
     def update_value(self):
         try:
-            parsed = parse_charge_plans(self.config.get(self.key, '{}' if self.single else '[]'), single=self.single)
+            value = self.config.get(self.key)
+            if value in ('', None):
+                value = '{}' if self.single else '[]'
+            parsed = parse_charge_plans(value, single=self.single,
+                                        category=NOTORIOUS_HUNT if self.hunt else None)
             self.rows = [parsed] if self.single else parsed
             self.error_label.clear()
         except (ValueError, TypeError, json.JSONDecodeError) as exc:
             self.rows = []
             self.error_label.setText(f'原配置需要修正：{exc}。点击添加或重建计划后重新填写。')
         self.add_button.setVisible(not self.single or not self.rows)
-        self.add_button.setText('重建此计划' if self.single else '添加刷本计划')
+        self.add_button.setText('重建此计划' if self.single else self.add_text)
         self._render()
 
     def _save(self):
@@ -124,7 +148,7 @@ class ChargePlanWidget(ConfigLabelAndWidget):
 
     def add_plan(self):
         from zzz_od.application.charge_plan.charge_plan_config import ChargePlanItem
-        self.rows.append(ChargePlanItem().to_dict())
+        self.rows.append(new_notorious_hunt_plan(self.compendium) if self.hunt else ChargePlanItem().to_dict())
         self._save()
         self._render()
         from PySide6.QtCore import QTimer
@@ -166,7 +190,10 @@ class ChargePlanWidget(ConfigLabelAndWidget):
             if self.single:
                 items = [item for item in items if item.value == '实战模拟室']
         elif key == 'mission_type_name':
-            items = self.compendium.get_charge_plan_mission_type_list(row['category_name'])
+            if self.hunt:
+                items = self.compendium.get_notorious_hunt_plan_mission_type_list(NOTORIOUS_HUNT)
+            else:
+                items = self.compendium.get_charge_plan_mission_type_list(row['category_name'])
         else:
             items = self.compendium.get_charge_plan_mission_list(row['category_name'], row['mission_type_name'])
         return [(item.label, item.value) for item in items] or [('无需选择', None if key == 'mission_name' else '')]
@@ -200,6 +227,8 @@ class ChargePlanWidget(ConfigLabelAndWidget):
         downstream = ('mission_type_name', 'mission_name', 'level') if key == 'category_name' else (
             ('mission_name',) if key == 'mission_type_name' else ())
         for child in downstream:
+            if child not in self.editors[index]:
+                continue
             choices = self._choices(row, child)
             values = [val for label, val in choices]
             row[child] = row.get(child) if row.get(child) in values else values[0]
@@ -216,7 +245,7 @@ class ChargePlanWidget(ConfigLabelAndWidget):
         self.editors = []
         self.scroll.setFixedHeight(320 if self.rows else 64)
         if not self.rows:
-            self.rows_layout.addWidget(QLabel('暂无计划，点击“添加刷本计划”开始填写。', self.body))
+            self.rows_layout.addWidget(QLabel(f'暂无计划，点击“{self.add_text}”开始填写。', self.body))
         for index, row in enumerate(self.rows):
             group = QGroupBox(f'计划 {index+1} · 已完成 {row.get("run_times", 0)} 次', self.body)
             layout = QVBoxLayout(group)

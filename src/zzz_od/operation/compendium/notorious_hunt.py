@@ -3,10 +3,14 @@
 # 来源: https://github.com/OneDragon-Anything/ZenlessZoneZero-OneDragon
 # 路径: zzz_od/operation/compendium/notorious_hunt.py
 # 本文件随 ok-zzz 以 GPL-3.0 继续分发。
+import re
+
+import numpy as np
 import time
 from typing import ClassVar
 
 from onedragon.base.geometry.point import Point
+from onedragon.base.geometry.rectangle import Rect
 from onedragon.base.operation.application import application_const
 from onedragon.base.operation.operation import Operation
 from onedragon.base.operation.operation_edge import node_from
@@ -29,6 +33,7 @@ from zzz_od.application.notorious_hunt.notorious_hunt_config import (
 from zzz_od.application.notorious_hunt.notorious_hunt_run_record import (
     NotoriousHuntRunRecord,
 )
+from src.controls.gamepad import press as pad
 from zzz_od.context.zzz_context import ZContext
 from zzz_od.operation.challenge_mission.check_next_after_battle import (
     ChooseNextOrFinishAfterBattle,
@@ -118,7 +123,88 @@ class NotoriousHunt(ZOperation):
         if r2.is_success:
             return self.round_success(r2.status, wait=1)  # 画面加载有延时 稍微等待
 
+        if self._on_target_page():
+            # Current UI: the compendium's 前往 opens the target's own page directly.
+            return self.round_success('按钮-街区', wait=1)
+
         return self.round_retry(r1.status, wait=1)
+
+    def _on_target_page(self) -> bool:
+        """The target page shows 周期剩余时间 at the bottom left (it replaced 当期剩余奖励次数)."""
+        rows = self.ctx.ocr_service.get_ocr_result_list(image=self.last_screenshot, rect=Rect(150, 990, 620, 1060))
+        return isinstance(rows, (list, tuple)) and any('剩余时间' in str(r.data) for r in rows)
+
+    def _entry_panel(self) -> dict | None:
+        """Read the current target page: 深度追猎 toggle, free rewards left and the "free runs used up" prompt.
+
+        Returns None on the old layout (no ON/OFF text next to 深度追猎).
+        """
+        rows = self.ctx.ocr_service.get_ocr_result_list(image=self.last_screenshot, rect=Rect(300, 480, 1910, 1060))
+        rows = rows if isinstance(rows, (list, tuple)) else []
+        texts = [(str(r.data).replace(' ', ''), r.center) for r in rows]
+        if any('免费挑战次数已用尽' in t for t, _ in texts):
+            return {'toggle': None, 'left': None, 'popup': True}
+        toggle = next((t for t, c in texts if t in ('ON', 'OFF') and 1640 < c.x < 1790 and 660 < c.y < 730), None)
+        if toggle is None:
+            return None
+        left = None
+        label = next((c for t, c in texts if '剩余奖励次数' in t), None)
+        if label is not None:
+            for t, c in texts:
+                match = re.search(r'(\d+)/\d+', t)
+                if match and abs(c.y - label.y) < 25 and c.x >= label.x - 80:
+                    left = int(match.group(1))
+                    break
+        return {'toggle': toggle, 'left': left, 'popup': False}
+
+    def _choose_level_by_gamepad(self) -> OperationRoundResult:
+        """LS opens the 挑战等级 list; d-pad moves the filled focus and A applies it. Every step is re-read."""
+        from src.navigation.menus import focus_mask
+        norm = lambda text: str(text).replace(' ', '').upper()
+        target = norm(self.plan.level)
+        rows = self.ctx.ocr_service.get_ocr_result_list(image=self.last_screenshot, rect=Rect(1550, 20, 1820, 430))
+        rows = [r for r in rows if norm(r.data).startswith('等级LV')] if isinstance(rows, (list, tuple)) else []
+        header = [r for r in rows if r.center.y < 80]
+        items = [r for r in rows if r.center.y >= 90]
+        steps = getattr(self, '_pad_level_steps', 0)
+        if steps >= 12:
+            return self.round_fail(f'手柄选择挑战等级未生效：{self.plan.level}')
+        self._pad_level_steps = steps + 1
+        if len(items) < 2:
+            if header and norm(header[0].data) == target:
+                return self.round_success(f'已核验挑战等级：{self.plan.level}')
+            pad(self.ctx, 'l_thumb')
+            return self.round_wait('手柄打开挑战等级列表', wait=1)
+        focused = [r for r in items if np.mean(focus_mask(
+            self.last_screenshot[r.center.y-14:r.center.y+14, r.center.x-110:r.center.x+110])) > .3]
+        wanted = next((r for r in items if norm(r.data) == target), None)
+        if wanted is None:
+            return self.round_fail(f'挑战等级列表中没有 {self.plan.level}')
+        if len(focused) != 1:
+            return self.round_retry('未核验唯一挑战等级焦点，未操作', wait=.6)
+        if abs(focused[0].center.y - wanted.center.y) < 15:
+            pad(self.ctx, 'a')
+            return self.round_wait(f'手柄选择挑战等级：{self.plan.level}', wait=1)
+        pad(self.ctx, 'dpad_up' if wanted.center.y < focused[0].center.y else 'dpad_down')
+        return self.round_wait('手柄移动挑战等级焦点', wait=.6)
+
+    def _toggle_pursuit(self) -> OperationRoundResult:
+        presses = getattr(self, '_pursuit_toggles', 0)
+        if presses >= 4:
+            return self.round_fail('深度追猎开关切换未生效')
+        self._pursuit_toggles = presses + 1
+        if getattr(self.ctx.controller, 'background_mode', False):
+            pad(self.ctx, 'r_thumb')  # The toggle shows the RS hint and ignores window-message clicks.
+        else:
+            self.round_by_click_area('恶名狩猎', '按钮-深度追猎-ON')
+        return self.round_wait('切换深度追猎，等待实际状态', wait=1)
+
+    def _confirm_pursuit_popup(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            pad(self.ctx, 'a')  # Focus starts on 确认.
+        else:
+            self.round_by_click_area('恶名狩猎', '按钮-深度追猎-确认')
+        return self.round_wait('确认开启深度追猎', wait=1)
 
     @node_from(from_name='等待入口加载', status='按钮-街区')
     @operation_node(name='判断副本名称')
@@ -193,6 +279,23 @@ class NotoriousHunt(ZOperation):
         if self.use_charge_power:
             return self.round_success('深度追猎')
 
+        panel = self._entry_panel()
+        if panel is not None:
+            if panel['popup']:
+                if getattr(self.ctx.controller, 'background_mode', False):
+                    pad(self.ctx, 'b')  # Cancel: free runs never switch 深度追猎 on.
+                return self.round_wait('免费挑战不开启深度追猎', wait=1)
+            if panel['toggle'] == 'ON':
+                return self._toggle_pursuit()  # Free runs need 深度追猎 off.
+            if panel['left'] is None:
+                return self.round_retry('未识别到剩余奖励次数', wait=0.5)
+            self.run_record.left_times = panel['left']
+            if panel['left'] == 0:
+                return self.round_success(NotoriousHunt.STATUS_NO_LEFT_TIMES)
+            self.can_run_times = min(panel['left'], self.plan.plan_times - self.plan.run_times)
+            log.info('恶名狩猎剩余奖励次数 %s', panel['left'])
+            return self.round_success(NotoriousHunt.STATUS_WITH_LEFT_TIMES)
+
         result = self.round_by_find_area(self.last_screenshot, '恶名狩猎', '深度追猎-信息')
         if result.is_success:
             self.run_record.left_times = 0
@@ -230,6 +333,14 @@ class NotoriousHunt(ZOperation):
         区域对应文本"剩余奖励次数"会变成"电量消耗"，深度追猎需要消耗体力
         """
 
+        panel = self._entry_panel()
+        if panel is not None:
+            if panel['popup']:
+                return self._confirm_pursuit_popup()
+            if panel['toggle'] == 'OFF':
+                return self._toggle_pursuit()
+            return self.round_success(NotoriousHunt.STATUS_NO_LEFT_TIMES)  # ON: proceed with energy.
+
         # 尝试点亮"深度追猎-ON"之后的对话框
         result = self.round_by_find_and_click_area(self.last_screenshot, '恶名狩猎', '按钮-深度追猎-确认')
         if result.is_success:
@@ -253,6 +364,8 @@ class NotoriousHunt(ZOperation):
     def choose_level(self) -> OperationRoundResult:
         if self.plan.level == NotoriousHuntLevelEnum.DEFAULT.value.value:
             return self.round_success()
+        if getattr(self.ctx.controller, 'background_mode', False):
+            return self._choose_level_by_gamepad()
 
         self.round_by_click_area('恶名狩猎', '难度选择入口')
         time.sleep(1)
@@ -286,6 +399,10 @@ class NotoriousHunt(ZOperation):
         if result.is_success:
             return self.round_success(result.status)
 
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from src.navigation.menus import pad_next_step
+            return pad_next_step(self)
+
         result = self.round_by_find_and_click_area(self.last_screenshot, '实战模拟室', '下一步')
         if result.is_success:
             time.sleep(0.5)
@@ -314,6 +431,9 @@ class NotoriousHunt(ZOperation):
     @node_from(from_name='选择预备编队')
     @operation_node(name='出战')
     def click_start(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from zzz_od.operation.deploy import Deploy
+            return self.round_by_op_result(Deploy(self.ctx).execute())
         return self.round_by_find_and_click_area(
             self.last_screenshot, '实战模拟室', '出战',
             success_wait=1, retry_wait_round=1
@@ -378,6 +498,13 @@ class NotoriousHunt(ZOperation):
     @node_from(from_name='自动战斗', status='普通战斗-撤退')
     @operation_node(name='战斗失败')
     def battle_fail(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            # Retreat instead of rewinding a lost fight: 倒带 restarts the same losing battle.
+            from onedragon.base.geometry.rectangle import Rect
+            from src.navigation.menus import press_labelled
+            if press_labelled(self, self.last_screenshot, '撤退', Rect(400, 800, 1500, 960)):
+                return self.round_success('战斗结果-撤退', wait=2)
+            return self.round_retry('未核验撤退按钮，未操作', wait=1)
         result = self.round_by_find_and_click_area(self.last_screenshot, '战斗画面', '战斗结果-倒带')
 
         if result.is_success:
@@ -393,6 +520,12 @@ class NotoriousHunt(ZOperation):
     @node_from(from_name='战斗失败', status='战斗结果-撤退')
     @operation_node(name='战斗失败退出')
     def battle_fail_exit(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from onedragon.base.geometry.rectangle import Rect
+            from src.navigation.menus import press_labelled
+            if press_labelled(self, self.last_screenshot, '退出', Rect(1400, 980, 1900, 1070)):
+                return self.round_fail('战斗结果-退出', wait=2)  # Same outcome as the mouse path.
+            return self.round_retry('未核验退出按钮，未操作', wait=1)
         result = self.round_by_find_and_click_area(self.last_screenshot, '战斗画面', '战斗结果-退出')
 
         if result.is_success:  # 战斗失败 返回失败到外层 中断后续挑战
@@ -411,6 +544,12 @@ class NotoriousHunt(ZOperation):
     @node_from(from_name='退出战斗')
     @operation_node(name='点击挑战结果退出')
     def click_result_exit(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from onedragon.base.geometry.rectangle import Rect
+            from src.navigation.menus import press_labelled
+            if press_labelled(self, self.last_screenshot, '退出', Rect(1400, 980, 1900, 1070)):
+                return self.round_fail(NotoriousHunt.STATUS_FIGHT_TIMEOUT, wait=2)  # Same outcome as the mouse path.
+            return self.round_retry('未核验退出按钮，未操作', wait=1)
         result = self.round_by_find_and_click_area(screen_name='战斗-挑战结果-失败', area_name='按钮-退出',
                                                    until_not_find_all=[('战斗-挑战结果-失败', '按钮-退出')],
                                                    success_wait=1, retry_wait=1)
@@ -462,6 +601,9 @@ class NotoriousHunt(ZOperation):
 
         result = self.round_by_find_area(self.last_screenshot, '恶名狩猎', '按钮-街区')
         if result.is_success:  # 深度追猎
+            return self.round_success(wait=1)
+
+        if self._on_target_page():
             return self.round_success(wait=1)
 
         return self.round_retry(result.status, wait=1)

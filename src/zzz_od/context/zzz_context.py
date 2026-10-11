@@ -111,8 +111,16 @@ class ZContext(ContextEventBus):
             return service
         return self._get_or_create('map_service', create)
 
-    def navigate_background_screen(self, operation, screen, target):
-        from src.navigation.menus import compendium_tab
+    def navigate_background_screen(self, operation, screen, target, current=None):
+        from src.navigation.menus import MAIN_MENU_ITEMS, compendium_tab, main_menu_target
+        if current == '菜单':
+            # Window-message clicks on the menu's bottom bar are ignored; move the controller focus instead.
+            route = self.screen_loader.get_screen_route('菜单', target)
+            area = route.node_list[0].from_area if route is not None and route.can_go else ''
+            label = area.removeprefix('底部-')
+            if area.startswith('底部-') and label in MAIN_MENU_ITEMS:
+                return main_menu_target(operation, label)
+            return None
         return compendium_tab(operation, screen, target)
 
     @property

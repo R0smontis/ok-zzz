@@ -26,6 +26,7 @@ from onedragon.utils import cv2_utils, str_utils
 from onedragon.utils.i18_utils import gt
 from onedragon.utils.log_utils import log
 from typing import ClassVar
+from src.controls.gamepad import press as pad
 from zzz_od.context.zzz_context import ZContext
 from zzz_od.operation.zzz_operation import ZOperation
 
@@ -494,13 +495,24 @@ class EnterGame(ZOperation):
             if match_word.find('领取') != -1:
                 self.interact_ignore_word_list.append(match_word)
 
+            if getattr(self.ctx.controller, 'background_mode', False) and match_word in ('今日到账', '惊喜补给'):
+                # Monthly card: the reward is credited when it shows; B closes it. Clicks are ignored, and with
+                # keyboard prompts the first press only switches to controller prompts, so this round repeats.
+                presses = getattr(self, '_pad_monthly_card_presses', 0)
+                if presses < 6:
+                    self._pad_monthly_card_presses = presses + 1
+                    pad(self.ctx, 'b')
+                    return self.round_wait(status=f'手柄关闭月卡：{match_word}', wait=1.5)
             time.sleep(0.5)  # 等待画面稳定
             self.ctx.controller.click(match_word_mrl.max.center)
             return self.round_wait(status=match_word, wait=1)
 
         if back_btn_result.is_success:
             # 左上角的返回
-            self.round_by_click_area('菜单', '返回')
+            if getattr(self.ctx.controller, 'background_mode', False):
+                pad(self.ctx, 'b')
+            else:
+                self.round_by_click_area('菜单', '返回')
             return self.round_wait(status=back_btn_result.status, wait=1)
 
         return None
@@ -665,7 +677,13 @@ class EnterGame(ZOperation):
 
             self.resource_download_start_time = None
             if match_word == '点击进入游戏':
-                click_result = self.round_by_click_area('打开游戏', '点击进入游戏')
+                if getattr(self.ctx.controller, 'background_mode', False):
+                    # The title ignores window-message clicks. With keyboard prompts the first A only switches
+                    # to controller prompts; the button text stays, so the next round presses again.
+                    pad(self.ctx, 'a')
+                    click_result = self.round_success()
+                else:
+                    click_result = self.round_by_click_area('打开游戏', '点击进入游戏')
                 if click_result.is_success:
                     if self.after_first_enter_click:
                         self.after_second_enter_click = True
@@ -723,6 +741,9 @@ class EnterGame(ZOperation):
             return self.round_wait(EnterGame.STATUS_LOADING, wait=2)
 
         # 如果既不在大世界也没有已知弹窗, 游戏界面可能是被其他未知弹窗覆盖了, 尝试点击左上角关闭弹窗
+        if getattr(self.ctx.controller, 'background_mode', False):
+            pad(self.ctx, 'b')
+            return self.round_retry('手柄返回，等待加载中或大世界', wait=2)
         return_result = self.round_by_click_area('菜单', '返回')
         if not return_result.is_success:
             return return_result

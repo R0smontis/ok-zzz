@@ -16,6 +16,7 @@ from onedragon.base.operation.operation_round_result import OperationRoundResult
 from onedragon.utils import cv2_utils, str_utils
 from onedragon.utils.i18_utils import gt
 from onedragon.utils.log_utils import log
+from src.controls.gamepad import press as pad
 from zzz_od.application.charge_plan import charge_plan_const
 from zzz_od.application.charge_plan.charge_plan_config import (
     CardNumEnum,
@@ -148,6 +149,14 @@ class CombatSimulation(ZOperation):
                 self.scroll_count += 1
                 return self.round_retry(status=f'找不到 {self.plan.mission_name}', wait=1)
 
+        elif getattr(self.ctx.controller, 'background_mode', False):
+            from src.navigation.menus import combat_simulation_mission
+            mission_list = self.ctx.compendium_service.get_mission_list_data(self.plan.tab_name, self.plan.category_name, self.plan.mission_type_name)
+            result = combat_simulation_mission(self, self.last_screenshot, self.plan.mission_name,
+                                               [i.mission_name for i in mission_list])
+            if result.is_success:
+                return self.round_success(status=CombatSimulation.STATUS_CHOOSE_SUCCESS, wait=.5)
+            return result
         else:
             area = self.ctx.screen_loader.get_area('实战模拟室', '副本名称列表')
 
@@ -186,6 +195,9 @@ class CombatSimulation(ZOperation):
     def click_card(self) -> OperationRoundResult:
         if self.plan.card_num == CardNumEnum.DEFAULT.value.value:
             return self.round_success(self.plan.card_num)
+        elif getattr(self.ctx.controller, 'background_mode', False):
+            # The card editor has no verified controller path; stop before changing the loadout.
+            return self.round_fail('手柄后台暂不支持修改卡片数量，请将卡片数量设为默认数量')
         else:
             return self.round_by_click_area('实战模拟室', '外层-卡片1',
                                             success_wait=1, retry_wait=1)
@@ -223,6 +235,10 @@ class CombatSimulation(ZOperation):
         result = self.round_by_find_area(self.last_screenshot, '实战模拟室', '出战')
         if result.is_success:
             return self.round_success(result.status)
+
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from src.navigation.menus import pad_next_step
+            return pad_next_step(self)
 
         result = self.round_by_find_and_click_area(self.last_screenshot, '实战模拟室', '下一步')
         if result.is_success:
@@ -332,6 +348,13 @@ class CombatSimulation(ZOperation):
     @node_from(from_name='自动战斗', status='普通战斗-撤退')
     @operation_node(name='战斗失败')
     def battle_fail(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            # Retreat instead of rewinding a lost fight: 倒带 restarts the same losing battle.
+            from onedragon.base.geometry.rectangle import Rect
+            from src.navigation.menus import press_labelled
+            if press_labelled(self, self.last_screenshot, '撤退', Rect(400, 800, 1500, 960)):
+                return self.round_success('战斗结果-撤退', wait=2)
+            return self.round_retry('未核验撤退按钮，未操作', wait=1)
         result = self.round_by_find_and_click_area(self.last_screenshot, '战斗画面', '战斗结果-撤退')
         if result.is_success:
             return self.round_success(result.status, wait=5)

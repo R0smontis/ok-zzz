@@ -27,6 +27,10 @@ class OpenGame(Operation):
     @operation_node(name='打开游戏', is_start_node=True, screenshot_before_round=False)
     def open_game(self) -> OperationRoundResult:
         """禁用自动 HDR + 启动游戏 exe。"""
+        if self.ctx.controller is not None and self.ctx.controller.is_game_window_ready:
+            # Reached from an app whose open window is still on the title screen: never start a second copy.
+            self._already_open = True
+            return self.round_success('游戏已打开')
         hdr_op = DisableAutoHDR(self.ctx)
         hdr_op.execute()
 
@@ -70,8 +74,9 @@ class OpenGame(Operation):
         self.ctx.controller.init_game_win()
         if self.ctx.controller.is_game_window_ready:
             self.ctx.controller.active_window()
-            hdr_op = EnableAutoHDR(self.ctx)
-            hdr_op.execute()
+            if not getattr(self, '_already_open', False):  # HDR was only disabled for a real launch.
+                hdr_op = EnableAutoHDR(self.ctx)
+                hdr_op.execute()
             return self.round_success()
         else:
             return self.round_retry(wait=1)

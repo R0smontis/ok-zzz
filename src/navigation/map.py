@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 from onedragon.base.geometry.rectangle import Rect
 from onedragon.utils import os_utils
+from onedragon.utils.log_utils import log
 from src.controls.gamepad import is_ds4, pad_key, press as pad
 
 
@@ -160,6 +161,17 @@ def point_candidates(screen, point):
     return candidates
 
 
+def _player_marker_candidates(screen):
+    """The orange "you are here" cone covers the teleport icon the player stands on, so that icon no
+    longer matches its template. The covered icon's centre is just below-right of the cone."""
+    part = screen[100:955, 40:1370]
+    mask = ((part[:, :, 0] > 200) & (part[:, :, 1] > 110) & (part[:, :, 1] < 190)
+            & (part[:, :, 2] < 110)).astype(np.uint8)
+    _, _, stats, centers = cv2.connectedComponentsWithStats(mask)
+    return [(float(cx)+40+23, float(cy)+100+31, .6) for (x, y, w, h, area), (cx, cy) in zip(stats[1:], centers[1:])
+            if 250 < area < 900 and 25 < w < 80 and 12 < h < 50]
+
+
 def _coffee_occlusion_candidates(screen, focused_ramen=False):
     loaded = _template('daily_coffee_ramen_anchor')
     if loaded is None:
@@ -246,6 +258,32 @@ def choose_point(op, screen):
         # These overlapping symbols share the same block on this map. The
         # bakery head sits just right of the focused Random Play icon.
         candidates=[(730.,555.,1.)]
+    if not candidates and op.tp_name in ('柜台', '房间'):
+        # Standing on the target: its icon is covered by the player cone. The panel still names it.
+        candidates = _player_marker_candidates(screen)
+    partner = {'柜台': '房间', '房间': '柜台'}.get(op.tp_name)
+    if partner and state['point'] and _match(state['point'], partner):
+        # 柜台 and 房间 share one icon. Once the panel has named the partner, the target lies on its side:
+        # the room above, the counter below. A focused icon also stops matching the template.
+        op._background_partner_seen = True
+    if partner and getattr(op, '_background_partner_seen', False):
+        upward = op.tp_name == '房间'
+        candidates = [c for c in candidates if (c[1] < 500 if upward else c[1] > 580)]
+        if candidates:
+            op._background_partner_seen = False  # Target-side icon found: track it normally from here.
+        else:
+            candidates = [(695., 290. if upward else 790., .5)]  # Keep scrolling toward the target's side.
+    expected = getattr(op, '_background_expected_point', None)
+    lost = getattr(op, '_background_lost_steps', 0)
+    if (not candidates and expected is not None and lost < 4
+            and state['point'] and not _match(state['point'], op.tp_name)):
+        # Right after a move the cursor often rests on a neighbouring destination whose enlarged focus
+        # marker covers the target. Keep steering toward where the last move should have put the icon;
+        # zooming in does not remove this occlusion. The destination name is still read before confirming.
+        op._background_lost_steps = lost + 1
+        candidates = [(expected[0], expected[1], .5)]
+    elif candidates:
+        op._background_lost_steps = 0
     if not candidates:
         # Map symbols can overlap and fade. Increase map spacing only after
         # verifying the map's zoom control, then inspect a fresh frame.
@@ -289,6 +327,8 @@ def choose_point(op, screen):
         duration = max(.10, duration)
     action = ('move_a' if delta>0 else 'move_d') if axis=='x' else ('move_w' if delta>0 else 'move_s')
     op._background_map_motion = (axis, x if axis=='x' else y, duration, .35 if slow else 1)
+    # The press is sized to cover about 75% of the distance; where the icon should be on the next frame.
+    op._background_expected_point = (x+.75*dx, y) if axis=='x' else (x, y+.75*dy)
     keys = op.ctx.game_config.get_action_keys('ds4' if is_ds4(op.ctx) else 'xbox')
     key=keys[action]
     if slow:

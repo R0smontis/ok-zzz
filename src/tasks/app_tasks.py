@@ -60,7 +60,7 @@ class App_ChargePlan(AppTaskBase):
         self.name = '⚡ 体力刷本'
         self.description = '运行一条龙应用：体力刷本'
         self.default_config.update({
-            'plan_list': None,
+            'plan_list': '',
             'combat_simulation_double_reward_config': '{\n "tab_name": "训练",\n "category_name": "实战模拟室",\n "mission_type_name": "基础材料",\n "mission_name": "调查专项",\n "level": "默认等级",\n "auto_battle_config": "全配队通用",\n "run_times": 0,\n "plan_times": 1,\n "card_num": "默认数量",\n "predefined_team_idx": -1,\n "notorious_hunt_buff_num": 1,\n "plan_id": "b903dbed-9d85-45ba-bb56-c43483df1cb8",\n "skipped": false\n}',
             'daily_reset_plan_times': False,
             'double_reward': False,
@@ -361,6 +361,7 @@ class App_NotoriousHunt(AppTaskBase):
         self.name = '🐲 恶名狩猎'
         self.description = '运行一条龙应用：恶名狩猎'
         self.default_config.update({
+            'plan_list': '',
             'loop': True,
             'weekly_challenge_start_weekday': 1,
             '结束后': '无',

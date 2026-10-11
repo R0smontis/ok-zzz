@@ -76,6 +76,14 @@ class CompendiumChooseMissionType(ZOperation):
         if target_idx == -1:
             return self.round_fail(f'非法的副本分类 {self.mission_type.mission_type_name}')
 
+        def is_target(text: str) -> bool:
+            results = difflib.get_close_matches(text, target_list, n=1)
+            return bool(results) and name_to_idx.get(results[0], -1) == target_idx
+
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from src.navigation.menus import compendium_card
+            return compendium_card(self, self.last_screenshot, is_target, self.mission_type.mission_type_name)
+
         target_point: Point | None = None
         ocr_results = self.ctx.ocr.crop_and_run_ocr(self.last_screenshot, area.rect)
         for ocr_result, mrl in ocr_results.items():
@@ -174,7 +182,7 @@ class CompendiumChooseMissionType(ZOperation):
     @node_from(from_name='选择代理人方案')
     @operation_node(name='确认')
     def confirm(self) -> OperationRoundResult:
-        if getattr(self,'_pad_lost_go_sent',False):
+        if getattr(self,'_pad_go_sent',False):
             from src.navigation.menus import menu_words,pad_press
             words=menu_words(self,Rect(650,420,1300,750))
             if '确认' in words and any('传送' in w or '前往' in w for w in words):

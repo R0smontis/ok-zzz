@@ -87,6 +87,21 @@ class BackToNormalWorld(ZOperation):
                 pad(self.ctx, 'a')
                 self._background_menu_back=requests+1
                 return self.round_retry('确认已开始营业的结果，等待实际菜单',wait=1)
+            # 获得 popup (e.g. food after 实战模拟室): A only on a verified focused 确认; 前往 would leave elsewhere.
+            from src.navigation.menus import label_focused
+            obtained_rows=self.ctx.ocr_service.get_ocr_result_list(image=self.last_screenshot,rect=Rect(600,380,1320,760))
+            obtained_rows=obtained_rows if isinstance(obtained_rows,(list,tuple)) else []
+            confirm=next((r for r in obtained_rows if str(r.data).strip()=='确认'),None)
+            if confirm is not None and any(str(r.data).strip()=='获得' for r in obtained_rows):
+                requests=getattr(self,'_background_menu_back',0)
+                if requests>=6:
+                    return self.round_fail('获得弹窗确认未关闭')
+                self._background_menu_back=requests+1
+                if label_focused(self.last_screenshot,confirm.center):
+                    pad(self.ctx, 'a')
+                    return self.round_retry('确认获得弹窗，等待实际画面',wait=1)
+                pad(self.ctx, 'dpad_right')
+                return self.round_retry('手柄移到获得弹窗的确认，等待实际焦点',wait=.6)
             rows = self.ctx.ocr_service.get_ocr_result_list(image=self.last_screenshot, rect=Rect(600, 850, 1920, 1060))
             words = [str(r.data).strip().replace(' ', '') for r in rows] if isinstance(rows, (list, tuple)) else []
             # The bakery's main screen only shows Y/A actions; B still returns
@@ -94,7 +109,10 @@ class BackToNormalWorld(ZOperation):
             bakery_menu = (any('选择盲盒' in word or '已领取同类型奖励' in word for word in words)
                            and any('集卡兑换' in word for word in words))
             main_menu = len(set(words) & {'设置','公告','成就','绳网','仓库','代理人','商城','丽都城募','调频'}) >= 5
-            if '返回' in words or bakery_menu or main_menu:
+            battle_result = '完成' in words and '再来一次' in words  # B is 完成 on the result screen.
+            # Screens such as 实战模拟室 ignore window-message clicks on their top-left back icon; B works.
+            if ('返回' in words or bakery_menu or main_menu or battle_result
+                    or self.round_by_find_area(self.last_screenshot, '画面-通用', '返回').is_success):
                 requests = getattr(self, '_background_menu_back', 0)
                 if requests >= 6:
                     return self.round_fail('手柄返回大世界未生效，当前菜单仍显示返回')
@@ -116,6 +134,9 @@ class BackToNormalWorld(ZOperation):
         mini_map = self.ctx.world_patrol_service.cut_mini_map(self.last_screenshot)
         if mini_map.play_mask_found:
             return self.round_success(status='发现地图')
+
+        if getattr(self.ctx.controller, 'background_mode', False):
+            return self._back_by_gamepad()
 
         # 大部分画面都有街区或勘域可以直接返回，“区域”通过 0.5 LCS 匹配“街区”的“区”或“勘域”的“域”
         result = self.round_by_find_and_click_area(self.last_screenshot, '画面-通用', '左上角-区域')
@@ -204,6 +225,37 @@ class BackToNormalWorld(ZOperation):
             return self.round_retry(click_back.status, wait=0.5)
         else:
             return self.round_fail()
+
+    def _back_by_gamepad(self) -> OperationRoundResult:
+        """Controller fallback: the click fallbacks below report success while the game ignores them."""
+        from onedragon.base.geometry.rectangle import Rect
+        from src.navigation.menus import press_labelled
+        screen = self.last_screenshot
+        # Result screens (「B 退出」/「完成」) and the battle menu's 退出战斗 show their button glyph.
+        for label, rect in (('退出', Rect(1300, 960, 1920, 1080)), ('完成', Rect(1300, 960, 1920, 1080)),
+                            ('退出战斗', Rect(0, 0, 1920, 1080))):
+            button = press_labelled(self, screen, label, rect)
+            if button:
+                self.click_exit_battle = label == '退出战斗'
+                return self.round_retry(f'手柄{label}（{button.upper()}），等待实际画面', wait=1)
+        if self.click_exit_battle:
+            # 退出战斗 asks for confirmation; focus starts on 确认.
+            self.click_exit_battle = False
+            pad(self.ctx, 'a')
+            return self.round_retry('手柄确认退出战斗', wait=1)
+        result = hollow_event_utils.check_in_hollow(self.ctx, screen)
+        if result is not None:
+            HollowExitByMenu(self.ctx).execute()
+            return self.round_retry(result, wait=1)
+        result = self.round_by_find_area(screen, '战斗画面', '按键-普通攻击')
+        if result.is_success:
+            if self.allow_battle:
+                return self.round_success(status='大世界-战斗')
+            self.round_by_click_area('战斗画面', '菜单')  # gamepad_key: menu
+            return self.round_retry(result.status, wait=0.5)
+        # Unknown menu or popup: B backs out of nearly every game screen.
+        pad(self.ctx, 'b')
+        return self.round_retry('未知画面，手柄返回', wait=1)
 
     @node_from(from_name='画面识别', status='脱离卡死')
     @operation_node(name='确认脱离卡死')

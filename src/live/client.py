@@ -4,6 +4,7 @@ from datetime import datetime
 import json
 from pathlib import Path
 import re
+import sys
 import time
 from urllib.request import Request, build_opener, ProxyHandler
 from urllib.error import HTTPError
@@ -83,6 +84,10 @@ def find_session(root):
 
 
 def run(argv=None):
+    # Chinese Windows consoles default to GBK; task names contain emoji that GBK cannot encode.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, 'reconfigure'):
+            stream.reconfigure(errors='backslashreplace')
     parser = argparse.ArgumentParser(description='ok-zzz本机实时调试客户端')
     parser.add_argument('--session', help='debug/live/session.json的绝对路径')
     parser.add_argument('--root', default=str(Path.cwd()))

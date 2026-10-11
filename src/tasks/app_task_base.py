@@ -40,6 +40,9 @@ class AppTaskBase(ZzzBaseTask, BaseTask):
         if self.app_id == 'charge_plan' and key in ('plan_list', 'combat_simulation_double_reward_config'):
             from src.tasks.plan_widgets import parse_charge_plans
             return parse_charge_plans(value, single=key != 'plan_list')
+        if self.app_id == 'notorious_hunt' and key == 'plan_list':
+            from src.tasks.plan_widgets import NOTORIOUS_HUNT, parse_charge_plans
+            return parse_charge_plans(value, category=NOTORIOUS_HUNT)
         option = next((o for a in APP_OPTIONS if a.get('app_id') == self.app_id
                        for o in a.get('options', []) if o['key'] == key), None)
         if option and option['type'] == 'json':
@@ -62,12 +65,16 @@ class AppTaskBase(ZzzBaseTask, BaseTask):
             self.app_id, instance_idx=ctx.current_instance_idx)
         # 先验证所有输入，再写回，避免配置错误后仍按旧配置操作游戏。
         updates = {}
+        from src.tasks.app_option_ui import PLAN_LIST_APPS
         for key in self._option_keys:
             if key not in self.config:
                 continue
+            if key == 'plan_list' and self.app_id in PLAN_LIST_APPS and self.config.get(key) in ('', None):
+                continue  # 尚未从引擎读取计划，保留引擎中的计划。
             updates[key] = self._parse_option(key, self.config.get(key))
+        from zzz_od.application.charge_plan.charge_plan_config import ChargePlanItem
         if self.app_id == 'charge_plan':
-            from zzz_od.application.charge_plan.charge_plan_config import ChargePlanItem, ChargePlanConfig
+            from zzz_od.application.charge_plan.charge_plan_config import ChargePlanConfig
             for key in ('plan_list', 'combat_simulation_double_reward_config'):
                 if key not in updates:
                     continue
@@ -76,6 +83,13 @@ class AppTaskBase(ZzzBaseTask, BaseTask):
                     error = ChargePlanConfig.validate_item(ctx, ChargePlanItem.from_dict(row))
                     if error:
                         raise ValueError(f'刷本计划：{error}')
+        if self.app_id == 'notorious_hunt':
+            from zzz_od.application.notorious_hunt.notorious_hunt_config import NotoriousHuntConfig
+            for row in updates.get('plan_list', []):
+                error = NotoriousHuntConfig.validate_item(ctx, ChargePlanItem.from_dict(row))
+                if error:
+                    raise ValueError(f'狩猎计划：{error}')
+        if self.app_id in PLAN_LIST_APPS:
             # Counts belong to the engine's runtime, not to an old UI snapshot.
             existing = {item.plan_id: item for item in app_config.plan_list}
             for row in updates.get('plan_list', []):
@@ -89,14 +103,14 @@ class AppTaskBase(ZzzBaseTask, BaseTask):
         try:
             previous_plans = getattr(app_config, 'plan_list', None)
             for key, value in updates.items():
-                if key == 'plan_list' and self.app_id == 'charge_plan':
+                if key == 'plan_list' and self.app_id in PLAN_LIST_APPS:
                     app_config.plan_list = [ChargePlanItem.from_dict(row) for row in value]
                 else:
                     app_config.update(key, value, save=False)
             app_config.save()
         except Exception:
             app_config.data = previous
-            if self.app_id == 'charge_plan':
+            if self.app_id in PLAN_LIST_APPS:
                 app_config.plan_list = previous_plans
             raise
         self.log_info(f'{self.name}：配置已应用')
@@ -124,7 +138,8 @@ class AppTaskBase(ZzzBaseTask, BaseTask):
 
         run_result = ctx.run_context.run_application(
             self.app_id, instance_idx=ctx.current_instance_idx)
-        if self.app_id == 'charge_plan':
+        from src.tasks.app_option_ui import PLAN_LIST_APPS
+        if self.app_id in PLAN_LIST_APPS:
             app_config = ctx.run_context.get_config(self.app_id, instance_idx=ctx.current_instance_idx)
             self.config['plan_list'] = json.dumps([item.to_dict() for item in app_config.plan_list], ensure_ascii=False)
 

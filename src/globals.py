@@ -39,6 +39,18 @@ class Globals:
         self._stopped = False
         if hasattr(exit_event, 'bind_stop'):
             exit_event.bind_stop(self)
+        self._stop_on_session_end()
+
+    def _stop_on_session_end(self):
+        """Windows logoff/shutdown can end the process before the normal exit path runs."""
+        from PySide6.QtGui import QGuiApplication
+        app = QGuiApplication.instance()
+        if app is not None:
+            app.commitDataRequest.connect(lambda _manager: self._session_ending())
+
+    def _session_ending(self):
+        logger.info('Windows 正在注销或关机：停止任务并移除虚拟手柄')
+        self.stop()
 
     def stop(self):
         """Framework ExitEvent callback; release inputs before captures are closed."""
@@ -66,13 +78,18 @@ class Globals:
             except Exception as error:
                 logger.warning(f'退出时停止任务失败: {error}')
             context.after_app_shutdown()
+            if context.controller is not None:
+                try:
+                    context.controller.disconnect_virtual_gamepad_bus()
+                except Exception as error:
+                    logger.warning(f'退出时移除虚拟手柄失败: {error}')
         overlay = getattr(self, '_overlay_manager', None)
         if overlay is not None:
             try:
                 overlay.shutdown()
             except Exception as error:
                 logger.warning(f'退出时停止悬浮窗失败: {error}')
-        logger.info('程序退出清理完成：战斗输入、声音监听与调试录制已停止')
+        logger.info('程序退出清理完成：战斗输入、声音监听、调试录制与虚拟手柄已停止')
 
     # ------------------------------------------------------------------ #
     # ok-script 桥接
@@ -131,9 +148,28 @@ class Globals:
             )
             discover_factories(context)
             context.init()
+            self._adopt_game_path(context)
             self._context = context
             logger.info('ZzzContext 已创建并完成应用注册')
         return self._context
+
+    @staticmethod
+    def _adopt_game_path(context):
+        """Apps launch a closed game from the account's game path; reuse the exe ok-script already found."""
+        import os
+        account = context.game_account_config
+        if account.game_path:
+            return
+        manager = getattr(og, 'device_manager', None)
+        try:
+            device = manager.get_preferred_device() if manager is not None else None
+            path = manager.get_exe_path(device) if device and device.get('device') == 'windows' else None
+        except Exception as error:
+            logger.warning(f'读取游戏路径失败: {error}')
+            return
+        if path and os.path.isfile(path):
+            account.game_path = path
+            logger.info(f'已使用检测到的游戏路径：{path}')
 
     def ensure_context_for_game(self):
         """游戏启动后的完整初始化（画面区域等）。"""

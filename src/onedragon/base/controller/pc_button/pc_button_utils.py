@@ -7,11 +7,9 @@ from functools import lru_cache
 from pynput import keyboard, mouse
 from typing import Union
 
-try:
-    import vgamepad
-    _VGAMEPAD_INSTALLED = True
-except Exception:
-    _VGAMEPAD_INSTALLED = False
+# Importing vgamepad opens ViGEmBus immediately; probe lazily so the bus is only touched
+# once a gamepad mode is actually used.
+_VGAMEPAD_INSTALLED: bool | None = None
 
 
 @lru_cache
@@ -79,4 +77,11 @@ def is_vgamepad_installed() -> bool:
     是否安装了虚拟手柄库
     :return:
     """
+    global _VGAMEPAD_INSTALLED
+    if _VGAMEPAD_INSTALLED is None:
+        try:
+            import vgamepad  # noqa: F401
+            _VGAMEPAD_INSTALLED = True
+        except Exception:
+            _VGAMEPAD_INSTALLED = False
     return _VGAMEPAD_INSTALLED

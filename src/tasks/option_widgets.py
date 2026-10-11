@@ -112,7 +112,9 @@ def install_option_widgets():
             widget = AppChoiceWidget(description, config, key, schema)
         else:
             widget = original(config_type, description, config, key, value, task)
-        if key in OPTION_LABELS:
+        if isinstance(schema, dict) and schema.get('label'):
+            widget.title.setText(schema['label'])
+        elif key in OPTION_LABELS:
             widget.title.setText(OPTION_LABELS[key])
         project_task = task is not None and type(task).__module__.startswith('src.tasks.')
         if key in OPTION_LABELS or project_task:

@@ -12,6 +12,7 @@ from onedragon.base.operation.operation_edge import node_from
 from onedragon.base.operation.operation_node import operation_node
 from onedragon.base.operation.operation_round_result import OperationRoundResult
 from onedragon.utils.i18_utils import gt
+from src.controls.gamepad import press as pad
 from zzz_od.context.zzz_context import ZContext
 from zzz_od.operation.zzz_operation import ZOperation
 from zzz_od.screen_area.screen_normal_world import ScreenNormalWorldEnum
@@ -52,6 +53,10 @@ class ChoosePredefinedTeam(ZOperation):
     @node_from(from_name='画面识别', status='预备编队')
     @operation_node(name='点击预备编队')
     def click_team(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            # The deploy page ignores window-message clicks; X opens 预备编队.
+            pad(self.ctx, 'x')
+            return self.round_success('手柄打开预备编队', wait=1)
         return self.round_by_find_and_click_area(self.last_screenshot, '实战模拟室', '预备编队',
                                                  success_wait=1, retry_wait=1)
 
@@ -59,6 +64,14 @@ class ChoosePredefinedTeam(ZOperation):
     @node_from(from_name='尝试查找编队')
     @operation_node(name='选择编队')
     def choose_team(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from src.navigation.menus import predefined_team
+            team_list = self.ctx.team_config.team_list
+            target_team_idx = self.target_team_idx_list[0]
+            if team_list is None or not 0 <= target_team_idx < len(team_list):
+                return self.round_fail(f'选择的预备编队下标错误 {target_team_idx}')
+            return predefined_team(self, self.last_screenshot, team_list[target_team_idx].name,
+                                   [team.name for team in team_list])
         area = self.ctx.screen_loader.get_area('实战模拟室', '预备出战')
         result = self.round_by_ocr(self.last_screenshot, '预备出战', area=area,
                                    color_range=[[240, 240, 240], [255, 255, 255]])
@@ -106,6 +119,12 @@ class ChoosePredefinedTeam(ZOperation):
     @node_from(from_name='选择编队')
     @operation_node(name='选择编队确认')
     def click_confirm(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            # A in the list already applied the team and returned to the deploy page.
+            result = self.round_by_find_area(self.last_screenshot, '实战模拟室', '出战')
+            if result.is_success:
+                return self.round_success('已返回出战画面')
+            return self.round_retry('等待返回出战画面', wait=1)
         result = self.round_by_find_and_click_area(self.last_screenshot, '实战模拟室', '预备出战')
         if result.is_success:
             time.sleep(0.5)
