@@ -34,10 +34,14 @@ class EnterHddMission(ZOperation):
         self.predefined_team_idx = predefined_team_idx  # 预备编队下标 -1代表不选择
 
     def handle_init(self):
-        pass
+        for key in ('_hdd_chapter_rounds', '_hdd_chapter_opens', '_hdd_backs'):
+            self.__dict__.pop(key, None)
 
     @operation_node(name='选择章节', is_start_node=True)
     def choose_chapter(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from src.navigation.hdd import choose_chapter
+            return choose_chapter(self, self.last_screenshot)
         area = self.ctx.screen_loader.get_area('HDD', '章节列表')
         result = self.round_by_ocr_and_click(self.last_screenshot, self.chapter, area=area)
         if result.is_success:
@@ -60,6 +64,8 @@ class EnterHddMission(ZOperation):
     @node_from(from_name='选择章节')
     @operation_node(name='选择委托')
     def choose_mission_type(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            return self.round_fail('HDD后台委托分类和副本选择尚待实机核验，未出战')
         area = self.ctx.screen_loader.get_area('HDD', '委托区域')
         result = self.round_by_ocr_and_click(self.last_screenshot, self.mission_type, area=area)
         if result.is_success:

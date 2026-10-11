@@ -112,3 +112,14 @@ def test_transport_uses_quick_nav_only_for_points_without_icon(monkeypatch, poin
     monkeypatch.setattr(module, 'MapTransport', Mock(return_value=SimpleNamespace(execute=Mock(return_value='map'))))
     transport.round_by_op_result = lambda result: result
     assert transport.do_transport() == ('quick' if quick else 'map')
+
+
+def test_video_store_english_hdd_is_a_named_destination_not_a_region():
+    op, screen = fixture('quick-nav-video-store', '录像店', 'HDD')
+    state = quick_nav_state(op, screen)
+    assert [name for name, _, lit in state['points'] if lit] == ['HDD']
+    assert quick_nav(op, screen).result == R.WAIT
+    assert pressed(op) == ['xbox_a'] and op._quick_nav_chosen == 'HDD'
+    op, screen = fixture('quick-nav-video-store', '录像店', '房间')
+    assert quick_nav(op, screen).result == R.WAIT
+    assert pressed(op) == ['xbox_dpad_right'] and op._quick_nav_chosen is None

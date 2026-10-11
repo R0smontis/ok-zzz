@@ -108,6 +108,10 @@ class YamlConfig(YamlOperator):
         frozen_path = os_utils.get_resource_path(*sub_dir, f'{self.module_name}.yml')
         if os.path.exists(frozen_path):
             return frozen_path, yml_path, frozen_path
+        if self._sample:
+            frozen_sample = os_utils.get_resource_path(*sub_dir, f'{self.module_name}.sample.yml')
+            if os.path.exists(frozen_sample):
+                return frozen_sample, yml_path, frozen_sample
 
         return yml_path, yml_path, None
 

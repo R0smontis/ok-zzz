@@ -113,6 +113,17 @@ class ZContext(ContextEventBus):
 
     def navigate_background_screen(self, operation, screen, target, current=None):
         from src.navigation.menus import MAIN_MENU_ITEMS, compendium_tab, main_menu_target
+        if current in ('仓库-音擎仓库', '仓库-材料道具', '仓库-驱动仓库'):
+            from src.navigation.warehouse import TABS, warehouse_tab
+            if target in TABS:
+                return warehouse_tab(operation, screen, target)
+            route = self.screen_loader.get_screen_route(current, target)
+            if route is not None and route.can_go and route.node_list:
+                next_screen = route.node_list[0].to_screen
+                if next_screen in TABS:
+                    return warehouse_tab(operation, screen, next_screen)
+            # No validated pad equivalent yet: fail rather than repeatedly post ignored clicks.
+            return operation.round_fail(f'仓库后台导航尚未核验：{current} → {target}')
         if current == '菜单':
             # Window-message clicks on the menu's bottom bar are ignored; move the controller focus instead.
             route = self.screen_loader.get_screen_route('菜单', target)

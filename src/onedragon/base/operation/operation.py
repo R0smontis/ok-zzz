@@ -1485,7 +1485,7 @@ class Operation(OperationBase):
         log.debug(f'当前识别画面 {current_screen_name}')
         navigate = getattr(self.ctx, 'navigate_background_screen', None)
         if (getattr(getattr(self.ctx, 'controller', None), 'background_mode', False) and callable(navigate)
-                and (current_screen_name.startswith('快捷手册') or current_screen_name == '菜单')):
+                and (current_screen_name.startswith(('快捷手册', '仓库-')) or current_screen_name == '菜单')):
             result = navigate(self, screen, screen_name, current=current_screen_name)
             if result is not None:
                 return result

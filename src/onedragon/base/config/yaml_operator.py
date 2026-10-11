@@ -97,6 +97,12 @@ class YamlOperator:
                 )
                 return False
 
+        if self._copy_on_write_source_path is not None:
+            # save() re-reads the write path after this method. Switch the active
+            # file before clearing the copy marker, or it writes back to the sample.
+            self.file_path = write_path
+            if hasattr(self, 'old_file_path'):
+                self.old_file_path = write_path
         self._copy_on_write_source_path = None
         return True
 

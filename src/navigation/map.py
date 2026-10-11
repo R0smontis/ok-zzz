@@ -11,7 +11,8 @@ from src.controls.gamepad import is_ds4, pad_key, press as pad
 
 
 def _text(value):
-    return str(value).replace(' ', '').replace('「', '').replace('」', '')
+    value = str(value).replace(' ', '').replace('「', '').replace('」', '')
+    return 'HDD' if value.upper().replace('.', '') == 'HDD' else value
 
 
 def _rows(op, screen, rect):
@@ -403,7 +404,7 @@ def quick_nav_state(op, screen):
         lit = _outlined(mask, y0 + 20, y1 - 20, x0 - 2, x0 + 10) and _outlined(mask, y0 + 20, y1 - 20, x1 - 10, x1 + 2)
         tiles.append((_text(r.data), r.center, lit))
     points = sorted(((_text(r.data), r.center, _outlined(mask, 1060, 1071, r.center.x - 110, r.center.x + 110))
-                     for r in rows if _cjk(r) and 1015 < r.center.y < 1065), key=lambda p: p[1].x)
+                     for r in rows if (_cjk(r) or _text(r.data) == 'HDD') and 1015 < r.center.y < 1065), key=lambda p: p[1].x)
     if len(tiles) < 3 or not points:
         return None
     return dict(dialog=False, tiles=tiles, points=points)

@@ -28,15 +28,18 @@ class KeySimRunner(ZOperation):
     @operation_node(name='加载配置', is_start_node=True)
     def load_config(self) -> OperationRoundResult:
         config = YamlConfig(self.config_name, sub_dir=['key_sim'], sample=True, copy_from_sample=False)
-        op_def_list = [
-            OperationDef(i)
-            for i in config.data.get('operations', [])
-        ]
-        self.ops = [
-            self.ctx.auto_battle_context.atomic_op_factory.get_atomic_op(i)
-            for i in op_def_list
-        ]
-
+        self.ops = []
+        rows = config.data.get('operations') if isinstance(config.data, dict) else None
+        if not isinstance(rows, list) or not rows:
+            return self.round_fail(f'模拟按键配置缺失或为空：{self.config_name}')
+        if any(not isinstance(row, dict) or not isinstance(row.get('op_name'), str)
+               or not row['op_name'].strip() for row in rows):
+            return self.round_fail(f'模拟按键配置格式错误：{self.config_name}')
+        try:
+            ops = [self.ctx.auto_battle_context.atomic_op_factory.get_atomic_op(OperationDef(row)) for row in rows]
+        except (ValueError, TypeError) as error:
+            return self.round_fail(f'模拟按键配置无效：{self.config_name}；{error}')
+        self.ops = ops
         return self.round_success()
 
     @node_from(from_name='加载配置')

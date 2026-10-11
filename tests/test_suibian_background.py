@@ -206,12 +206,12 @@ def test_yum_cha_opens_neighbourhood_then_the_verified_tile():
 def test_wishes_are_never_submitted_and_missing_procurement_is_reported():
     op, screen, _ = frame('yum-cha-wishes')
     yum_cha_step(op, screen)
-    assert pressed(op) == ['xbox_b'] and op._yum_result == '定期采办未解锁'
+    assert pressed(op) == ['xbox_b'] and op._yum_result == '定期采办入口未核验'
     op, screen, _ = frame('neighbourhood', op)
     yum_cha_step(op, screen)
     op, screen, _ = frame('entry', op)
     result = yum_cha_step(op, screen)
-    assert result.is_success and result.status == '定期采办未解锁'
+    assert result.is_success and result.status == '定期采办入口未核验'
     assert pressed(op) == ['xbox_b', 'xbox_b'] and 'xbox_x' not in pressed(op)
 
 

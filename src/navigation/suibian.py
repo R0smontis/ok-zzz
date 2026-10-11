@@ -353,7 +353,7 @@ def neighbourhood_focused(screen, label):
 def yum_cha_step(op, screen):
     """饮茶仙: only 定期采办 is automated upstream; 邻里心愿 orders spend collectibles and are left alone.
 
-    The 定期采办 tab could not be verified on a controller (not unlocked on the test account),
+    The 定期采办 tab could not be verified on a controller on the test account,
     so the step reports it instead of pressing anything there.
     """
     rows = _rows(op, screen)
@@ -366,7 +366,7 @@ def yum_cha_step(op, screen):
     if _find(rows, '邻里心愿', Rect(1450, 80, 1900, 180)) or _find(rows, '定期采办', Rect(1250, 80, 1900, 180)):
         if getattr(op, '_yum_result', None) is None:
             op._yum_result = ('后台手柄暂不处理定期采办' if _find(rows, '定期采办', Rect(1250, 80, 1900, 180))
-                              else '定期采办未解锁')
+                              else '定期采办入口未核验')
         if _count(op, '_yum_backs', 4):
             return op.round_fail('手柄离开饮茶仙未生效')
         pad(op.ctx, 'b')

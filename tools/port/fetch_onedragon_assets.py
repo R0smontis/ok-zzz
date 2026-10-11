@@ -27,6 +27,7 @@ ASSET_SPECS = [
     ('config/auto_battle_operation', 'config/auto_battle_operation', True),
     ('config/auto_battle_state_handler', 'config/auto_battle_state_handler', True),
     ('config/dodge', 'config/dodge', True),
+    ('config/key_sim', 'config/key_sim', True),
     ('config/hollow_zero_challenge', 'config/hollow_zero_challenge', True),
     ('config/lost_void_challenge', 'config/lost_void_challenge', True),
     ('config/world_patrol_route', 'config/world_patrol_route', True),

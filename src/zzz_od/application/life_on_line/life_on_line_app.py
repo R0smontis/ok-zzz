@@ -67,6 +67,24 @@ class LifeOnLineApp(ZApplication):
     @node_from(from_name='检查运行次数', status=STATUS_CONTINUE_OVER_NIGHT)
     @operation_node(name='交互')
     def interact(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from src.navigation.hdd import enter_hdd
+            result = enter_hdd(self, self.last_screenshot)
+            if result is not None:
+                self._hdd_interact_requests = 0  # allow a fresh interaction after a later overnight return
+                return result
+            # A is also agent selection / mission-next on later pages. Never keep
+            # sending it merely because the old 「街区」 label is absent.
+            world = self.check_and_update_current_screen(self.last_screenshot,
+                                                        screen_name_list=['大世界-普通'])
+            if world != '大世界-普通':
+                return self.round_retry('未核验大世界或HDD页面，未发送交互', wait=1)
+            requests = getattr(self, '_hdd_interact_requests', 0)
+            if requests >= 3:
+                return self.round_fail('手柄HDD交互未生效')
+            self._hdd_interact_requests = requests + 1
+            self.ctx.controller.interact(press=True, press_time=.2, release=True)
+            return self.round_wait('手柄交互HDD，等待实际界面', wait=2)
         result = self.round_by_find_area(self.last_screenshot, 'HDD', '街区')
         if result.is_success:
             return self.round_success()
