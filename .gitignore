@@ -7,9 +7,11 @@ logs/
 *.log
 .install/
 .runtime/
-debug/
-build/
-dist/
+# Runtime output folders live at the repo root; anchor them so source packages
+# such as src/onedragon/base/debug/ are not ignored.
+/debug/
+/build/
+/dist/
 *.spec.bak
 .log/
 .pytest_cache/
