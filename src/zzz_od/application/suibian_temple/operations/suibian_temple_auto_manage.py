@@ -25,6 +25,12 @@ class SuibianTempleAutoManage(ZOperation):
         ZOperation.__init__(self, ctx,
                             op_name=f'{gt("随便观", "game")} {gt("自动托管", "game")}')
 
+    def execute(self):
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from src.navigation.suibian import SuibianPadFlow, auto_manage_step
+            return SuibianPadFlow(self.ctx, self.op_name, auto_manage_step).execute()
+        return ZOperation.execute(self)
+
     @operation_node(name='检查并停止托管', is_start_node=True)
     def check_and_stop_hosting(self) -> OperationRoundResult:
         target_cn_list = [

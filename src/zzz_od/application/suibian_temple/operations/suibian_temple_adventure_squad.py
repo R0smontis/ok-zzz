@@ -71,6 +71,14 @@ class SuibianTempleAdventureSquad(ZOperation):
         ]
         self.current_mission_idx: int = 0  # 派遣选择副本的下标
 
+    def execute(self):
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from src.navigation.suibian import SuibianPadFlow, adventure_step
+            duration = SuibianTempleAdventureDispatchDuration[self.config.adventure_duration]  # type: ignore
+            return SuibianPadFlow(self.ctx, self.op_name, adventure_step, claim=self.claim,
+                                  dispatch=self.dispatch, duration=str(duration)).execute()
+        return ZOperation.execute(self)
+
     @operation_node(name='前往游历', is_start_node=True)
     def goto_adventure(self) -> OperationRoundResult:
         return self.round_by_find_and_click_area(

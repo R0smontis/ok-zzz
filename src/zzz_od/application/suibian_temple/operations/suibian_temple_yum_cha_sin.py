@@ -74,6 +74,12 @@ class SuibianTempleYumChaSin(ZOperation):
         self.done_craft: bool = False  #  是否进行了制造
         self.skip_adventure: bool = False  # 已经无法再派遣了 后续跳过
 
+    def execute(self):
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from src.navigation.suibian import SuibianPadFlow, yum_cha_step
+            return SuibianPadFlow(self.ctx, self.op_name, yum_cha_step).execute()
+        return ZOperation.execute(self)
+
     @operation_node(name='前往饮茶仙', is_start_node=True)
     def goto_yum_cha_sin(self) -> OperationRoundResult:
         current_screen_name = self.check_and_update_current_screen(self.last_screenshot, screen_name_list=['随便观-饮茶仙'])

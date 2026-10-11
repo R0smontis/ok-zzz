@@ -71,6 +71,9 @@ class SuibianTempleApp(ZApplication):
     @node_from(from_name='传送')
     @operation_node(name='前往随便观', timeout_seconds=60, node_max_retry_times=999)
     def goto_suibian_temple(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from src.navigation.suibian import arrival_step
+            return arrival_step(self, self.last_screenshot)
         target_cn_list: list[str] = [
             '前往随便观',
             '确认',

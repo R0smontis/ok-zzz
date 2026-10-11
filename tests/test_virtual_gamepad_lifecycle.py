@@ -125,15 +125,33 @@ def test_context_adopts_detected_game_exe_only_when_unset(tmp_path, monkeypatch)
     assert account.game_path == 'D:/custom/game.exe'
 
 
-def test_frozen_game_picture_is_reported_once_per_episode():
+def test_frozen_picture_restarts_wgc_once_then_reports_the_game():
     import numpy as np
-    from src.globals import Globals
-    app = Globals.__new__(Globals)
+    from unittest.mock import Mock
+    from src.runtime.frozen_capture import FrozenCaptureWatch, handle_frozen_capture, RESTART, STUCK
+    watch, method = FrozenCaptureWatch(), Mock()
+    method.name = 'Windows Graphics Capture'
     still = np.zeros((1080, 1920, 3), np.uint8)
-    assert not app._watch_frozen_frames(still, now=0)
-    assert not app._watch_frozen_frames(still, now=10)
-    assert app._watch_frozen_frames(still, now=16)
-    assert not app._watch_frozen_frames(still, now=40)  # Already reported.
+    assert [handle_frozen_capture(watch, still, method, now=t) for t in (0, 10)] == [None, None]
+    assert handle_frozen_capture(watch, still, method, now=16) == RESTART
+    method.close.assert_called_once()
+    assert handle_frozen_capture(watch, still, method, now=25) is None  # fresh session gets its own 15 s
+    assert handle_frozen_capture(watch, still, method, now=31) == STUCK
+    assert handle_frozen_capture(watch, still, method, now=90) is None  # reported once per episode
     moving = still.copy(); moving[::16, ::16] = 255
-    assert not app._watch_frozen_frames(moving, now=41)
-    assert app._watch_frozen_frames(moving, now=60)  # A new frozen episode.
+    assert handle_frozen_capture(watch, moving, method, now=91) is None
+    assert handle_frozen_capture(watch, moving, method, now=107) == RESTART
+    assert method.close.call_count == 2
+    assert handle_frozen_capture(watch, object(), method) is None
+
+
+def test_frozen_picture_on_other_capture_methods_only_reports():
+    import numpy as np
+    from unittest.mock import Mock
+    from src.runtime.frozen_capture import FrozenCaptureWatch, handle_frozen_capture, RESTART
+    watch, method = FrozenCaptureWatch(), Mock()
+    method.name = 'BitBlt'
+    still = np.zeros((10, 10, 3), np.uint8)
+    handle_frozen_capture(watch, still, method, now=0)
+    assert handle_frozen_capture(watch, still, method, now=16) == RESTART
+    method.close.assert_not_called()

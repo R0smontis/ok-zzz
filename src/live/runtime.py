@@ -61,6 +61,8 @@ class GameRuntime:
                'confirm', 'back', 'menu', 'dpad_up', 'dpad_down', 'dpad_left', 'dpad_right',
                'turn_left', 'turn_right'}
     actions |= {'map', 'region_list', 'focus_details', 'tab_prev', 'tab_next', 'interact', 'compendium'}
+    PAD_BUTTONS = ('a', 'b', 'x', 'y', 'lb', 'rb', 'lt', 'rt', 'start', 'back', 'l_thumb', 'r_thumb')
+    actions |= {'pad_' + button for button in PAD_BUTTONS}  # raw buttons for exploring new pages
 
     def __init__(self, app, gui):
         self.app = app
@@ -119,6 +121,8 @@ class GameRuntime:
         image = method.get_frame()  # WGC/BitBlt serialize their native resources.
         if image is None or self.target()['hwnd'] != target['hwnd']:
             return None
+        from src.runtime.frozen_capture import FrozenCaptureWatch, handle_frozen_capture
+        handle_frozen_capture(self.__dict__.setdefault('_capture_watch', FrozenCaptureWatch()), image, method)
         if self.target()['geometry'] != target['geometry']:
             return None
         now = time.time()
@@ -250,7 +254,8 @@ class GameRuntime:
                            'tab_prev': 'xbox_lb', 'tab_next': 'xbox_rb',
                            'compendium': ['xbox_lt','xbox_a'],
                            'turn_left': 'xbox_rs_left', 'turn_right': 'xbox_rs_right',
-                           **{f'dpad_{d}': f'xbox_dpad_{d}' for d in ('up', 'down', 'left', 'right')}}
+                           **{f'dpad_{d}': f'xbox_dpad_{d}' for d in ('up', 'down', 'left', 'right')},
+                           **{f'pad_{b}': f'xbox_{b}' for b in self.PAD_BUTTONS}}
                           if pad else {'confirm': 'enter', 'back': 'esc', 'menu': 'esc',
                            **{f'dpad_{d}': d for d in ('up', 'down', 'left', 'right')}})
                 key = extras.get(action) or self.keys.get(action)

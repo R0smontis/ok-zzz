@@ -110,27 +110,10 @@ class Globals:
                 if context.controller is not None:
                     context.controller.cancel_inputs()
             raise RuntimeError('连续12秒无法取得游戏画面，已停止输入；请检查截图方式和游戏窗口')
-        self._watch_frozen_frames(frame)
+        from src.runtime.frozen_capture import FrozenCaptureWatch, handle_frozen_capture
+        watch = self.__dict__.setdefault('_capture_watch', FrozenCaptureWatch())
+        handle_frozen_capture(watch, frame, getattr(executor, 'method', None))
         return executor._last_frame_time, frame
-
-    FROZEN_WARN_SECONDS = 15
-
-    def _watch_frozen_frames(self, frame, now=None):
-        """Warn once when the game keeps presenting the exact same picture; it never does while running
-        normally (menus pulse, the world animates), so inputs are probably not being processed either."""
-        if not hasattr(frame, 'tobytes'):
-            return False
-        now = time.time() if now is None else now
-        signature = hash(frame[::16, ::16].tobytes())
-        if signature != getattr(self, '_frame_signature', None):
-            self._frame_signature, self._frame_signature_since, self._frozen_warned = signature, now, False
-            return False
-        if not self._frozen_warned and now - self._frame_signature_since >= self.FROZEN_WARN_SECONDS:
-            self._frozen_warned = True
-            logger.warning(f'游戏画面已 {int(now - self._frame_signature_since)} 秒完全没有变化：游戏可能已卡住或暂停渲染，'
-                           '手柄与点击都不会生效。请检查游戏窗口，必要时重启游戏')
-            return True
-        return False
 
     def _window_provider(self):
         """Use the selected capture device; never rediscover a game by title."""
