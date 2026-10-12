@@ -410,6 +410,11 @@ def quick_nav_state(op, screen):
     return dict(dialog=False, tiles=tiles, points=points)
 
 
+QUICK_NAV_REGIONS = ('布亚斯特城区', '维尔乌姆城区', '奥蒙德研究站', '澄辉坪', '[空洞]航天城', '录像店',
+                     '六分街', '热望角', 'HIA俱乐部', '斯科特哨站', '光映广场', '绮梦度假村')
+"""The 快捷导航 region grid as of 2026-10-12, column by column."""
+
+
 def leave_quick_nav(op, screen):
     """B out of 快捷导航 back to the map; None once the map itself is showing."""
     if quick_nav_state(op, screen) is None:
@@ -462,10 +467,18 @@ def quick_nav(op, screen):
     op._quick_nav_chosen = None
     names = ', '.join(name for name, _, _ in state['tiles'])
     target_tile = next((t for t in state['tiles'] if _match(t[0], op.area_name)), None)
-    if target_tile is None:
-        return op.round_fail(f'快捷导航中没有区域 {op.area_name}：{names}')
     lit_tiles = [t for t in state['tiles'] if t[2]]
     focused_points = [p for p in state['points'] if p[2]]
+    if target_tile is None:
+        # The region grid is four columns wide and shows three; moving the focus right
+        # scrolls it and wraps around (live 2026-10-12: 斯科特哨站, 光映广场, 绮梦度假村).
+        scrolls = getattr(op, '_quick_nav_scrolls', 0)
+        known = any(_match(name, op.area_name) for name in QUICK_NAV_REGIONS)
+        if not known or scrolls >= 8 or focused_points or len(lit_tiles) != 1:
+            return op.round_fail(f'快捷导航中没有区域 {op.area_name}：{names}')
+        op._quick_nav_scrolls = scrolls + 1
+        _press(op, 'dpad_right')
+        return op.round_wait(f'手柄滚动快捷导航区域：{lit_tiles[0][0]} → {op.area_name}', wait=.6)
     if len(focused_points) == 1:
         # Focus is on the point strip, which lists the points of the lit (selected) region.
         if lit_tiles != [target_tile]:

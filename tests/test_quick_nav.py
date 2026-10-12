@@ -163,3 +163,19 @@ def test_bakery_is_a_named_destination_of_buyasite():
     assert '吼吼饼铺' in [name for name, _, _ in state['points']]
     assert quick_nav(op, screen).result == R.WAIT
     assert pressed(op) == ['xbox_a']  # The focused tile is already the target region.
+
+
+def test_region_outside_the_visible_columns_is_scrolled_into_view():
+    op, screen = fixture('qn-open', '斯科特哨站', '某点')
+    assert quick_nav(op, screen).result == R.WAIT
+    assert pressed(op) == ['xbox_dpad_right']
+    op, screen = fixture('wp-qn-right', '斯科特哨站', '某点')
+    state = quick_nav_state(op, screen)
+    assert '斯科特哨站' in [name for name, _, _ in state['tiles']]
+
+
+def test_known_region_gives_up_after_a_full_scroll():
+    op, screen = fixture('map-quick-nav', '斯科特哨站', '某点')  # A frame where it never appears.
+    for _ in range(8):
+        assert quick_nav(op, screen).result == R.WAIT
+    assert quick_nav(op, screen).is_fail
