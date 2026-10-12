@@ -97,7 +97,8 @@ class CommissionAssistantApp(ZApplication):
                 self.run_mode = 0
 
     def _need_pause_in_background(self) -> bool:
-        return self.config.pause_in_background and not self.ctx.controller.game_win.is_win_active
+        # 跟随首页的前台/后台模式：只有前台模式在游戏切走时暂停。
+        return not self.ctx.controller.is_background_input and not self.ctx.controller.game_win.is_win_active
 
     @node_from(from_name='委托助手')
     @node_from(from_name='自动战斗模式')

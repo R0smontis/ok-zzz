@@ -23,6 +23,7 @@ os.chdir(ROOT)
 
 OPT_OUT_PROPS = {
     'plan_id', 'last_daily_reset_dt', 'skip_plan',  # charge_plan 运行态字段
+    'pause_in_background',  # 由首页的前台/后台模式统一决定
 }
 SKIP_VALUES = (type(None),)
 
@@ -153,14 +154,12 @@ MANUAL_OPTIONS = {
     'auto_battle': [
         {'key': 'auto_battle_config', 'type': 'enum', 'default': '全配队通用'},
         {'key': 'screenshot_interval', 'type': 'float', 'default': 0.02},
-        {'key': 'background_mode', 'type': 'bool', 'default': False},
         {'key': 'use_merged_file', 'type': 'bool', 'default': True},
         {'key': 'auto_ultimate_enabled', 'type': 'bool', 'default': False},
     ],
     'dodge_assistant': [
         {'key': 'dodge_assistant_config', 'type': 'enum', 'default': '闪避'},
         {'key': 'screenshot_interval', 'type': 'float', 'default': 0.02},
-        {'key': 'background_mode', 'type': 'bool', 'default': False},
     ],
 }
 # 枚举可选值：战斗配置= config/auto_battle 下模板名（运行时扫描，这里给常用项）

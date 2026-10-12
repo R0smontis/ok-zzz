@@ -454,9 +454,10 @@ def test_dialogue_discards_result_when_input_target_changes(dialogue_task, chang
     assert task._menu_until == 0
 
 
-def test_dialogue_background_option_uses_only_window_messages(dialogue_task):
+def test_dialogue_in_background_mode_uses_only_window_messages(dialogue_task, monkeypatch):
+    import src.controls.interaction as interaction
     task, ctx, _, action = dialogue_task
-    task.config['后台时暂停'] = False
+    monkeypatch.setattr(interaction, 'background_mode_selected', lambda: True)
     ctx.controller.game_win.is_win_active = False
     task._detector.detect.return_value = action
     task.run()

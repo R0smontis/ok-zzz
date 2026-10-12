@@ -25,8 +25,9 @@ class ZzzBaseTask(BaseTask):
             return '关机延迟秒必须是非负整数'
 
     def enable(self):
-        from src.controls.application_input import task_input_mode
-        if getattr(self, 'use_background_application', False) and task_input_mode() != '跟随交互方式':
+        from src.controls.interaction import background_mode_selected
+        # 后台模式不运行框架的 on_run（它会把游戏切到前台）。
+        if getattr(self, 'use_background_application', False) and background_mode_selected():
             from ok.core.events import communicate
             if not self._enabled:
                 self.ensure_capture()

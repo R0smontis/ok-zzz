@@ -236,7 +236,6 @@ class ZContext(ContextEventBus):
         """按当前实例配置创建控制器（幂等；切换输入方式时复用对象）。"""
         if self._game_config_sync is not None:
             self._game_config_sync(self.game_config)
-        self.game_config._task_input_mode = getattr(self, '_task_input_mode', None)
         if self.controller is None:
             self.controller = ZzzController(
                 self.game_config,

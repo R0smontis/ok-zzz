@@ -536,12 +536,6 @@ class PcControllerBase(ControllerBase):
     def is_background_input(self):
         return getattr(self, 'background_mode', False) or getattr(self, 'message_mode', False)
 
-    def enable_window_message_mode(self):
-        self.btn_controller.reset()
-        self.background_mode, self.message_mode = False, True
-        self.btn_controller = self.window_input
-        log.info('已启用窗口消息后台操作：不切前台、不移动系统鼠标')
-
     def keyboard_tap(self, key):
         if not execution_input_allowed():
             return False

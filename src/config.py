@@ -4,7 +4,6 @@ from ok import ConfigOption
 from src.controls.interaction import INTERACTIONS
 from src.controls.hotkey_settings import validate_hotkey
 from src.runtime.inference import recognition_config
-from src.controls.application_input import task_input_config
 
 version = "0.1.0"
 
@@ -48,7 +47,7 @@ config = {
     'debug': False,
     'gui': gui_config,
     'config_folder': 'configs',
-    'global_configs': [key_config_option, recognition_config, task_input_config],
+    'global_configs': [key_config_option, recognition_config],
     'screenshot_processor': make_uid_black,
     'gui_icon': 'icons/icon.png',
     'wait_until_before_delay': 0,
@@ -65,8 +64,7 @@ config = {
         # 绝区零 PC 客户端：进程名与窗口类（P1 实机校准项，可在 configs 覆盖）
         'exe': ['ZenlessZoneZero.exe'],
         'hwnd_class': 'UnityWndClass',
-        # 选择只决定 ZzzController 的输入模式；列表首项也是旧选项（已移除的
-        # ForegroundPostMessage/PyDirect，行为与前台键鼠相同）的回退目标。
+        # 唯一的输入开关：前台模式 / 后台模式；任务、一条龙和常驻助手都跟随它。
         'interaction': INTERACTIONS,
         'capture_method': ['WGC', 'BitBlt_RenderFull', 'BitBlt'],
         'check_hdr': False,

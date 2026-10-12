@@ -14,26 +14,14 @@ if TYPE_CHECKING:
     from zzz_od.context.zzz_context import ZContext
 
 
-def apply_battle_assistant_input_mode(ctx: ZContext, background_mode: bool | None = None,
-                                    activate: bool = True) -> tuple[bool, str]:
-    """按游戏助手临时后台开关和全局后台配置切换 controller。"""
-    config = ctx.battle_assistant_config
-
-    if (getattr(ctx.game_config, '_task_input_mode', None) == 'messages'
-            or getattr(ctx.game_config, '_framework_message_mode', False)):
-        ctx.controller.enable_window_message_mode()
-        ctx.controller.action_keys = ctx.game_config.get_action_keys('keyboard')
-        return True, '后台模式-窗口消息'
-
-    if background_mode is None:
-        background_mode = config.background_mode
-    background_mode = (background_mode or getattr(ctx.game_config, '_framework_background_mode', False)
-                       or getattr(ctx.game_config, '_task_input_mode', None) == 'gamepad')
-    if background_mode:
+def apply_battle_assistant_input_mode(ctx: ZContext, activate: bool = True) -> tuple[bool, str]:
+    """游戏助手跟随首页的前台/后台模式切换 controller。"""
+    if getattr(ctx.game_config, '_framework_background_mode', False):
         gamepad_type = ctx.game_config.background_gamepad_type
 
         if not pc_button_utils.is_vgamepad_installed():
-            return False, '后台模式不可用：未安装虚拟手柄依赖和 ViGEmBus 驱动'
+            from src.controls.interaction import BACKGROUND_UNAVAILABLE
+            return False, BACKGROUND_UNAVAILABLE
 
         if gamepad_type == GamepadTypeEnum.DS4.value.value:
             ctx.controller.enable_background_mode(GamepadTypeEnum.DS4.value.value)

@@ -20,7 +20,7 @@ class AutoDialogueTriggerTask(ZzzBaseTask, TriggerTask):
         self.trigger_interval = 0.1
         self.default_config.update({
             '_enabled': False, '剧情模式': '跳过剧情', '对话选项': '最后一个',
-            '识别间隔秒': 0.1, '对话点击间隔秒': 0.5, '后台时暂停': True,
+            '识别间隔秒': 0.1, '对话点击间隔秒': 0.5,
         })
         self.config_type.update({
             '剧情模式': {'type': 'drop_down', 'options': ['跳过剧情', '自动点击', '等待剧情自动播放']},
@@ -31,7 +31,6 @@ class AutoDialogueTriggerTask(ZzzBaseTask, TriggerTask):
             '对话选项': '出现明确对话选项时选择的位置',
             '识别间隔秒': '持续检测的间隔，范围 0.05～1 秒',
             '对话点击间隔秒': '两次已识别点击之间的最短间隔，范围 0.1～3 秒；不会定时盲点',
-            '后台时暂停': '开启：切走时等待；关闭：只向游戏窗口发点击消息，不切前台、不移动鼠标，部分游戏界面可能忽略后台消息',
         })
         self._lock = threading.RLock()
         self._generation = 0
@@ -100,9 +99,15 @@ class AutoDialogueTriggerTask(ZzzBaseTask, TriggerTask):
         self.trigger_interval = float(self.config['识别间隔秒'])
         return self.enabled and super().should_trigger()
 
+    @staticmethod
+    def _background():
+        """前台模式切走时等待；后台模式只向游戏窗口发点击消息，不切前台、不移动鼠标。"""
+        from src.controls.interaction import background_mode_selected
+        return background_mode_selected()
+
     def _settings(self):
-        return tuple(self.config[key] for key in (
-            '剧情模式', '对话选项', '对话点击间隔秒', '后台时暂停'))
+        return (*(self.config[key] for key in ('剧情模式', '对话选项', '对话点击间隔秒')),
+                self._background())
 
     def _blocked(self, ctx):
         if not ctx.controller.game_win.is_win_valid:
@@ -114,7 +119,7 @@ class AutoDialogueTriggerTask(ZzzBaseTask, TriggerTask):
                if task is not self and not isinstance(task, TriggerTask)):
             self.info['助手状态'] = '等待独立任务结束'
             return True
-        if self.config['后台时暂停'] and not ctx.controller.game_win.is_win_active:
+        if not self._background() and not ctx.controller.game_win.is_win_active:
             self.info['助手状态'] = '等待游戏前台'
             return True
         return False
@@ -178,7 +183,7 @@ class AutoDialogueTriggerTask(ZzzBaseTask, TriggerTask):
             if self._last_click is not None and now-self._last_click < float(settings[2]):
                 return
             if controller.click_dialogue_event(action.point, expected_hwnd=hwnd,
-                                               allow_background=not settings[3]):
+                                               allow_background=settings[3]):
                 self._last_click = time.monotonic()
                 self._menu_until = self._last_click + 2 if action.kind == 'menu' else 0.0
                 self.info['助手状态'] = action.text

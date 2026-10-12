@@ -20,7 +20,6 @@ class App_AutoBattle(AppTaskBase):
         self.default_config.update({
             'auto_battle_config': '全配队通用',
             'screenshot_interval': 0.02,
-            'background_mode': False,
             'use_merged_file': True,
             'auto_ultimate_enabled': False,
             '结束后': '无',
@@ -29,7 +28,7 @@ class App_AutoBattle(AppTaskBase):
         self.config_type.update({
             'auto_battle_config': {'type': 'drop_down', 'options': ['全配队通用']},
         })
-        self._option_keys = ['auto_battle_config', 'screenshot_interval', 'background_mode', 'use_merged_file', 'auto_ultimate_enabled']
+        self._option_keys = ['auto_battle_config', 'screenshot_interval', 'use_merged_file', 'auto_ultimate_enabled']
 
 
 class App_DodgeAssistant(AppTaskBase):
@@ -42,14 +41,13 @@ class App_DodgeAssistant(AppTaskBase):
         self.default_config.update({
             'dodge_assistant_config': '闪避',
             'screenshot_interval': 0.02,
-            'background_mode': False,
             '结束后': '无',
             '关机延迟秒': 60,
         })
         self.config_type.update({
             'dodge_assistant_config': {'type': 'drop_down', 'options': ['闪避', '智能格挡', '本-格挡', '闪A切下一个', '闪A切强攻', '切换角色-下一个']},
         })
-        self._option_keys = ['dodge_assistant_config', 'screenshot_interval', 'background_mode']
+        self._option_keys = ['dodge_assistant_config', 'screenshot_interval']
 
 
 class App_ChargePlan(AppTaskBase):
@@ -120,7 +118,6 @@ class App_CommissionAssistant(AppTaskBase):
             'dialog_option': '最后一个',
             'dodge_config': '闪避',
             'dodge_switch': '5',
-            'pause_in_background': True,
             'sleep_after_empty_screen': 0.5,
             'story_mode': '自动点击',
             '结束后': '无',
@@ -130,7 +127,7 @@ class App_CommissionAssistant(AppTaskBase):
             'dialog_option': {'type': 'drop_down', 'options': ['第一个', '最后一个']},
             'story_mode': {'type': 'drop_down', 'options': ['自动点击', '等待剧情自动播放', '跳过剧情']},
         })
-        self._option_keys = ['auto_battle', 'auto_battle_switch', 'dialog_click_interval', 'dialog_option', 'dodge_config', 'dodge_switch', 'pause_in_background', 'sleep_after_empty_screen', 'story_mode']
+        self._option_keys = ['auto_battle', 'auto_battle_switch', 'dialog_click_interval', 'dialog_option', 'dodge_config', 'dodge_switch', 'sleep_after_empty_screen', 'story_mode']
 
 
 class App_DailySignin(AppTaskBase):

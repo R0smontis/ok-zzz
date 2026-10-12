@@ -52,7 +52,7 @@ def run_package_check():
     assert translations.gettext('matrix_team_mode') == '矩阵行动编队方式'
     from src.controls.interaction import INTERACTIONS, install_interaction_labels
     install_interaction_labels()
-    assert [cls.__name__ for cls in INTERACTIONS] == ['Pynput', 'PostMessage', 'BackgroundGamepad']
+    assert [cls.__name__ for cls in INTERACTIONS] == ['BackgroundGamepad', 'Pynput']
 
     qt = QApplication.instance() or QApplication([])
     app = SimpleNamespace(tr=translations.gettext)

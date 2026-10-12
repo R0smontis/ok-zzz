@@ -36,19 +36,14 @@ class ZPcController(PcControllerBase):
         self.is_moving: bool = False  # 是否正在移动
 
     def sync_game_config(self, game_config: GameConfig, activate: bool = True) -> None:
-        """切换实例后同步控制器持有的账号级配置"""
+        """切换实例后同步控制器持有的账号级配置；输入方式只由首页的前台/后台模式决定。"""
         self.game_config = game_config
 
-        task_mode = getattr(game_config, '_task_input_mode', None)
-        if task_mode == 'messages' or (task_mode is None and getattr(game_config, '_framework_message_mode', False)):
-            self.enable_window_message_mode()
-            self.action_keys = game_config.get_action_keys('keyboard')
-            return
-
-        if task_mode == 'gamepad' or self.game_config.background_mode or getattr(self.game_config, '_framework_background_mode', False):
+        if getattr(self.game_config, '_framework_background_mode', False):
             self.enable_background_mode(self.game_config.background_gamepad_type)
             if not self.background_mode:
-                raise RuntimeError('手柄后台操作初始化失败，请检查ViGEmBus驱动和虚拟手柄依赖')
+                from src.controls.interaction import BACKGROUND_UNAVAILABLE
+                raise RuntimeError(BACKGROUND_UNAVAILABLE)
         else:
             self.enable_foreground_mode()
             if activate:

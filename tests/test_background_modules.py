@@ -100,29 +100,40 @@ def test_controller_routes_every_menu_operation_to_messages(backend):
     assert posts and controller.keyboard_controller.mock_calls == []
 
 
-@pytest.mark.parametrize('choice', ['自动后台', '窗口消息后台', '手柄后台'])
-def test_application_input_policy_never_activates_and_restores_after_error(monkeypatch, choice):
+@pytest.mark.parametrize('background', [True, False])
+def test_application_inputs_follow_switch_never_activate_and_release_after_error(background):
     import src.controls.application_input as policy
-    monkeypatch.setattr(policy, 'task_input_mode', lambda: choice)
-    controller = SimpleNamespace(background_mode=False, message_mode=False, cancel_inputs=Mock(), sync_game_config=Mock())
-    ctx = SimpleNamespace(controller=controller, game_config=SimpleNamespace())
+    controller = SimpleNamespace(background_mode=False, cancel_inputs=Mock())
+    ctx = SimpleNamespace(controller=controller)
     calls = []
     def init(activate=True):
         calls.append(activate)
-        if ctx._task_input_mode == 'gamepad' and choice == '自动后台':
-            raise RuntimeError('模拟缺少手柄')
-        controller.background_mode = ctx._task_input_mode == 'gamepad'
-        controller.message_mode = ctx._task_input_mode == 'messages'
+        controller.background_mode = background  # The controller reads the start page switch.
     ctx.init_controller = init
-    task = SimpleNamespace(ctx=ctx, log_info=Mock(), info={})
+    task = SimpleNamespace(ctx=ctx, log_info=Mock(), log_error=Mock(), info={})
     with pytest.raises(ValueError, match='任务失败'):
         with policy.application_inputs(task):
-            assert controller.background_mode or controller.message_mode
+            assert task.info['任务交互方式'] == ('后台模式' if background else '前台模式')
             raise ValueError('任务失败')
-    assert not any(calls)
-    assert ctx._task_input_mode is None
+    assert calls == [False]
     controller.cancel_inputs.assert_called_once()
-    assert controller.sync_game_config.call_args.kwargs['activate'] is False
+
+
+def test_background_mode_without_virtual_gamepad_stops_instead_of_falling_back():
+    import src.controls.application_input as policy
+    from src.controls.interaction import BACKGROUND_UNAVAILABLE
+    controller = SimpleNamespace(background_mode=False, cancel_inputs=Mock())
+    def init(activate=True):
+        raise RuntimeError(BACKGROUND_UNAVAILABLE)
+    ctx = SimpleNamespace(controller=controller, init_controller=init)
+    task = SimpleNamespace(ctx=ctx, log_info=Mock(), log_error=Mock(), info={})
+    body = Mock()
+    with pytest.raises(RuntimeError, match='ViGEmBus'):
+        with policy.application_inputs(task):
+            body()
+    body.assert_not_called()
+    task.log_error.assert_called_once_with(BACKGROUND_UNAVAILABLE, notify=True)
+    controller.cancel_inputs.assert_called_once()
 
 
 @pytest.mark.parametrize('ours,game,blocked', [(False, True, True), (True, True, False), (False, False, False)])
@@ -133,10 +144,9 @@ def test_elevated_game_stops_application_before_any_input(monkeypatch, ours, gam
     monkeypatch.setattr(source, '_process_elevated', lambda pid=None: game if pid else ours)
     assert source.input_blocked_by_elevation(win32gui.GetDesktopWindow()) is blocked
     monkeypatch.setattr(source, 'input_blocked_by_elevation', lambda hwnd: blocked)
-    monkeypatch.setattr(policy, 'task_input_mode', lambda: '手柄后台')
-    controller = SimpleNamespace(background_mode=True, message_mode=False, cancel_inputs=Mock(),
-                                 sync_game_config=Mock(), game_win=SimpleNamespace(get_hwnd=lambda: 101))
-    ctx = SimpleNamespace(controller=controller, game_config=SimpleNamespace(), init_controller=lambda activate: None)
+    controller = SimpleNamespace(background_mode=True, cancel_inputs=Mock(),
+                                 game_win=SimpleNamespace(get_hwnd=lambda: 101))
+    ctx = SimpleNamespace(controller=controller, init_controller=lambda activate: None)
     task = SimpleNamespace(ctx=ctx, log_info=Mock(), log_error=Mock(), info={})
     body = Mock()
     if blocked:
@@ -152,12 +162,15 @@ def test_elevated_game_stops_application_before_any_input(monkeypatch, ours, gam
     controller.cancel_inputs.assert_called_once()
 
 
-def test_enabling_application_does_not_run_focus_stealing_hook(task_factory):
+@pytest.mark.parametrize('background', [True, False])
+def test_only_foreground_mode_runs_focus_stealing_hook_on_enable(task_factory, monkeypatch, background):
+    import src.controls.interaction as interaction
     from src.tasks.app_tasks import App_LostVoid
+    monkeypatch.setattr(interaction, 'background_mode_selected', lambda: background)
     task = task_factory(App_LostVoid)
     task.enable()
     assert task.enabled
-    task.executor.interaction.on_run.assert_not_called()
+    assert task.executor.interaction.on_run.called is not background
 
 
 def test_gamepad_mode_switch_nudges_once_without_net_camera_movement(monkeypatch):

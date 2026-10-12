@@ -131,9 +131,8 @@ class Globals:
         from src.config import key_config_option
         from src.controls.hotkey_settings import sync_hotkeys
         sync_hotkeys(og.global_config.get_config(key_config_option), game_config)
-        from src.controls.interaction import selected_gamepad_mode, selected_message_mode
-        game_config._framework_background_mode = selected_gamepad_mode()
-        game_config._framework_message_mode = selected_message_mode()
+        from src.controls.interaction import background_mode_selected
+        game_config._framework_background_mode = background_mode_selected()
 
     @property
     def context(self):

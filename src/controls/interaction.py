@@ -1,8 +1,8 @@
-"""Interaction choices shown on the start page and what each means for this program.
+"""The single foreground/background switch shown on the start page.
 
 ok-script's built-in click/key implementations are not used for game input: every
-task and assistant sends input through ZzzController. The selected class only picks
-the controller mode, so the list offers exactly the modes that behave differently.
+task and assistant sends input through ZzzController. The selected class is the only
+input setting: applications, 一条龙 and all resident assistants follow it.
 Capture is independent of input focus for resident game assistants.
 """
 from ok.device.interaction import PynputInteraction, PostMessageInteraction
@@ -13,21 +13,21 @@ class PassiveCapture:
         return True
 
 
-class Pynput(PassiveCapture, PynputInteraction):
-    label = '前台键鼠 - 切到前台操作，兼容性最好'
-
-
-class PostMessage(PassiveCapture, PostMessageInteraction):
-    label = '窗口消息后台 - 不抢前台，部分游戏界面不接受'
-
-
 class BackgroundGamepad(PassiveCapture, PostMessageInteraction):
-    """Menus use window messages; battle actions use the guarded virtual gamepad."""
+    """Menus use window messages; game input uses the guarded virtual gamepad."""
     background_gamepad = True
-    label = '手柄后台 - 虚拟手柄，后台功能最完整（需 ViGEmBus）'
+    label = '后台模式 - 虚拟手柄，不抢前台、不移动鼠标（需 ViGEmBus）'
 
 
-INTERACTIONS = [Pynput, PostMessage, BackgroundGamepad]
+class Pynput(PassiveCapture, PynputInteraction):
+    label = '前台模式 - 键鼠操作，运行时切到游戏前台'
+
+
+# The first entry is also where saved choices that no longer exist (窗口消息后台,
+# ForegroundPostMessage, PyDirect) fall back to: background never takes over the mouse.
+INTERACTIONS = [BackgroundGamepad, Pynput]
+
+BACKGROUND_UNAVAILABLE = '后台模式需要虚拟手柄：请安装 ViGEmBus 驱动，或在首页切换到前台模式'
 
 
 def install_interaction_labels():
@@ -45,16 +45,11 @@ def install_interaction_labels():
     SelectInteractionListView._zzz_labels = True
 
 
-def selected_gamepad_mode(manager=None):
+def background_mode_selected(manager=None):
+    """Whether the start page switch is set to 后台模式."""
     if manager is None:
         from ok import og
         manager = getattr(og, 'device_manager', None)
-    interaction = getattr(manager, 'interaction', None)
-    return bool(getattr(interaction, 'background_gamepad', False))
-
-
-def selected_message_mode(manager=None):
-    if manager is None:
-        from ok import og
-        manager = getattr(og, 'device_manager', None)
-    return type(getattr(manager, 'interaction', None)) is PostMessage
+    # The class follows the start page at once; the instance is only replaced on reconnect.
+    selected = getattr(manager, 'win_interaction_class', None) or getattr(manager, 'interaction', None)
+    return bool(getattr(selected, 'background_gamepad', False))

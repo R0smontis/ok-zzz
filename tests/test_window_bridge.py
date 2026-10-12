@@ -69,15 +69,17 @@ def test_capture_does_not_require_foreground_for_any_interaction():
         assert cls.__new__(cls).should_capture()
 
 
-@pytest.mark.parametrize('saved,expected', [('ForegroundPostMessage', 'Pynput'), ('PyDirect', 'Pynput'),
-                                            ('', 'Pynput'), ('PostMessage', 'PostMessage'),
+@pytest.mark.parametrize('saved,expected', [('ForegroundPostMessage', 'BackgroundGamepad'),
+                                            ('PyDirect', 'BackgroundGamepad'), ('', 'BackgroundGamepad'),
+                                            ('PostMessage', 'BackgroundGamepad'), ('Pynput', 'Pynput'),
                                             ('BackgroundGamepad', 'BackgroundGamepad')])
-def test_saved_interaction_resolves_and_removed_choices_fall_back_to_foreground(
+def test_saved_interaction_resolves_and_removed_choices_fall_back_to_background(
         tmp_path, monkeypatch, saved, expected):
+    # Removed choices land on 后台模式, which never takes over the user's mouse.
     import json
     from ok.device import DeviceManager as dm
     from src.config import config
-    from src.controls.interaction import selected_gamepad_mode, selected_message_mode
+    from src.controls.interaction import background_mode_selected
     monkeypatch.chdir(tmp_path)
     (tmp_path / 'configs').mkdir()
     (tmp_path / 'configs' / 'devices.json').write_text(json.dumps({'interaction': saved}), encoding='utf-8')
@@ -86,9 +88,12 @@ def test_saved_interaction_resolves_and_removed_choices_fall_back_to_foreground(
     manager = dm.DeviceManager({'windows': dict(config['windows'])})
     chosen = manager.win_interaction_class
     assert chosen.__name__ == expected
+    assert background_mode_selected(manager) is (expected == 'BackgroundGamepad')
+    # The switch takes effect before the device reconnects and replaces the instance.
+    from src.controls.interaction import Pynput
     manager.interaction = chosen.__new__(chosen)
-    assert selected_gamepad_mode(manager) is (expected == 'BackgroundGamepad')
-    assert selected_message_mode(manager) is (expected == 'PostMessage')
+    manager.win_interaction_class = Pynput
+    assert background_mode_selected(manager) is False
 
 
 def test_interaction_list_shows_program_specific_labels():
@@ -107,10 +112,28 @@ def test_missing_gamepad_never_falls_back_to_foreground_input(monkeypatch):
     monkeypatch.setattr(mode.pc_button_utils, 'is_vgamepad_installed', lambda: False)
     controller = SimpleNamespace(enable_foreground_mode=Mock(), enable_background_mode=Mock())
     ctx = SimpleNamespace(controller=controller, battle_assistant_config=object(),
-                          game_config=SimpleNamespace(background_gamepad_type='xbox'))
-    success, message = mode.apply_battle_assistant_input_mode(ctx, background_mode=True, activate=False)
+                          game_config=SimpleNamespace(background_gamepad_type='xbox', _framework_background_mode=True))
+    success, message = mode.apply_battle_assistant_input_mode(ctx, activate=False)
     assert not success and 'ViGEmBus' in message
     controller.enable_foreground_mode.assert_not_called()
+    controller.enable_background_mode.assert_not_called()
+
+
+def test_start_page_switch_alone_decides_controller_and_assistant_mode():
+    from zzz_od.application.battle_assistant import battle_assistant_input_mode as mode
+    from zzz_od.controller.zzz_pc_controller import ZPcController
+    controller = ZPcController.__new__(ZPcController)
+    controller.background_mode = False
+    controller.enable_background_mode = Mock()
+    controller.enable_foreground_mode = Mock()
+    controller.active_window = Mock()
+    # The old per-account background flag no longer turns background mode on.
+    controller.sync_game_config(SimpleNamespace(background_mode=True, _framework_background_mode=False),
+                                activate=False)
+    controller.enable_foreground_mode.assert_called_once()
+    controller.enable_background_mode.assert_not_called()
+    ctx = SimpleNamespace(controller=controller, game_config=SimpleNamespace(_framework_background_mode=False))
+    assert mode.apply_battle_assistant_input_mode(ctx, activate=False) == (True, '前台模式-键鼠')
     controller.enable_background_mode.assert_not_called()
 
 

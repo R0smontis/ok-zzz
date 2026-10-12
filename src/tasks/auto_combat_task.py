@@ -68,7 +68,6 @@ class BattleTriggerTask(ZzzBaseTask, TriggerTask):
         self._engine_hwnd = None
         self.config_description.update({
             '截图间隔秒': '识别间隔，范围 0.01～1 秒；较大值降低 CPU 占用，但响应更慢',
-            '后台模式': '开启：虚拟手柄，不切换前台、不移动鼠标，需要 ViGEmBus；关闭：前台键鼠，切走时暂停',
         })
 
     def validate_config(self, key, value):
@@ -94,8 +93,7 @@ class BattleTriggerTask(ZzzBaseTask, TriggerTask):
             ctx.init_for_application(activate=False)
             if not ctx.controller.init_game_win():
                 raise RuntimeError('未找到游戏窗口，请先启动游戏并在界面选择窗口')
-            success, message = apply_battle_assistant_input_mode(
-                ctx, background_mode=bool(self.config.get('后台模式', False)), activate=False)
+            success, message = apply_battle_assistant_input_mode(ctx, activate=False)
             if not success:
                 raise RuntimeError(message)
             battle_ctx.init_auto_op(config_name, sub_dir=self.config_sub_dir)
@@ -117,8 +115,8 @@ class BattleTriggerTask(ZzzBaseTask, TriggerTask):
                 battle_ctx.clear_all_states()
                 battle_ctx.start_context_async()
                 self._engine_started = True
-                from src.controls.interaction import selected_gamepad_mode
-                self._last_settings = (config_name, bool(self.config.get('后台模式', False)) or selected_gamepad_mode())
+                from src.controls.interaction import background_mode_selected
+                self._last_settings = (config_name, background_mode_selected())
                 self._watchdog_stop = threading.Event()
                 threading.Thread(target=self._watch_input, args=(self._watchdog_stop,),
                                  name='battle-input-watchdog', daemon=True).start()
@@ -409,8 +407,8 @@ class BattleTriggerTask(ZzzBaseTask, TriggerTask):
         if not self.enabled:
             return
         config_name = str(self.config.get(self.config_key, '全配队通用'))
-        from src.controls.interaction import selected_gamepad_mode
-        settings = (config_name, bool(self.config.get('后台模式', False)) or selected_gamepad_mode())
+        from src.controls.interaction import background_mode_selected
+        settings = (config_name, background_mode_selected())
         if self._engine_started and (
                 self._last_settings != settings or
                 self.ctx.controller.game_win.get_hwnd() != self._engine_hwnd or
@@ -536,7 +534,7 @@ class AutoCombatTask(BattleTriggerTask):
         self.description = '发现敌人后持续战斗 10 秒，结束后再检测；与闪避助手互斥'
         self.default_config.update({
             '_enabled': False, '战斗配置': '全配队通用', '自动终结技': True,
-            '优先实时闪避': True, '战斗结束停止': False, '截图间隔秒': 0.02, '后台模式': False,
+            '优先实时闪避': True, '战斗结束停止': False, '截图间隔秒': 0.02,
         })
         self.config_type['战斗配置'] = {
             'type': 'drop_down', 'options': list_battle_templates('auto_battle'),
@@ -558,7 +556,7 @@ class DodgeAssistantTriggerTask(BattleTriggerTask):
         self.name = '🛡️ 闪避助手'
         self.description = '实时响应红光、黄光或声音提示，无事件时不操作；与自动战斗互斥'
         self.default_config.update({
-            '_enabled': False, '闪避配置': '闪避', '截图间隔秒': 0.02, '后台模式': False,
+            '_enabled': False, '闪避配置': '闪避', '截图间隔秒': 0.02,
         })
         self.config_type['闪避配置'] = {
             'type': 'drop_down', 'options': list_battle_templates('dodge'),
