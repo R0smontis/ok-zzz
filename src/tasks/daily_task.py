@@ -72,9 +72,27 @@ class OneDragonDailyTask(ZzzBaseTask, BaseTask):
         self.info[f'账号 {instance_idx:02d} 执行计划'] = ' → '.join(sequence)
         self.log_info(f'账号 {instance_idx:02d} 一条龙执行顺序：'+' → '.join(sequence))
 
+    live_application = None
+    """Set by live debug for one run: run this application id instead of the 一条龙 queue."""
+
+    def run_single_application(self, app_id):
+        ctx = self.ctx
+        if app_id not in ctx.run_context.get_application_name_map():
+            raise ValueError(f'未知应用：{app_id}')
+        with application_inputs(self):
+            ctx.init_for_application()
+            run_result = ctx.run_context.run_application(app_id, instance_idx=ctx.current_instance_idx)
+        result = ctx.run_context.last_application_result
+        detail = getattr(result, 'status', None) or str(run_result.finish_reason)
+        self.info['执行结果'] = f'{app_id}：{detail}'
+        self.log_info(f'单独运行 {app_id}：{run_result.finish_reason} {detail}')
+
     def run(self):
         ctx = self.ctx
         self.stop_battle_triggers()
+        app_id, self.live_application = self.live_application, None
+        if app_id is not None:
+            return self.run_single_application(app_id)
         from zzz_od.application.app_options_data import APP_OPTIONS
         enabled_names = set(self.config.get('启用应用') or [])
         enabled = {app['app_id'] for app in APP_OPTIONS if app.get('app_name') in enabled_names}
@@ -117,15 +135,7 @@ class OneDragonDailyTask(ZzzBaseTask, BaseTask):
             self.log_error(f'一条龙运行失败：{detail}', notify=True)
             raise RuntimeError(f'一条龙运行失败：{detail}')
 
-        from onedragon.base.operation.one_dragon_finalizer import (
-            AfterDoneRequest,
-            execute_after_done,
-        )
-        after_done = str(self.config.get('结束后', '无'))
-        request = AfterDoneRequest(
-            close_game=after_done == '关闭游戏',
-            shutdown_seconds=int(self.config.get('关机延迟秒', 60))
-            if after_done == '关机' else None,
-        )
-        execute_after_done(ctx, run_result, request)
+        from onedragon.base.operation.one_dragon_finalizer import execute_after_done
+        from src.tasks.zzz_base_task import after_done_request
+        execute_after_done(ctx, run_result, after_done_request(self.config))
         self.log_info(f'一条龙运行结束：{detail}', notify=True)

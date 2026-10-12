@@ -12,6 +12,7 @@ import math
 import os
 from pathlib import Path
 import queue
+import re
 import secrets
 import threading
 import sys
@@ -345,6 +346,9 @@ class LiveDebugService:
             raise LiveError('操作方式必须是messages或gamepad')
         if op.startswith('task_') and not isinstance(c.get('task'), str):
             raise LiveError('请指定任务class')
+        if 'app' in c and (op != 'task_start' or not isinstance(c['app'], str)
+                           or not re.fullmatch(r'[a-z][a-z0-9_]{1,40}', c['app'])):
+            raise LiveError('app应为task_start的应用ID')
         if 'stop_before' in c:
             nodes = c['stop_before']
             if (op != 'task_start' or not isinstance(nodes, list) or len(nodes) > 20
@@ -402,6 +406,8 @@ class LiveDebugService:
                 self.release('操作自动任务')
             if op == 'task_start':
                 dry_run.set_stop_before(c.get('stop_before') or ())
+            if c.get('app'):
+                return self.adapter.task(c['task'], op[5:], app=c['app'])
             return self.adapter.task(c['task'], op[5:])
         self._fresh_frame(c)
         self.lease_until = time.monotonic()+60

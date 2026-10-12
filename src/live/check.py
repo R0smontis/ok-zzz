@@ -49,8 +49,8 @@ class SubstituteGame:
     def analyze(self, image, command):
         return {'attack_hud_visible': False, 'enemy_detection_skipped': True, 'ocr': []}
 
-    def task(self, name, action):
-        return {'task': name, 'action': action}
+    def task(self, name, action, app=None):
+        return {'task': name, 'action': action, **({'app': app} if app else {})}
 
 
 def wait_for_frame(service):

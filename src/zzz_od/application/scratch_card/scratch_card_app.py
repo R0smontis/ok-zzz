@@ -15,6 +15,7 @@ from zzz_od.context.zzz_context import ZContext
 from zzz_od.operation.back_to_normal_world import BackToNormalWorld
 from zzz_od.operation.transport import Transport
 from zzz_od.operation.wait_normal_world import WaitNormalWorld
+from src.navigation import signin
 
 
 class ScratchCardApp(ZApplication):
@@ -66,6 +67,8 @@ class ScratchCardApp(ZApplication):
     @node_from(from_name='移动交互')
     @operation_node(name='点击刮刮卡', node_max_retry_times=20)
     def click_scratch_card(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            return signin.newsstand_step(self, self.last_screenshot)
         result = self.round_by_find_area(self.last_screenshot, '报刊亭', '每日可刮取一次')
         if result.is_success:
             return self.round_success(status=result.status, wait=1)
@@ -106,6 +109,8 @@ class ScratchCardApp(ZApplication):
         result = self.round_by_find_area(self.last_screenshot, '报刊亭', '每日可刮取一次')
         if not result.is_success:
             return self.round_retry(status=result.status, wait=1)
+        if getattr(self.ctx.controller, 'background_mode', False):
+            return signin.unverified_gesture(self, self.last_screenshot, '刮刮卡')
 
         areas = [
             self.ctx.screen_loader.get_area('报刊亭', f'刮层-{i}')

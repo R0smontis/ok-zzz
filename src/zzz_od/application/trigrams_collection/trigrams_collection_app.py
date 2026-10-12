@@ -17,6 +17,7 @@ from zzz_od.application.zzz_application import ZApplication
 from zzz_od.context.zzz_context import ZContext
 from zzz_od.operation.back_to_normal_world import BackToNormalWorld
 from zzz_od.operation.transport import Transport
+from src.navigation import signin
 
 
 class TrigramsCollectionApp(ZApplication):
@@ -55,6 +56,8 @@ class TrigramsCollectionApp(ZApplication):
     @node_notify(when=NotifyTiming.CURRENT_DONE)
     @operation_node(name='获取卦象', node_max_retry_times=10)
     def get_trigram(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            return signin.trigrams_step(self, self.last_screenshot)
         # ocr加速: 只识别下半部分屏幕
         offset: Point = Point(0, self.ctx.controller.standard_height // 2)
         ocr_result_map = self.ctx.ocr.crop_and_run_ocr(

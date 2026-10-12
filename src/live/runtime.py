@@ -317,7 +317,7 @@ class GameRuntime:
                              for r in context.ocr.ocr(screen[y:y+h, x:x+w])]
         return result
 
-    def task(self, name, action):
+    def task(self, name, action, app=None):
         def invoke():
             executor = og.executor
             found = [t for t in executor.get_all_tasks() if type(t).__name__ == name]
@@ -327,6 +327,11 @@ class GameRuntime:
             if action == 'start':
                 if getattr(task, 'debug_tool', False):
                     raise LiveError('调试工具请从调试页面启动')
+                if app is not None:
+                    # One application by id (e.g. 刮刮卡, a 每日签到 choice) for a single debug run.
+                    if not hasattr(task, 'run_single_application'):
+                        raise LiveError('该任务不能按应用ID运行')
+                    task.live_application = app
                 task.enable()
                 executor.start()
             elif action == 'pause':

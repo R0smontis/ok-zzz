@@ -370,3 +370,15 @@ def test_dry_run_list_is_only_accepted_on_task_start(tmp_path):
         with pytest.raises(LiveError):
             service._validate(bad)
     service._validate({'op': 'task_start', 'task': 'X', 'stop_before': ['点击拆解确认']})
+
+
+def test_single_application_id_is_only_accepted_on_task_start(tmp_path):
+    service = LiveDebugService(SubstituteGame(), tmp_path / 'live')
+    for bad in ({'op': 'task_stop', 'task': 'X', 'app': 'scratch_card'},
+                {'op': 'task_start', 'task': 'X', 'app': 'Scratch Card'},
+                {'op': 'task_start', 'task': 'X', 'app': 3}):
+        with pytest.raises(LiveError):
+            service._validate(bad)
+    service._validate({'op': 'task_start', 'task': 'OneDragonDailyTask', 'app': 'scratch_card'})
+    assert service._execute({'op': 'task_start', 'task': 'OneDragonDailyTask', 'app': 'scratch_card'},
+                            service.generation) == {'task': 'OneDragonDailyTask', 'action': 'start', 'app': 'scratch_card'}
