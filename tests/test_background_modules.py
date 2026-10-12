@@ -209,3 +209,32 @@ def test_real_windows_receiver_accepts_background_messages():
     result = check_background_input()
     assert result['native_receiver'] == 'passed'
     assert result['game_input'] == 'none'
+
+
+def test_background_wait_on_an_unchanged_picture_fails_instead_of_hanging(monkeypatch):
+    import numpy as np
+    from types import SimpleNamespace
+    from onedragon.base.operation import operation as module
+    from onedragon.base.operation.operation import Operation
+    from onedragon.base.operation.operation_round_result import OperationRoundResult, OperationRoundResultEnum
+    op = Operation.__new__(Operation)
+    op.ctx = SimpleNamespace(controller=SimpleNamespace(background_mode=True))
+    op._current_node = SimpleNamespace(cn='点击刮刮卡')
+    op.last_screenshot = np.full((1080, 1920, 3), 80, np.uint8)
+    clock = [1000.0]
+    monkeypatch.setattr(module.time, 'time', lambda: clock[0])
+    wait = OperationRoundResult(result=OperationRoundResultEnum.WAIT, status='刮刮卡')
+    assert not op._background_wait_stalled(wait)
+    clock[0] += Operation.BACKGROUND_STALL_SECONDS - 1
+    assert not op._background_wait_stalled(wait)
+    clock[0] += 2
+    assert op._background_wait_stalled(wait)
+    # A changing picture or status restarts the clock; foreground mode is never judged.
+    op.last_screenshot = np.full((1080, 1920, 3), 200, np.uint8)
+    assert not op._background_wait_stalled(wait)
+    other = OperationRoundResult(result=OperationRoundResultEnum.WAIT, status='等待加载')
+    clock[0] += 500
+    assert not op._background_wait_stalled(other)
+    op.ctx.controller.background_mode = False
+    clock[0] += 500
+    assert not op._background_wait_stalled(other)

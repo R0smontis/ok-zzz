@@ -487,7 +487,12 @@ class Operation(OperationBase):
                 self.node_retry_times = 0
 
             if round_result.result == OperationRoundResultEnum.WAIT:
-                continue
+                if not self._background_wait_stalled(round_result):
+                    continue
+                # ok-zzz: 后台输入被游戏忽略时 等待永远不会结束
+                log.warning('%s 后台等待 %d 秒画面未变化，判定操作未生效：%s',
+                            self.display_name, Operation.BACKGROUND_STALL_SECONDS, round_result.status)
+                round_result = self.round_fail(f'后台操作未生效，画面长时间未变化：{round_result.status}')
 
             # 成功或者失败的 找下一个节点
             next_node = self._get_next_node(round_result)
@@ -599,6 +604,31 @@ class Operation(OperationBase):
             return self._node_map[final_next_node_id]
         else:
             return None
+
+    BACKGROUND_STALL_SECONDS: ClassVar[float] = 180
+    """ok-zzz: how long a background WAIT may repeat on an unchanged frame before the node fails."""
+
+    def _background_wait_stalled(self, round_result: OperationRoundResult) -> bool:
+        """Whether this WAIT repeats the same status on the same picture for too long in background mode.
+
+        Upstream nodes often click and return WAIT until the screen changes. The game ignores
+        most window-message clicks, so in the background such a loop would never end.
+        """
+        if not getattr(getattr(self.ctx, 'controller', None), 'background_mode', False):
+            return False
+        screen = self.last_screenshot
+        if not isinstance(screen, np.ndarray) or screen.ndim < 2 or screen.size == 0:
+            self._wait_stall = None
+            return False
+        small = screen[::20, ::20].astype(np.int16)
+        key = (self._current_node.cn if self._current_node is not None else None, round_result.status)
+        stall = getattr(self, '_wait_stall', None)
+        now = time.time()
+        if (stall is None or stall[0] != key or stall[1].shape != small.shape
+                or float(np.mean(np.abs(small - stall[1]))) > 4):
+            self._wait_stall = (key, small, now)
+            return False
+        return now - stall[2] >= Operation.BACKGROUND_STALL_SECONDS
 
     def _reset_status_for_new_node(self) -> None:
         """进入新节点时重置状态。
