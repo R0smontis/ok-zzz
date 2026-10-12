@@ -25,7 +25,7 @@ def battle(stubbed_controller, monkeypatch):
     monkeypatch.setattr(ctx.controller,'battle_action_guard',None)
     monkeypatch.setattr(ctx.controller,'background_mode',False)
     b.init_screen_area()
-    b.init_auto_op('全配队通用')
+    b.init_auto_op('专属配队-克拉蕾-洛克茜')
     b.agent_context.team_info=TeamInfo(['克拉蕾','洛克茜','丽娜'])
     b.auto_op.auto_lock_interval=b.auto_op.auto_turn_interval=-1
     yield b,ctx,recorder
@@ -210,3 +210,28 @@ def test_ultimate_gate_is_cleared_when_disabled_or_leaving_hud(battle,monkeypatc
         b.auto_ultimate_enabled=enabled
         b.check_battle_state(screen,time.time(),sync=True,attack_hud_visible=hud,chain_ui_visible=False)
         assert (b.state_record_service.get_state_recorder('自定义-自动终结技启用').last_record_time>0) is expected
+
+
+@pytest.fixture
+def shared_battle(stubbed_controller, monkeypatch):
+    """全配队通用 uses upstream OneDragon's Roxy templates; the dedicated team keeps ok-zzz's."""
+    ctx,recorder=stubbed_controller
+    b=AutoBattleContext(ctx)
+    monkeypatch.setitem(ctx.__dict__,'_auto_battle_context',b)
+    monkeypatch.setattr(ctx.controller,'battle_input_guard',None)
+    monkeypatch.setattr(ctx.controller,'battle_action_guard',None)
+    monkeypatch.setattr(ctx.controller,'background_mode',False)
+    b.init_screen_area()
+    b.init_auto_op('全配队通用')
+    b.agent_context.team_info=TeamInfo(['克拉蕾','洛克茜','丽娜'])
+    b.auto_op.auto_lock_interval=b.auto_op.auto_turn_interval=-1
+    yield b
+    b.auto_op.stop_running()
+    b.auto_op.dispose()
+
+
+@pytest.mark.parametrize('energy,expected',[
+    (120,'长按E-攒满3点风能'),(90,'长按E-攒满3点风能'),(89,'能量不足-申请切走并攒能量')])
+def test_shared_config_follows_upstream_roxy_energy_gate(shared_battle,energy,expected):
+    now=record(shared_battle,'洛克茜',[('洛克茜-能量',energy,0)])
+    assert expected in shared_battle.auto_op.normal_scene.match_execution(now).expr_display

@@ -36,6 +36,11 @@ ASSET_SPECS = [
     ('assets/template', 'assets/template', False),  # 按 template_subs 复制子目录
 ]
 
+# 单文件资产（一条龙仓库内路径 = 本项目路径）
+FILE_SPECS = [
+    'config/redemption_codes.sample.yml',  # 兑换码应用读取的随包兑换码
+]
+
 DEFAULT_SOURCES = [
     'https://raw.githubusercontent.com/OneDragon-Anything/ZenlessZoneZero-OneDragon/main/',
     'https://raw.githubusercontent.com/OneDragon-Anything/ZenlessZoneZero-OneDragon/cnb/',
@@ -134,6 +139,14 @@ def main():
                         n += copy_dir(sub_dir, os.path.join(dst_rel, sub))
             print(f'{dst_rel}: {n} 个文件')
             total += n
+        for rel in FILE_SPECS:
+            src_file = os.path.join(args.src, rel.replace('/', os.sep))
+            if os.path.isfile(src_file):
+                os.makedirs(os.path.dirname(rel), exist_ok=True)
+                shutil.copy2(src_file, rel)
+                total += 1
+            else:
+                print(f'[缺失] {src_file}')
     else:
         print('未提供本地克隆，改用 GitHub raw 下载（较慢）...')
         for src_rel, dst_rel, whole in ASSET_SPECS:
@@ -141,6 +154,8 @@ def main():
             n = fetch_from_github(src_rel, dst_rel, subs)
             print(f'{dst_rel}: {n} 个文件')
             total += n
+        for rel in FILE_SPECS:
+            total += any(download_file(base + rel, rel) for base in DEFAULT_SOURCES)
 
     print(f'完成，共 {total} 个资产文件')
 

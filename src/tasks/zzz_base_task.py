@@ -5,13 +5,28 @@ from ok import BaseTask, TriggerTask, og
 from onedragon.utils.log_utils import log
 
 
+AFTER_DONE_OPTIONS = ('无', '关闭游戏', '关机', '休眠', '睡眠')
+
+
+def after_done_request(config):
+    """任务的「结束后」选项 → 一条龙的 AfterDoneRequest。"""
+    from onedragon.base.operation.one_dragon_finalizer import AfterDoneRequest
+    after_done = str(config.get('结束后', '无'))
+    return AfterDoneRequest(
+        close_game=after_done == '关闭游戏',
+        shutdown_seconds=int(config.get('关机延迟秒', 60)) if after_done == '关机' else None,
+        hibernate=after_done == '休眠',
+        sleep=after_done == '睡眠',
+    )
+
+
 class ZzzBaseTask(BaseTask):
     """提供 ZzzContext 访问与游戏窗口激活等公共能力。"""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.config_type['结束后'] = {
-            'type': 'drop_down', 'options': ['无', '关闭游戏', '关机'],
+            'type': 'drop_down', 'options': list(AFTER_DONE_OPTIONS),
             'sub_configs': {'关机': ['关机延迟秒']},
         }
         self.config_description.update({

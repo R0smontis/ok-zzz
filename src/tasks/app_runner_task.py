@@ -7,9 +7,9 @@
 """
 from ok import BaseTask
 
-from onedragon.base.operation.one_dragon_finalizer import AfterDoneRequest, execute_after_done
+from onedragon.base.operation.one_dragon_finalizer import execute_after_done
 from onedragon.utils.log_utils import log
-from src.tasks.zzz_base_task import ZzzBaseTask
+from src.tasks.zzz_base_task import ZzzBaseTask, after_done_request
 
 
 class AppRunnerTask(ZzzBaseTask, BaseTask):
@@ -20,7 +20,7 @@ class AppRunnerTask(ZzzBaseTask, BaseTask):
         self.description = "选择并运行一条龙的单个应用（细节选项见同名的选项任务）"
         self.default_config = {
             '应用': 'email_app',
-            '结束后': '无',       # 无 / 关闭游戏 / 关机
+            '结束后': '无',       # 无 / 关闭游戏 / 关机 / 休眠 / 睡眠
             '关机延迟秒': 60,
         }
         self._app_options_cache = {}
@@ -44,12 +44,7 @@ class AppRunnerTask(ZzzBaseTask, BaseTask):
         run_result = ctx.run_context.run_application(
             app_id, instance_idx=ctx.current_instance_idx)
 
-        request = AfterDoneRequest(
-            close_game=after_done == '关闭游戏',
-            shutdown_seconds=int(self.config.get('关机延迟秒', 60))
-            if after_done == '关机' else None,
-        )
-        execute_after_done(ctx, run_result, request)
+        execute_after_done(ctx, run_result, after_done_request(self.config))
         self.log_info(f'{app_id} 运行结束: {run_result.finish_reason}', notify=True)
 
 
@@ -68,15 +63,9 @@ class OneDragonTask(ZzzBaseTask, BaseTask):
     def run(self):
         ctx = self.ctx
         ctx.init_for_application()
-        after_done = str(self.config.get('结束后', '无'))
 
         run_result = ctx.run_context.run_application(
             'one_dragon', instance_idx=ctx.current_instance_idx)
 
-        request = AfterDoneRequest(
-            close_game=after_done == '关闭游戏',
-            shutdown_seconds=int(self.config.get('关机延迟秒', 60))
-            if after_done == '关机' else None,
-        )
-        execute_after_done(ctx, run_result, request)
+        execute_after_done(ctx, run_result, after_done_request(self.config))
         self.log_info(f'一条龙运行结束: {run_result.finish_reason}', notify=True)

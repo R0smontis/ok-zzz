@@ -10,12 +10,9 @@ import copy
 
 from ok import BaseTask
 
-from onedragon.base.operation.one_dragon_finalizer import (
-    AfterDoneRequest,
-    execute_after_done,
-)
+from onedragon.base.operation.one_dragon_finalizer import execute_after_done
 from onedragon.utils.log_utils import log
-from src.tasks.zzz_base_task import ZzzBaseTask
+from src.tasks.zzz_base_task import ZzzBaseTask, after_done_request
 from src.controls.application_input import application_inputs
 
 # 任务 UI 专用键（不写回应用配置）
@@ -143,13 +140,7 @@ class AppTaskBase(ZzzBaseTask, BaseTask):
             app_config = ctx.run_context.get_config(self.app_id, instance_idx=ctx.current_instance_idx)
             self.config['plan_list'] = json.dumps([item.to_dict() for item in app_config.plan_list], ensure_ascii=False)
 
-        after_done = str(self.config.get('结束后', '无'))
-        request = AfterDoneRequest(
-            close_game=after_done == '关闭游戏',
-            shutdown_seconds=int(self.config.get('关机延迟秒', 60))
-            if after_done == '关机' else None,
-        )
-        execute_after_done(ctx, run_result, request)
+        execute_after_done(ctx, run_result, after_done_request(self.config))
         self.report_run_result(run_result)
 
     def report_run_result(self, run_result):

@@ -47,7 +47,7 @@ for root, dirs, files in os.walk(os.path.join(ROOT, 'config')):
         dirs[:] = []
         continue
     runtime_files = {'one_dragon.yml', 'game.yml', 'battle_assistant.yml',
-                     'model.yml', 'env.yml'}
+                     'model.yml', 'env.yml', 'redemption_codes.yml'}
     for f in files:
         if not f.endswith(('.yml', '.yaml')):
             continue

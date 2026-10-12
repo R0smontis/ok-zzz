@@ -1,6 +1,5 @@
 template_name: "特殊情况-紧急切人"
 handlers:
-  - state_template: "克拉蕾-洛克茜-轮换"
   - states: "[自定义-琉音-投诉]{3,99} & [自定义-失衡时间,-10,15]"
     debug_name: "失衡被琉音延长了"
     operations:

@@ -108,10 +108,16 @@ class LostVoidBangbooStore(ZOperation):
                 return self.round_wait(status='向右滑动')
             return self.round_retry(status='未识别可购买藏品', wait=1)
 
+        # 规则日志只在第1轮和放行状态变化轮打印，其他轮次不重复刷
+        release_round = self.ctx.lost_void.challenge_config.buy_only_priority_2 - 1
+        if self.refresh_times == 0 or self.refresh_times == release_round:
+            self._log_priority_rules(self.refresh_times + 1)
+
         priority_list: list[LostVoidArtifactPos] = self.ctx.lost_void.get_artifact_by_priority(
             art_list, 1,
-            consider_priority_1=True, consider_priority_2=self.refresh_times > self.ctx.lost_void.challenge_config.buy_only_priority_1,
-            consider_not_in_priority=self.refresh_times > self.ctx.lost_void.challenge_config.buy_only_priority_2,
+            consider_priority_1=True,
+            consider_priority_2=self.refresh_times >= self.ctx.lost_void.challenge_config.buy_only_priority_2 - 1,
+            consider_not_in_priority=self.refresh_times >= self.ctx.lost_void.challenge_config.buy_only_priority_2 - 1,
             consider_priority_new=self.ctx.lost_void.challenge_config.artifact_priority_new
         )
 
@@ -123,6 +129,7 @@ class LostVoidBangbooStore(ZOperation):
                 self.slide_to_right = True
                 return self.round_wait(status='向右滑动')
 
+            log.info(f'邦布商店 第{self.refresh_times + 1}轮 | 结果 | 未选中可购买藏品 下一步=刷新')
             result = self.round_by_find_and_click_area(self.last_screenshot, '迷失之地-邦布商店', '按钮-刷新-可用')
             if result.is_success:
                 self.slide_to_right = False  # 刷新后 重置滑动
@@ -137,6 +144,7 @@ class LostVoidBangbooStore(ZOperation):
         target: LostVoidArtifactPos = priority_list[0]
         target_item: LostVoidArtifact = target.artifact
 
+        log.info(f'邦布商店 第{self.refresh_times + 1}轮 | 结果 | 购买 {target_item.display_name}')
         self.ctx.controller.click(target.store_buy_rect.center)
         return self.round_success(target_item.name, wait=1)
 
@@ -203,10 +211,12 @@ class LostVoidBangbooStore(ZOperation):
         all_items, buyable = self.get_artifact_pos(self.last_screenshot)
         available = [i for i in all_items if i.store_price is not None and 0 < i.store_price <= balance
             and (i in buyable or abs(i.rect.center.x-focus[0]) < 100)]
+        # 与上游六级优先级模型一致：放行轮之前只买第1级，放行轮起放开其余等级
+        release = self.refresh_times >= cfg.buy_only_priority_2 - 1
         priority = self.ctx.lost_void.get_artifact_by_priority(available, 1,
             consider_priority_1=True,
-            consider_priority_2=self.refresh_times > cfg.buy_only_priority_1,
-            consider_not_in_priority=self.refresh_times > cfg.buy_only_priority_2,
+            consider_priority_2=release,
+            consider_not_in_priority=release,
             consider_priority_new=cfg.artifact_priority_new) if available else []
         target_name = getattr(self, '_pad_target_name', None)
         target = next((i for i in available if i.artifact.display_name == target_name), None)
@@ -223,6 +233,24 @@ class LostVoidBangbooStore(ZOperation):
         self._pad('confirm')
         self._pad_purchase = {'name':target.artifact.display_name, 'balance':balance, 'confirms':0, 'waits':0}
         return self.round_wait('请求购买，等待实际确认及扣款', wait=.8)
+    def _log_priority_rules(self, round_num: int) -> None:
+        """
+        打印当前轮次生效的优先级规则，便于日志直接看出为什么买/不买。
+        只在第1轮和放行状态变化轮调用。
+        """
+        lv = self.ctx.lost_void
+        level_parts = []
+        if len(lv.dynamic_priority_list) > 0:
+            level_parts.append(f'第1级(动态)={",".join(lv.dynamic_priority_list)}')
+        if len(lv.challenge_config.artifact_priority) > 0:
+            level_parts.append(f'第2级(配置一)={",".join(lv.challenge_config.artifact_priority)}')
+        if len(lv.challenge_config.artifact_priority_2) > 0:
+            level_parts.append(f'第3级(配置二)={",".join(lv.challenge_config.artifact_priority_2)}')
+        if len(lv.challenge_config.artifact_priority_in_battle) > 0:
+            level_parts.append(f'第4级(战斗组)={",".join(lv.challenge_config.artifact_priority_in_battle)}')
+        level_text = ' '.join(level_parts) if len(level_parts) > 0 else '无'
+        abandon_text = ', '.join(lv.dynamic_abandon_list) if len(lv.dynamic_abandon_list) > 0 else '空'
+        log.info(f'邦布商店 第{round_num}轮 | 规则 | {level_text} 放弃组={abandon_text}')
 
     def get_artifact_pos(self, screen: MatLike) -> tuple[list[LostVoidArtifactPos], list[LostVoidArtifactPos]]:
         """

@@ -23,6 +23,9 @@ def room(monkeypatch):
     op.locked_interact_target = None
     op.interacted_target_key_list, op.had_been_list = [], []
     op.repeated_interact_counts = {}
+    op.entry_gear_name_list, op.entry_gear_repeat_times = [], 0
+    op.entry_gear_interact_done, op.entry_door_block_times, op.attempt_start_time = False, 0, 0
+    op.stuck_state = source.LostVoidStuckState()
     op.ao_fei_li_ya_talked, op.boss_pre_battle, op.interact_attempted = False, False, False
     op.last_screenshot, op.last_screenshot_time = np.zeros((1080,1920,3), np.uint8), 100
     op.ctx = SimpleNamespace(controller=Mock(background_mode=False), game_config=SimpleNamespace(background_gamepad_type='xbox'), lost_void=SimpleNamespace(
@@ -46,45 +49,41 @@ def test_completed_gear_menu_identifies_npc_even_when_name_ocr_missed(room):
     choose.assert_called_once()
 
 
-def test_repeated_gear_menu_closes_without_reselecting_and_backtracks(room):
+def test_repeated_gear_menu_is_judged_by_gear_names_and_counted(room):
+    # 上游 #2735：入口层把已完成画面的首个武备名交给武备选择，由它判重并退出。
     op, choose = room
-    op.ctx.lost_void.had_interacted_ophelia_on_current_level = True
     op.ao_fei_li_ya_talked = True
-    op.round_by_find_and_click_area = Mock(return_value=op.round_success('返回'))
+    op.entry_gear_name_list.append('[携游]敕令玄幡')
+    choose.STATUS_REPEATED = '重复武备选择'
+    choose.return_value = SimpleNamespace(execute=lambda: OperationResult(True, '重复武备选择'))
     assert op.handle_interact().result == OperationRoundResultEnum.WAIT
-    choose.assert_not_called()
-    assert op.after_interact().is_success
-    op.ctx.controller.move_s.assert_called_once()
+    assert choose.call_args.kwargs['completed_name_list'] is op.entry_gear_name_list
+    assert op.entry_gear_repeat_times == 1 and op.entry_gear_interact_done
 
 
-def test_background_repeated_gear_menu_uses_pad_without_mouse(room):
-    op,choose=room
-    op.ctx.controller.background_mode=True
-    op.ctx.lost_void.had_interacted_ophelia_on_current_level=True
-    op.round_by_find_and_click_area=Mock()
+def test_gear_menu_outside_entry_does_not_share_completed_names(room):
+    op, choose = room
+    op.region_type = LostVoidRegionType.COMBAT_RESONIUM
     assert op.handle_interact().result == OperationRoundResultEnum.WAIT
-    op.ctx.controller.btn_press.assert_called_once_with('xbox_b',press_time=.12)
-    op.round_by_find_and_click_area.assert_not_called()
-    choose.assert_not_called()
+    assert choose.call_args.kwargs['completed_name_list'] is None
 
 
-def test_entry_repeat_target_is_filtered_before_pressing_interact(room, monkeypatch):
+def test_entry_repeat_target_steers_before_pressing_interact(room, monkeypatch):
     import zzz_od.application.hollow_zero.lost_void.operation.lost_void_run_level as source
     op, _choose = room
     target = LostVoidInteractTarget('奥菲莉亚', '感叹号', is_npc=True)
     op.interacted_target_key_list = ['感叹号:奥菲莉亚']
-    op.ctx.screen_loader = SimpleNamespace(get_area=lambda *_: SimpleNamespace(rect=None))
-    op.ctx.ocr = SimpleNamespace(crop_and_run_ocr=lambda *_: {'奥菲莉亚': []})
+    op.ctx.screen_loader = SimpleNamespace(get_area=lambda *_: SimpleNamespace(rect=SimpleNamespace(x1=0)))
+    op.ctx.ocr = SimpleNamespace(crop_and_run_ocr=lambda *_: {'奥菲莉亚': SimpleNamespace(max=None)})
     op.round_by_find_area = Mock(return_value=op.round_success('交互'))
     op.screenshot = Mock()
-    op.move_after_interact = Mock()
+    op._steer_towards_other_interact_icon = Mock()
     monkeypatch.setattr(source, 'match_interact_target', lambda *_: target)
     result = op.try_interact()
-    assert result.is_fail and result.status == '重复交互对象'
+    assert result.result == OperationRoundResultEnum.WAIT
     op.ctx.controller.interact.assert_not_called()
-    op.move_after_interact.assert_not_called()
-    op.ctx.controller.move_s.assert_called_once_with(press=True, press_time=.4, release=True)
-    op.ctx.controller.move_d.assert_called_once_with(press=True, press_time=.75, release=True)
+    op._steer_towards_other_interact_icon.assert_called_once_with(None)
+    assert op.entry_door_block_times == 1
 
 
 def test_known_other_npc_is_not_overwritten_as_ophelia(room):

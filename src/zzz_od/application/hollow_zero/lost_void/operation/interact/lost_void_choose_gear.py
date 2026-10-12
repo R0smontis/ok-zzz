@@ -3,23 +3,27 @@
 # 来源: https://github.com/OneDragon-Anything/ZenlessZoneZero-OneDragon
 # 路径: zzz_od/application/hollow_zero/lost_void/operation/interact/lost_void_choose_gear.py
 # 本文件随 ok-zzz 以 GPL-3.0 继续分发。
-import time
 import re
+import time
+from typing import Any, ClassVar
 
 import cv2
 from cv2.typing import MatLike
-from typing import Any
 
 from onedragon.base.geometry.point import Point
 from onedragon.base.geometry.rectangle import Rect
-from onedragon.base.matcher.match_result import MatchResult, MatchResultList
+from onedragon.base.matcher.match_result import MatchResultList
 from onedragon.base.operation.operation_edge import node_from
 from onedragon.base.operation.operation_node import operation_node
 from onedragon.base.operation.operation_round_result import OperationRoundResult
-from onedragon.utils import cv2_utils, cal_utils
+from onedragon.utils import cv2_utils, str_utils
 from onedragon.utils.log_utils import log
-from zzz_od.application.hollow_zero.lost_void.context.lost_void_artifact import LostVoidArtifact
-from zzz_od.application.hollow_zero.lost_void.operation.interact.lost_void_artifact_pos import LostVoidArtifactPos
+from zzz_od.application.hollow_zero.lost_void.context.lost_void_artifact import (
+    LostVoidArtifact,
+)
+from zzz_od.application.hollow_zero.lost_void.operation.interact.lost_void_artifact_pos import (
+    LostVoidArtifactPos,
+)
 from zzz_od.context.zzz_context import ZContext
 from zzz_od.operation.zzz_operation import ZOperation
 from zzz_od.application.hollow_zero.lost_void.mission_screen import focused_gear
@@ -36,16 +40,26 @@ def normalize_gear_name(text):
 
 class LostVoidChooseGear(ZOperation):
 
-    def __init__(self, ctx: ZContext):
+    STATUS_REPEATED: ClassVar[str] = '重复武备选择'
+
+    def __init__(self, ctx: ZContext, completed_name_list: list[str] | None = None):
         """
         入口处 人物武备和通用武备的选择
         :param ctx:
+        :param completed_name_list: 入口层已完成选择画面的首个武备名列表 跨交互共享
+            传入时 若当前画面首个武备命中列表 说明重复交互了同一个NPC 直接返回退出 不再重复整套选择
+            完成一次选择后 本画面的首个武备名会补充进列表
+            判断信号与存储信号对称(都是画面最左侧槽位的武备名) 避免与其他画面的非首个武备误匹配
         """
         ZOperation.__init__(self, ctx, op_name='迷失之地-武备选择')
         self._pad_scan = None
         self._equip_requests = 0
         self._unlock_requests = 0
         self._equip_confirmed = False
+        self.completed_name_list: list[str] | None = completed_name_list
+        # 本次画面最左侧槽位的武备名 携带成功后写入 completed_name_list
+        # 最左侧槽位OCR解析失败时为None 本画面不记录(宁可下次重复识别 也不存错位的名字)
+        self.first_slot_gear_name: str | None = None
 
     @operation_node(name='选择武备', is_start_node=True, timeout_seconds=90)
     def choose_gear(self) -> OperationRoundResult:
@@ -60,10 +74,26 @@ class LostVoidChooseGear(ZOperation):
             # 进入本指令之前 有可能识别错画面
             return self.round_retry(status=f'当前画面 {screen_name}', wait=1)
 
+        # 入口层只有两个武备NPC 两个都完成过还进武备画面 必为重复 直接退出
+        # 省掉判重的点击首格+OCR(约10秒) 去门途中被NPC抢交互时的自愈更快
+        if self.completed_name_list is not None and len(self.completed_name_list) >= 2:
+            log.info('入口层两个武备均已完成 当前武备画面必为重复 直接返回')
+            return self.round_success(LostVoidChooseGear.STATUS_REPEATED)
+
         choose_new: bool = False
         gear_contours, gear_context = self._find_gears_with_status()
         if not gear_contours:
             return self.round_retry(status='无法识别武备槽位')
+
+        # 入口层可能因为交互判定(角度>距离)命中了刚选完武备的NPC 重复打开同一个画面
+        # 此时只看首个武备名称 命中已完成列表(各画面首个武备名)则直接退出 避免重复整套点击识别
+        # cutoff=0.8 只容忍同名的OCR错字 不同画面即使名称相近也不会误判为重复
+        if self.completed_name_list is not None and len(self.completed_name_list) > 0:
+            first_name = self._get_first_gear_name(gear_context)
+            if (first_name is not None
+                    and str_utils.find_best_match_by_difflib(first_name, self.completed_name_list, cutoff=0.8) is not None):
+                log.info(f'重复进入已完成选择的武备画面 直接返回 首个武备={first_name}')
+                return self.round_success(LostVoidChooseGear.STATUS_REPEATED)
 
         gear_list, has_level_list = self.get_gear_pos_by_click_ocr(gear_contours, gear_context)
         if len(gear_list) == 0:
@@ -104,8 +134,16 @@ class LostVoidChooseGear(ZOperation):
         pad(self.ctx, {'left': 'dpad_left', 'right': 'dpad_right', 'confirm': 'a',
                        'back': 'b', 'unlock': 'y'}[action])
 
+    def _repeated_screen(self, first_name) -> bool:
+        """本画面最左侧武备命中入口层已完成列表：重复交互了同一个NPC。"""
+        return bool(first_name is not None and self.completed_name_list
+                    and str_utils.find_best_match_by_difflib(first_name, self.completed_name_list, cutoff=0.8) is not None)
+
     def _choose_gear_with_pad(self):
         if self._pad_scan is None:
+            if self.completed_name_list is not None and len(self.completed_name_list) >= 2:
+                log.info('入口层两个武备均已完成 当前武备画面必为重复 直接返回')
+                return self.round_success(LostVoidChooseGear.STATUS_REPEATED)
             contours, context=self._find_gears_with_status()
             pairs=self._gear_rect_pairs(context) if contours else []
             statuses=sorted(contours,key=lambda item:cv2.boundingRect(item[0])[0])
@@ -132,6 +170,11 @@ class LostVoidChooseGear(ZOperation):
         if art is None:
             return self.round_retry('当前武备名称未识别，未确认携带',wait=.5)
         idx=state['index']
+        if idx == 0:
+            self.first_slot_gear_name = art.display_name
+            if self._repeated_screen(art.display_name):
+                log.info(f'重复进入已完成选择的武备画面 直接返回 首个武备={art.display_name}')
+                return self.round_success(LostVoidChooseGear.STATUS_REPEATED)
         state['gears'].append(LostVoidArtifactPos(art=art,rect=target,ocr_text=text,is_primary_name=primary))
         availability = self._gear_availability(focus, art.display_name)
         if availability is None:
@@ -240,7 +283,7 @@ class LostVoidChooseGear(ZOperation):
         for i, (gear_contour, (gear_x1, gear_y1, gear_x2, gear_y2)) in enumerate(gear_rects):
             has_level = False
 
-            for j, (level_contour, (level_x1, level_y1, level_x2, level_y2)) in enumerate(remaining_levels):
+            for j, (_level_contour, (level_x1, level_y1, level_x2, level_y2)) in enumerate(remaining_levels):
                 is_overlapping = not (gear_x2 < level_x1 or level_x2 < gear_x1 or
                                       gear_y2 < level_y1 or level_y2 < gear_y1)
 
@@ -278,6 +321,42 @@ class LostVoidChooseGear(ZOperation):
                 continue
             result.append(pair)
         return sorted(result, key=lambda item: item[1][0])
+    def _get_first_gear_name(self, gear_context: Any) -> str | None:
+        """
+        点击最左侧的武备 读取其名称 用于入口重复画面的快速判断
+        :param gear_context: 武备列表检测的CV流水线结果
+        :return: 武备展示名 无法识别时返回None
+        """
+        gear_abs_pairs = gear_context.get_absolute_rect_pairs()
+        if len(gear_abs_pairs) == 0:
+            return None
+        gear_abs_pairs.sort(key=lambda item: item[1][0])
+        x1, y1, x2, y2 = gear_abs_pairs[0][1]
+        self.ctx.controller.click(Point((x1 + x2) // 2, (y1 + y2) // 2))
+        time.sleep(1)
+        _, current_screen = self.ctx.controller.screenshot()
+
+        name_area = self.ctx.screen_loader.get_area('迷失之地-武备选择', '武备名称')
+        name_part = cv2_utils.crop_image_only(current_screen, name_area.rect)
+        ocr_map = self.ctx.ocr_service.get_ocr_result_map(
+            image=name_part,
+            crop_first=False,
+        )
+
+        token_list: list[tuple[int, str]] = []
+        for text, mrl in ocr_map.items():
+            token = text.strip()
+            if len(token) == 0:
+                continue
+            for mr in mrl:
+                token_list.append((mr.center.x, token))
+        token_list.sort(key=lambda item: item[0])
+        ocr_text = ''.join([i[1] for i in token_list]).strip()
+
+        art, _ = self._build_artifact_from_ocr_name(ocr_text)
+        if art is None:
+            return None
+        return art.display_name
 
     def get_gear_pos_by_click_ocr(
             self,
@@ -322,6 +401,7 @@ class LostVoidChooseGear(ZOperation):
             crop_first=False,
         )
         name_list = self._extract_names_from_stitched_ocr(ocr_map, len(slice_list), slice_list[0].shape[0])
+        self._update_first_slot_gear_name(name_list)
 
         result_list: list[LostVoidArtifactPos] = []
         total_cnt = min(len(click_rect_list), len(name_list))
@@ -346,6 +426,20 @@ class LostVoidChooseGear(ZOperation):
         display_text = ','.join([i.artifact.display_name for i in result_list]) if len(result_list) > 0 else '无'
         log.info(f'当前识别武备 {display_text}')
         return result_list, has_level_list
+
+    def _update_first_slot_gear_name(self, name_list: list[str]) -> None:
+        """
+        从各槽位的OCR文本更新最左侧槽位的武备名 解析失败时为None
+
+        与入口重复判断(_get_first_gear_name 点击最左格)读取的槽位保持一致
+        不能用识别结果列表的首元素代替: 结果列表会跳过解析失败的槽位 首元素不一定是最左格
+        :param name_list: 按槽位从左到右的OCR文本列表
+        """
+        self.first_slot_gear_name = None
+        if len(name_list) > 0 and len(name_list[0]) > 0:
+            first_art, _ = self._build_artifact_from_ocr_name(name_list[0])
+            if first_art is not None:
+                self.first_slot_gear_name = first_art.display_name
 
     def _extract_names_from_stitched_ocr(
             self,
@@ -415,6 +509,7 @@ class LostVoidChooseGear(ZOperation):
                     if artifact.category not in priorities:
                         priorities.append(artifact.category)
                 log.info('武备携带已核验：%s', expected)
+                self._remember_completed_screen()
                 return self.round_success('已核验携带武备',wait=.3)
             focus = focused_gear(self.last_screenshot)
             if focus is None or (getattr(target, 'rect', None) is not None
@@ -449,6 +544,36 @@ class LostVoidChooseGear(ZOperation):
         if result.is_success:
             self.ctx.lost_void.priority_updated = False
             log.info("武备选择成功，已设置优先级更新标志")
+            self._remember_completed_screen()
+        return result
+
+    def _remember_completed_screen(self) -> None:
+        # 只记录本画面最左侧槽位的武备名 与重复判断读取的信号一致
+        # 记录其他槽位名称会让别的画面的首个武备有机会与本画面的非首个武备误匹配
+        if (self.completed_name_list is not None
+                and self.first_slot_gear_name is not None
+                and self.first_slot_gear_name not in self.completed_name_list):
+            self.completed_name_list.append(self.first_slot_gear_name)
+
+    @node_from(from_name='选择武备', status=STATUS_REPEATED)
+    @operation_node(name='重复退出')
+    def exit_repeated(self) -> OperationRoundResult:
+        """
+        重复进入已完成选择的画面时 点击返回退出 并透传重复状态给调用方
+        """
+        if getattr(self.ctx.controller, 'background_mode', False):
+            if self.ctx.lost_void.in_normal_world(self.last_screenshot):
+                return self.round_success(LostVoidChooseGear.STATUS_REPEATED)
+            self._back_requests = getattr(self, '_back_requests', 0) + 1
+            if self._back_requests > 4:
+                return self.round_fail('手柄退出重复武备画面未生效')
+            self._pad('back')
+            return self.round_wait('手柄退出重复武备画面', wait=.8)
+        result = self.round_by_find_and_click_area(screen_name='迷失之地-武备选择', area_name='按钮-返回',
+                                                   until_not_find_all=[('迷失之地-武备选择', '按钮-返回')],
+                                                   success_wait=1, retry_wait=1)
+        if result.is_success:
+            return self.round_success(LostVoidChooseGear.STATUS_REPEATED)
         return result
 
     @node_from(from_name='选择武备', success=False)

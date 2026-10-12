@@ -140,6 +140,8 @@ def operation(cls):
         game_config=SimpleNamespace(background_gamepad_type='xbox', get_gamepad_action_keys=lambda: {'minimap':['xbox_back']}),
         lost_void=SimpleNamespace(in_normal_world=Mock(return_value=False), priority_updated=True,
             challenge_config=SimpleNamespace(artifact_priority_new=True, artifact_priority_in_battle=[]), get_artifact_by_priority=Mock(return_value=[])))
+    if cls is LostVoidChooseGear:
+        op.completed_name_list, op.first_slot_gear_name = None, None
     if cls is LostVoidChooseCommon:
         op.to_choose_num=1
         op.to_choose_artifact=op.to_choose_gear=False
@@ -1556,3 +1558,23 @@ def test_controller_buff_selection_moves_focus_to_configured_card_and_is_bounded
     for _ in range(7):
         assert op.choose_buff().result == R.WAIT
     assert op.choose_buff().is_fail
+
+
+def test_background_gear_menu_exits_repeated_screen_with_pad():
+    op=operation(LostVoidChooseGear)
+    op.completed_name_list=['[携游]敕令玄幡','[通用]某武备']
+    op._pad_scan=None
+    assert op._choose_gear_with_pad().status == LostVoidChooseGear.STATUS_REPEATED
+    assert op.exit_repeated().result == R.WAIT
+    op.ctx.controller.btn_press.assert_called_once_with('xbox_b',press_time=.12)
+    op.ctx.lost_void.in_normal_world.return_value=True
+    result=op.exit_repeated()
+    assert result.is_success and result.status == LostVoidChooseGear.STATUS_REPEATED
+
+
+def test_background_gear_first_slot_name_marks_screen_repeated():
+    op=operation(LostVoidChooseGear)
+    op.completed_name_list=['[携游]敕令玄幡']
+    assert op._repeated_screen('[携游]敕令玄幡')
+    assert not op._repeated_screen('[通用]另一个武备')
+    assert not op._repeated_screen(None)

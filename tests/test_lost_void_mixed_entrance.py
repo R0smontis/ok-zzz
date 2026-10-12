@@ -45,6 +45,7 @@ def test_completed_shop_does_not_hide_standalone_portal_from_level_navigation(mo
     op.last_screenshot, op.last_screenshot_time = frame.raw_image, 100
     op.operation_start_time = 99
     op.boss_pre_battle = False
+    op.attempt_start_time = 0
     op.region_type = LostVoidRegionType.COMBAT_RESONIUM
     op.had_been_list = ['邦布商店']
     op.stuck_state = LostVoidStuckState()
@@ -84,13 +85,16 @@ def test_acknowledged_room_restart_resets_deadline_and_interaction_memory(monkey
     op.repeated_interact_counts = {'奥菲莉亚':3}
     op.locked_interact_target = object()
     op.ao_fei_li_ya_talked = True
+    op.entry_gear_name_list = ['[携游]敕令玄幡']
+    op.entry_gear_repeat_times, op.entry_gear_interact_done, op.entry_door_block_times = 2, True, 3
     op.region_type = LostVoidRegionType.BOSS
     op._after_round_wait = lambda **_: None
     monkeypatch.setattr(source.time,'time',lambda:1000)
     monkeypatch.setattr(source,'RestartInBattle',Mock(return_value=SimpleNamespace(
         execute=lambda:SimpleNamespace(success=True))))
     assert op.handle_find_target_fail().status == '准备重试'
-    assert op.room_attempt_start_time == 1000 and op.operation_start_time == 1
+    assert op.attempt_start_time == 1000 and op.operation_start_time == 1
+    assert not op.entry_gear_name_list and op.entry_gear_repeat_times == 0 and op.entry_door_block_times == 0
     assert op.restart_count == 1 and op.boss_pre_battle
     assert not op.had_been_list and not op.interacted_target_key_list and not op.repeated_interact_counts
     assert not op.ctx.lost_void.completed_npc_names
@@ -102,12 +106,13 @@ def test_failed_restart_keeps_original_deadline(monkeypatch):
     op = object.__new__(LostVoidRunLevel)
     op.ctx = object()
     op.restart_count = 0
-    op.room_attempt_start_time = 5
+    op.region_type = LostVoidRegionType.BOSS
+    op.attempt_start_time = 5
     op._after_round_wait = lambda **_: None
     monkeypatch.setattr(source,'RestartInBattle',Mock(return_value=SimpleNamespace(
         execute=lambda:SimpleNamespace(success=False,status='未核验重新开始'))))
     assert op.handle_find_target_fail().is_fail
-    assert op.room_attempt_start_time == 5
+    assert op.attempt_start_time == 5
 
 
 def test_static_chosen_target_triggers_escape_despite_peripheral_flicker(monkeypatch):
