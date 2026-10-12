@@ -166,6 +166,9 @@ class Globals:
         try:
             device = manager.get_preferred_device() if manager is not None else None
             path = manager.get_exe_path(device) if device and device.get('device') == 'windows' else None
+            if not path and manager is not None:
+                # The game is closed, so no window device: use the exe ok-script remembered.
+                path = (getattr(manager, 'config', None) or {}).get('pc_full_path')
         except Exception as error:
             logger.warning(f'读取游戏路径失败: {error}')
             return

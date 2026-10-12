@@ -389,7 +389,13 @@ def main_menu_target(op, target):
             return op.round_fail(f'主菜单确认未生效：{target}')
         pad_press(op,'a');op._pad_menu_confirms=confirmations+1
         return op.round_wait(f'手柄打开{target}，等待实际页面',wait=1)
-    pad_press(op,'dpad_left' if points[target].x<points[current].x else 'dpad_right')
+    left=points[target].x<points[current].x
+    if len(points)==len(names):
+        # The bar wraps around (live 2026-10-12: left from 更多 lands on 调频): take the short way.
+        order=sorted(points,key=lambda n:points[n].x)
+        steps=(order.index(target)-order.index(current))%len(order)
+        left=steps*2>len(order) or (steps*2==len(order) and left)  # A tie keeps the direct way.
+    pad_press(op,'dpad_left' if left else 'dpad_right')
     return op.round_wait(f'手柄选择主菜单：{current} → {target}',wait=.6)
 
 

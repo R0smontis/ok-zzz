@@ -188,3 +188,24 @@ def test_window_refresh_preserves_other_selection_and_ignores_splash(monkeypatch
         get_preferred_device=lambda:{'device':device,'real_hwnd':101},refresh=Mock())
     refresh_restarted_window(SimpleNamespace(device_manager=manager,hwnd=202,width=size[0],height=size[1]))
     manager.refresh.assert_not_called()
+
+
+@pytest.mark.parametrize('saved', ['Pynput', 'PostMessage', 'BackgroundGamepad'])
+def test_old_start_page_choice_migrates_once_to_background(tmp_path, saved):
+    import json
+    from src.controls.interaction import migrate_saved_interaction
+    devices = tmp_path / 'devices.json'
+    devices.write_text(json.dumps({'capture': 'WGC', 'interaction': saved}), encoding='utf-8')
+    assert migrate_saved_interaction(str(tmp_path)) is (saved != 'BackgroundGamepad')
+    assert json.loads(devices.read_text(encoding='utf-8')) == {'capture': 'WGC', 'interaction': 'BackgroundGamepad'}
+    # A foreground choice made after the migration is the user's and stays.
+    devices.write_text(json.dumps({'interaction': 'Pynput'}), encoding='utf-8')
+    assert migrate_saved_interaction(str(tmp_path)) is False
+    assert json.loads(devices.read_text(encoding='utf-8'))['interaction'] == 'Pynput'
+
+
+def test_migration_without_saved_devices_only_writes_marker(tmp_path):
+    from src.controls.interaction import migrate_saved_interaction
+    assert migrate_saved_interaction(str(tmp_path / 'configs')) is False
+    assert not (tmp_path / 'configs' / 'devices.json').exists()
+    assert (tmp_path / 'configs' / 'interaction_scheme.json').exists()

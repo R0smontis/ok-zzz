@@ -51,6 +51,10 @@ class RedemptionCodeRunRecord(AppRunRecord):
         # 先从 sample 配置读取
         merged.update(self._get_codes_from_config(config.sample_config))
 
+        # ok-zzz: 上游在两次发布之间公布的兑换码（运行时下载的缓存）
+        from src.runtime.redemption_feed import cached_codes
+        merged.update(cached_codes())
+
         # 再用用户配置覆盖（用户配置优先）
         merged.update(self._get_codes_from_config(config.user_config))
 
@@ -91,6 +95,12 @@ class RedemptionCodeRunRecord(AppRunRecord):
         :return:
         """
         self.update('used_code_list', new_value)
+
+    def refresh_published_codes(self) -> None:
+        """ok-zzz: 运行兑换码应用时下载上游最新公布的兑换码。"""
+        from src.runtime.redemption_feed import refresh
+        refresh()
+        self.valid_code_list = self._load_redemption_codes()
 
     def get_unused_code_list(self, dt: str) -> list[str]:
         """

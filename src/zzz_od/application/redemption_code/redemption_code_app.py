@@ -18,6 +18,7 @@ from zzz_od.application.redemption_code.redemption_code_run_record import (
 from zzz_od.application.zzz_application import ZApplication
 from zzz_od.context.zzz_context import ZContext
 from zzz_od.operation.back_to_normal_world import BackToNormalWorld
+from src.navigation import redemption
 
 
 class RedemptionCodeApp(ZApplication):
@@ -51,6 +52,7 @@ class RedemptionCodeApp(ZApplication):
 
     @operation_node(name='检测新兑换码', is_start_node=True)
     def check_new_code(self) -> OperationRoundResult:
+        self.run_record.refresh_published_codes()
         self.unused_code_list = self.run_record.get_unused_code_list(self.run_record.get_current_dt())
         if len(self.unused_code_list) == 0:
             return self.round_success('无新的兑换码')
@@ -65,6 +67,8 @@ class RedemptionCodeApp(ZApplication):
     @node_from(from_name='打开菜单')
     @operation_node(name='点击更多')
     def click_more(self) -> OperationRoundResult:
+        if self._background():
+            return redemption.open_more(self, self.last_screenshot)
         area = self.ctx.screen_loader.get_area('菜单', '底部列表')
         return self.round_by_ocr_and_click(self.last_screenshot, '更多', area=area,
                                            success_wait=1, retry_wait=1)
@@ -72,8 +76,10 @@ class RedemptionCodeApp(ZApplication):
     @node_from(from_name='点击更多')
     @operation_node(name='点击兑换码')
     def click_code(self) -> OperationRoundResult:
-        area = self.ctx.screen_loader.get_area('菜单', '更多功能区域')
         self.code_idx = 0
+        if self._background():
+            return redemption.open_code_panel(self, self.last_screenshot)
+        area = self.ctx.screen_loader.get_area('菜单', '更多功能区域')
         return self.round_by_ocr_and_click(self.last_screenshot, '兑换码', area=area,
                                            success_wait=1, retry_wait=1)
 
@@ -83,6 +89,9 @@ class RedemptionCodeApp(ZApplication):
     def input_code(self) -> OperationRoundResult:
         if self.code_idx >= len(self.unused_code_list):
             return self.round_success('全部兑换完毕')
+        if self._background():
+            return redemption.redeem_round(self, self.last_screenshot, self.unused_code_list,
+                                           self.run_record.add_used_code)
 
         self.round_by_click_area('菜单', '兑换码输入框')
         time.sleep(1)
@@ -104,6 +113,9 @@ class RedemptionCodeApp(ZApplication):
             return self.round_success(result.status, wait=1)
 
         return self.round_retry(result.status, wait=1)
+
+    def _background(self) -> bool:
+        return bool(getattr(self.ctx.controller, 'background_mode', False))
 
     @node_from(from_name='输入兑换码', status='全部兑换完毕')
     @operation_node(name='返回大世界')

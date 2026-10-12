@@ -125,6 +125,17 @@ def test_context_adopts_detected_game_exe_only_when_unset(tmp_path, monkeypatch)
     assert account.game_path == 'D:/custom/game.exe'
 
 
+def test_closed_game_uses_exe_path_remembered_by_ok_script(tmp_path, monkeypatch):
+    from src.globals import Globals
+    exe = tmp_path/'ZenlessZoneZero.exe'; exe.write_bytes(b'')
+    manager = SimpleNamespace(get_preferred_device=lambda: None, get_exe_path=lambda device: None,
+                              config={'pc_full_path': str(exe)})
+    monkeypatch.setattr('ok.og.device_manager', manager, raising=False)
+    account = SimpleNamespace(game_path='')
+    Globals._adopt_game_path(SimpleNamespace(game_account_config=account))
+    assert account.game_path == str(exe)
+
+
 def test_frozen_picture_restarts_wgc_once_then_reports_the_game():
     import numpy as np
     from unittest.mock import Mock

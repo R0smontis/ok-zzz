@@ -23,6 +23,8 @@ if __name__ == '__main__':
     else:
         import ok
         from src.config import config
+        from src.controls.interaction import migrate_saved_interaction
+        migrate_saved_interaction(config['config_folder'])
         from src.runtime.gpu_ocr import install_gpu_ocr
         install_gpu_ocr()  # Before TaskExecutor starts its background OCR initialization.
         application = ok.OK(config)
