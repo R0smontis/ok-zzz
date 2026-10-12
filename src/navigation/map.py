@@ -141,7 +141,7 @@ def _candidates_for_template(screen, name, point):
 
 ICON_POINTS = {'吼吼饼铺': 'daily_bakery', '咖啡店': 'daily_coffee',
                '柜台': '3d_map_tp_icon_1', '房间': '3d_map_tp_icon_1'}
-"""Points found by their map icon; every other point is reached by name through 快捷导航."""
+"""Points that can also be found by their map icon, the fallback when 快捷导航 lacks them."""
 
 
 def point_candidates(screen, point):
@@ -410,8 +410,16 @@ def quick_nav_state(op, screen):
     return dict(dialog=False, tiles=tiles, points=points)
 
 
-def needs_quick_nav(tp_name):
-    return tp_name not in ICON_POINTS
+def leave_quick_nav(op, screen):
+    """B out of 快捷导航 back to the map; None once the map itself is showing."""
+    if quick_nav_state(op, screen) is None:
+        return None
+    presses = getattr(op, '_quick_nav_leaves', 0)
+    if presses >= 4:
+        return op.round_fail('手柄退出快捷导航未生效')
+    op._quick_nav_leaves = presses + 1
+    _press(op, 'back')
+    return op.round_wait('手柄退出快捷导航，改用地图图标', wait=.8)
 
 
 def quick_nav(op, screen):

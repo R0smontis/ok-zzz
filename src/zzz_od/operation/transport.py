@@ -117,10 +117,18 @@ class Transport(ZOperation):
         :return:
         """
         if getattr(self.ctx.controller, 'background_mode', False):
-            from src.navigation.map import needs_quick_nav, quick_nav
-            if needs_quick_nav(self.tp_name):
-                # Points without a recognisable map icon are picked by name from 快捷导航.
-                return quick_nav(self, self.last_screenshot)
+            from src.navigation.map import ICON_POINTS, leave_quick_nav, quick_nav
+            if not getattr(self, '_icon_fallback', False):
+                # 快捷导航 lists every daily point by name (verified 2026-10-12); searching the map
+                # for icons failed when zooming hid 吼吼饼铺.
+                result = quick_nav(self, self.last_screenshot)
+                if result.is_fail and self.tp_name in ICON_POINTS and '没有传送点' in str(result.status):
+                    self._icon_fallback = True
+                    return self.round_wait(f'{result.status}，改用地图图标', wait=.3)
+                return result
+            leaving = leave_quick_nav(self, self.last_screenshot)
+            if leaving is not None:
+                return leaving
         op = MapTransport(self.ctx, self.area_name, self.tp_name)
         return self.round_by_op_result(op.execute())
 

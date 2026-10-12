@@ -5,7 +5,7 @@ from unittest.mock import Mock
 import pytest
 
 from onedragon.base.operation.operation_round_result import OperationRoundResultEnum as R
-from src.navigation.map import needs_quick_nav, quick_nav, quick_nav_state
+from src.navigation.map import quick_nav, quick_nav_state
 from zzz_od.operation.transport import Transport
 from test_background_map_navigation import fixture
 
@@ -99,19 +99,41 @@ def test_map_opens_quick_nav_with_menu_button_and_is_bounded():
     assert pressed(op) == ['ds4_options']
 
 
-@pytest.mark.parametrize('point,quick', [('随便观', True), ('阿朔', True), ('柜台', False), ('吼吼饼铺', False)])
-def test_transport_uses_quick_nav_only_for_points_without_icon(monkeypatch, point, quick):
+def _transport(monkeypatch, point, quick_result):
     import src.navigation.map as nav
-    assert needs_quick_nav(point) is quick
-    op, screen = fixture('map-quick-nav', '澄辉坪', point)
-    transport = Transport.__new__(Transport)
-    transport.ctx, transport.area_name, transport.tp_name, transport.last_screenshot = op.ctx, '澄辉坪', point, screen
-    transport.ctx.controller.background_mode = True
-    monkeypatch.setattr(nav, 'quick_nav', Mock(return_value='quick'))
     import zzz_od.operation.transport as module
+    op, screen = fixture('map-quick-nav', '布亚斯特城区', point)
+    transport = Transport.__new__(Transport)
+    transport.ctx, transport.area_name, transport.tp_name, transport.last_screenshot = op.ctx, '布亚斯特城区', point, screen
+    transport._after_round_wait = lambda **_: None
+    transport.ctx.controller.background_mode = True
+    monkeypatch.setattr(nav, 'quick_nav', Mock(return_value=quick_result))
     monkeypatch.setattr(module, 'MapTransport', Mock(return_value=SimpleNamespace(execute=Mock(return_value='map'))))
     transport.round_by_op_result = lambda result: result
-    assert transport.do_transport() == ('quick' if quick else 'map')
+    return transport, op
+
+
+@pytest.mark.parametrize('point', ['随便观', '阿朔', '柜台', '吼吼饼铺', '咖啡店'])
+def test_transport_reaches_every_point_by_name(monkeypatch, point):
+    quick = SimpleNamespace(is_fail=False, status='ok')
+    transport, _ = _transport(monkeypatch, point, quick)
+    assert transport.do_transport() is quick
+
+
+def test_point_missing_from_quick_nav_falls_back_to_the_map_icon(monkeypatch):
+    missing = SimpleNamespace(is_fail=True, status='布亚斯特城区 中没有传送点 吼吼饼铺：未来邦布研究室')
+    transport, op = _transport(monkeypatch, '吼吼饼铺', missing)
+    assert transport.do_transport().result == R.WAIT and transport._icon_fallback
+    # The fixture still shows 快捷导航: B out of it before searching the map.
+    assert transport.do_transport().result == R.WAIT and pressed(op) == ['xbox_b']
+    transport.last_screenshot = None
+    assert transport.do_transport() == 'map'
+
+
+def test_points_without_icon_report_the_quick_nav_failure(monkeypatch):
+    missing = SimpleNamespace(is_fail=True, status='澄辉坪 中没有传送点 某处')
+    transport, _ = _transport(monkeypatch, '某处', missing)
+    assert transport.do_transport() is missing
 
 
 def test_video_store_english_hdd_is_a_named_destination_not_a_region():
@@ -123,3 +145,21 @@ def test_video_store_english_hdd_is_a_named_destination_not_a_region():
     op, screen = fixture('quick-nav-video-store', '录像店', '房间')
     assert quick_nav(op, screen).result == R.WAIT
     assert pressed(op) == ['xbox_dpad_right'] and op._quick_nav_chosen is None
+
+
+def test_sixth_street_lists_coffee_and_newsstand_by_name():
+    # Live 2026-10-12: 咖啡店 and 报刊亭 (刮刮卡) are named destinations of 六分街.
+    op, screen = fixture('qn-sixth', '六分街', '报刊亭')
+    state = quick_nav_state(op, screen)
+    assert [name for name, _, lit in state['tiles'] if lit] == ['六分街']
+    assert [name for name, _, _ in state['points']][:3] == ['喵吉长官', '咖啡店', '报刊亭']
+    assert quick_nav(op, screen).result == R.WAIT
+    assert pressed(op) == ['xbox_dpad_right']  # 喵吉长官 → 咖啡店 → 报刊亭
+
+
+def test_bakery_is_a_named_destination_of_buyasite():
+    op, screen = fixture('qn-open', '布亚斯特城区', '吼吼饼铺')
+    state = quick_nav_state(op, screen)
+    assert '吼吼饼铺' in [name for name, _, _ in state['points']]
+    assert quick_nav(op, screen).result == R.WAIT
+    assert pressed(op) == ['xbox_a']  # The focused tile is already the target region.
