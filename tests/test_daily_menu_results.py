@@ -391,6 +391,33 @@ def test_business_success_then_counter_overworld_completes(monkeypatch):
     assert op.ctx.controller.btn_press.call_count==1
 
 
+@pytest.mark.parametrize('slogan,label',[('童叟无欺，客似云来！','确认'),('丁尼广进，生意兴隆！','C确认')])
+def test_any_business_slogan_popup_is_confirmed_then_counter_overworld_completes(slogan,label):
+    # Live 2026-10-12: a slogan outside the known texts waited 11 rounds and failed the app.
+    op=store();rows=fixture(op,'store-business-success-popup')
+    next(r for r in rows if '生意兴隆' in r.data).data=slogan
+    next(r for r in rows if r.data=='确认').data=label
+    assert op.confirm().result==R.RETRY
+    op.ctx.controller.btn_press.assert_called_once_with('xbox_a',press_time=.12)
+    op.last_screenshot=cv2.cvtColor(cv2.imread(str(BASE/'store-counter-after-business.png')),cv2.COLOR_BGR2RGB)
+    op.ctx.ocr_service=SimpleNamespace(get_ocr_result_list=lambda image,rect:[])
+    op.check_and_update_current_screen=lambda screen,screen_name_list:'大世界-普通'
+    assert op.confirm().is_success
+
+
+def test_start_confirmation_dialog_is_not_taken_as_business_slogan():
+    op=store();fixture(op,'store-business-confirmation')
+    assert not op._business_slogan_popup()
+    op.check_and_update_current_screen=lambda screen,screen_name_list:None
+    op.last_screenshot[595:655,980:1250]=0  # Focus not verified: no input.
+    assert op.confirm().result==R.RETRY
+    op.ctx.controller.btn_press.assert_not_called()
+    fixture(op,'store-business-confirmation')
+    assert op.confirm().result==R.RETRY  # A lingering, focused confirm is pressed again.
+    op.ctx.controller.btn_press.assert_called_once_with('xbox_a',press_time=.12)
+    assert not op._business_success_seen
+
+
 def test_overworld_without_success_popup_is_not_business_success():
     op=store()
     op.last_screenshot=cv2.cvtColor(cv2.imread(str(BASE/'store-counter-after-business.png')),cv2.COLOR_BGR2RGB)

@@ -3,6 +3,7 @@
 # 来源: https://github.com/OneDragon-Anything/ZenlessZoneZero-OneDragon
 # 路径: zzz_od/operation/transport.py
 # 本文件随 ok-zzz 以 GPL-3.0 继续分发。
+import time
 from typing import ClassVar
 
 from cv2.typing import MatLike
@@ -21,6 +22,7 @@ from zzz_od.operation.zzz_operation import ZOperation
 class Transport(ZOperation):
 
     STATUS_NOT_IN_MAP: ClassVar[str] = '未在地图页面'
+    MAP_OPEN_TIMEOUT_SECONDS: ClassVar[float] = 30
 
     def __init__(self, ctx: ZContext, area_name: str, tp_name: str, wait_at_last: bool = True):
         """
@@ -70,22 +72,41 @@ class Transport(ZOperation):
             return self.round_success()
 
         if getattr(self.ctx.controller, 'background_mode', False):
-            requests = getattr(self, '_map_open_requests', 0)
-            if requests >= 3:
-                return self.round_fail('手柄打开地图未生效')
-            keys = self.ctx.game_config.get_gamepad_action_keys().get('minimap', [])
-            if not keys:
-                return self.round_fail('未配置手柄地图按键')
-            for key in keys:
-                self.ctx.controller.btn_press(key, press_time=.12)
-            self._map_open_requests = requests + 1
-            return self.round_wait('手柄打开地图，等待实际地图画面', wait=2)
+            return self._open_map_by_gamepad()
 
         result = self.round_by_find_and_click_area(self.last_screenshot, '大世界', '地图')
         if result.is_success:
             return self.round_wait(status=result.status, wait=2)
         else:
             return self.round_retry(status=result.status, wait=1)
+
+    def _open_map_by_gamepad(self) -> OperationRoundResult:
+        """后台用手柄打开地图，直到实际出现地图画面。
+
+        按键可能只被游戏用来切换输入设备而不生效（游戏停在键鼠模式）；2026-10-12 实机中
+        一次运行开始后约 20 秒内的 9 次按键都没有打开地图（未能复现原因），所以按时间而非
+        按键次数限定重试。
+        """
+        now = time.monotonic()
+        started = getattr(self, '_map_open_started', None)
+        if started is None:
+            started = self._map_open_started = now
+        if now - started >= Transport.MAP_OPEN_TIMEOUT_SECONDS:
+            return self.round_fail('手柄打开地图未生效')
+        # A map that is still opening must not be toggled shut: press only on a verified world frame.
+        if self.check_and_update_current_screen(self.last_screenshot, screen_name_list=['大世界-普通']) != '大世界-普通':
+            return self.round_wait('等待地图或大世界画面，未操作', wait=1)
+        keys = self.ctx.game_config.get_gamepad_action_keys().get('minimap', [])
+        if not keys:
+            return self.round_fail('未配置手柄地图按键')
+        requests = getattr(self, '_map_open_requests', 0)
+        if requests:
+            # The last press changed nothing; the game may have consumed it to switch input devices.
+            self.ctx.controller.forget_game_input_mode()
+        for key in keys:
+            self.ctx.controller.btn_press(key, press_time=.12)
+        self._map_open_requests = requests + 1
+        return self.round_wait('手柄打开地图，等待实际地图画面', wait=2)
 
     @node_from(from_name='打开地图')
     @node_from(from_name='画面识别')

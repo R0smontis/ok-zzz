@@ -49,6 +49,10 @@ class PcControllerBase(ControllerBase):
     # (DRAG_MIN_DURATION + SLEEP_BEFORE_DRAG_END) 为整个拖动过程的最小时间
     DRAG_MIN_DURATION:float = 0.1
 
+    # 切换到手柄模式时右摇杆上推/下推各自的时长，以及游戏切换设备后再发真正按键前的等待
+    GAMEPAD_SWITCH_NUDGE_SECONDS: float = 0.05
+    GAMEPAD_SWITCH_SETTLE_SECONDS: float = 0.3
+
     def __init__(self,
                  screenshot_method: str,
                  standard_width: int = 1920,
@@ -257,6 +261,8 @@ class PcControllerBase(ControllerBase):
 
         self.background_mode = True
         self.message_mode = False
+        # 用户可能刚用键鼠操作过游戏，新一轮运行的第一个手柄输入前先切换输入设备。
+        self.forget_game_input_mode()
         if gamepad_type == 'ds4':
             self.enable_ds4()
             log.info('已启用后台模式: PostMessage 点击 + DS4 手柄')
@@ -303,18 +309,30 @@ class PcControllerBase(ControllerBase):
         """获取闪切键鼠模式时的单步等待时长"""
         return self.mouse_flash_duration
 
+    def forget_game_input_mode(self) -> None:
+        """不再假定游戏处于手柄模式：下一次手柄输入前先切换输入设备。"""
+        self._game_input_mode = 'unknown'
+
     def _ensure_gamepad_mode(self) -> None:
-        """确保游戏处于手柄输入模式。若当前为键鼠模式，先发一次手柄按键让游戏切换。"""
+        """确保游戏处于手柄输入模式。
+
+        键鼠模式下游戏收到的第一个手柄按键只用于切换输入设备，按键本身不生效
+        （2026-10-12 实机：键鼠模式下按 View 只换了按键提示，第二次才打开地图）。
+        摇杆在切换时照常生效，所以右摇杆先上推、再等量下推，镜头和列表净移动为零。
+        """
         if self._game_input_mode == 'gamepad':
             return
-        # 下一个实际手柄动作会切换设备，不额外发送摇杆或按键。
+        up, down = self._get_switch_gamepad_keys()
+        self.btn_controller.press(up, press_time=self.GAMEPAD_SWITCH_NUDGE_SECONDS)
+        self.btn_controller.press(down, press_time=self.GAMEPAD_SWITCH_NUDGE_SECONDS)
+        time.sleep(self.GAMEPAD_SWITCH_SETTLE_SECONDS)
         self._game_input_mode = 'gamepad'
 
-    def _get_switch_gamepad_key(self) -> str:
-        """获取用于切换到手柄模式的按键（使用右摇杆上推，最不易产生副作用）。"""
+    def _get_switch_gamepad_keys(self) -> tuple[str, str]:
+        """切换到手柄模式用的右摇杆上推/下推（最不易产生副作用）。"""
         if isinstance(self.btn_controller, Ds4ButtonController):
-            return 'ds4_rs_up'
-        return 'xbox_rs_up'
+            return 'ds4_rs_up', 'ds4_rs_down'
+        return 'xbox_rs_up', 'xbox_rs_down'
 
     def _send_activate(self) -> bool:
         """发送 WM_ACTIVATE(WA_ACTIVE) 到游戏窗口。

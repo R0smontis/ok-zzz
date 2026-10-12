@@ -1,7 +1,7 @@
 """后台任务只操作绑定窗口；不向桌面发送输入。"""
 import threading
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, call
 
 import pytest
 import win32con
@@ -160,14 +160,35 @@ def test_enabling_application_does_not_run_focus_stealing_hook(task_factory):
     task.executor.interaction.on_run.assert_not_called()
 
 
-def test_gamepad_mode_switch_does_not_add_camera_movement():
+def test_gamepad_mode_switch_nudges_once_without_net_camera_movement(monkeypatch):
+    # Live 2026-10-12: in keyboard/mouse mode the game only switched its prompts on the first
+    # View press; the map opened on the second. A stick nudge does the switch instead.
+    from onedragon.base.controller import pc_controller_base
     from onedragon.base.controller.pc_controller_base import PcControllerBase
+    monkeypatch.setattr(pc_controller_base.time, 'sleep', lambda _: None)
     controller = PcControllerBase.__new__(PcControllerBase)
     controller._game_input_mode = 'keyboard_mouse'
     controller.btn_controller = Mock()
     controller._ensure_gamepad_mode()
     assert controller._game_input_mode == 'gamepad'
+    nudge = PcControllerBase.GAMEPAD_SWITCH_NUDGE_SECONDS
+    assert controller.btn_controller.press.call_args_list == [
+        call('xbox_rs_up', press_time=nudge), call('xbox_rs_down', press_time=nudge)]
     controller.btn_controller.tap.assert_not_called()
+    controller._ensure_gamepad_mode()
+    assert controller.btn_controller.press.call_count == 2
+
+
+def test_enabling_background_mode_forgets_known_gamepad_mode(monkeypatch):
+    from onedragon.base.controller import pc_controller_base
+    from onedragon.base.controller.pc_controller_base import PcControllerBase
+    monkeypatch.setattr(pc_controller_base.pc_button_utils, 'is_vgamepad_installed', lambda: True)
+    controller = PcControllerBase.__new__(PcControllerBase)
+    controller._game_input_mode = 'gamepad'
+    controller.enable_xbox = Mock()
+    controller.enable_background_mode('xbox')
+    assert controller.background_mode
+    assert controller._game_input_mode != 'gamepad'  # The user may have played with keyboard/mouse.
 
 
 def test_real_windows_receiver_accepts_background_messages():

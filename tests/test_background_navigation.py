@@ -76,15 +76,48 @@ def test_unrelated_screen_is_not_intercepted():
     op.ctx.controller.btn_press.assert_not_called()
 
 
-def test_background_map_open_requires_actual_screen_change_and_bounds_attempts():
+def map_open_operation(monkeypatch):
+    clock=SimpleNamespace(now=100.)
+    monkeypatch.setattr('zzz_od.operation.transport.time.monotonic',lambda:clock.now)
     op=operation(Transport)
     op.is_map_screen=Mock(return_value=False)
-    for _ in range(3):assert op.open_map().result==R.WAIT
+    op.check_and_update_current_screen=Mock(return_value='大世界-普通')
+    return op,clock
+
+
+def test_background_map_open_requires_actual_screen_change_and_bounds_time(monkeypatch):
+    op,clock=map_open_operation(monkeypatch)
+    # Live 2026-10-12: nine presses over ~20 s at the start of a run did not open the map.
+    for _ in range(10):
+        assert op.open_map().result==R.WAIT
+        clock.now+=2.5
+    assert op.ctx.controller.btn_press.call_count==10
+    assert all(c.args==('xbox_back',) for c in op.ctx.controller.btn_press.call_args_list)
+    clock.now=100.+Transport.MAP_OPEN_TIMEOUT_SECONDS
     assert op.open_map().is_fail
-    assert op.ctx.controller.btn_press.call_count==3
+    assert op.ctx.controller.btn_press.call_count==10
     op.is_map_screen.return_value=True
     assert op.open_map().is_success
-    assert op.ctx.controller.btn_press.call_count==3
+    assert op.ctx.controller.btn_press.call_count==10
+
+
+def test_background_map_press_without_effect_rearms_input_device_switch(monkeypatch):
+    op,_=map_open_operation(monkeypatch)
+    assert op.open_map().result==R.WAIT
+    op.ctx.controller.forget_game_input_mode.assert_not_called()
+    assert op.open_map().result==R.WAIT
+    op.ctx.controller.forget_game_input_mode.assert_called_once()
+    assert op.ctx.controller.btn_press.call_count==2
+
+
+def test_background_map_is_not_toggled_while_screen_is_changing(monkeypatch):
+    op,_=map_open_operation(monkeypatch)
+    assert op.open_map().result==R.WAIT
+    op.check_and_update_current_screen.return_value=None  # Map still opening: neither world nor map.
+    for _ in range(3):assert op.open_map().result==R.WAIT
+    assert op.ctx.controller.btn_press.call_count==1
+    op.is_map_screen.return_value=True
+    assert op.open_map().is_success
 
 
 def test_verified_compendium_back_is_bounded_and_refuses_unrelated_footer():

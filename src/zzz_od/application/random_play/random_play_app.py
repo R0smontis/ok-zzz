@@ -89,6 +89,28 @@ class RandomPlayApp(ZApplication):
     def _business_cards(self):
         return menu_words(self,Rect(870,510,1800,570))
 
+    def _business_slogan_popup(self):
+        """开始营业后的口号弹窗：横幅中一行口号，正下方居中唯一的「确认」。
+
+        口号随机（已见「丁尼广进，生意兴隆！」「诚信经营，丁尼为本！」），只按版式识别。
+        「是否准备营业?」确认框带「取消」且「确认」在右侧，不算口号弹窗。
+        """
+        rows=self.ctx.ocr_service.get_ocr_result_list(image=self.last_screenshot,rect=Rect(400,300,1500,850))
+        rows=[(str(r.data).strip().replace(' ',''),r.center) for r in rows] if isinstance(rows,(list,tuple)) else []
+        if any('取消' in text for text,_ in rows):
+            return False
+        # The check-mark glyph can be read as part of the label.
+        confirm=any('确认' in text and 900<c.x<1060 and 590<c.y<665 for text,c in rows)
+        slogan=any(sum('一'<=ch<='鿿' for ch in text)>=4 and 760<c.x<1160 and 480<c.y<570
+                   for text,c in rows)
+        return confirm and slogan
+
+    def _start_confirm_focused(self):
+        """「是否准备营业?」的「确认」按钮是否带焦点（黄绿色底）。"""
+        import numpy as np
+        part=self.last_screenshot[595:655,980:1250]
+        return np.mean((part[:,:,0]>150)&(part[:,:,1]>140)&(part[:,:,2]<100))>=.3
+
     def _promoter_page(self):
         # The full-width footer downscales the small confirm text below OCR's
         # detection size. Read the two independent labels at their native size.
@@ -562,9 +584,7 @@ class RandomPlayApp(ZApplication):
         if getattr(self.ctx.controller,'background_mode',False):
             words=menu_words(self,Rect(650,450,1300,750))
             if any('准备营业' in w for w in words) and '确认' in words:
-                import numpy as np
-                part=self.last_screenshot[595:655,980:1250]
-                if np.mean((part[:,:,0]>150)&(part[:,:,1]>140)&(part[:,:,2]<100))<.3:
+                if not self._start_confirm_focused():
                     pad_press(self,'dpad_right')
                     return self.round_retry('选择营业确认，等待实际焦点',wait=.6)
                 if self._pad_business_confirms>=3:
@@ -581,13 +601,17 @@ class RandomPlayApp(ZApplication):
         if getattr(self.ctx.controller,'background_mode',False):
             if self._business_page() and '正在营业' in menu_words(self,Rect(1450,840,1900,1000)):
                 return self.round_success('已核验录像店正在营业')
-            words=menu_words(self,Rect(400,300,1500,850))
-            if (any(any(label in w for label in ('营业','生意兴隆','诚信经营','丁尼为本')) for w in words)
-                    and '确认' in words and self._pad_business_confirms<6):
-                if any('生意兴隆' in w for w in words):
-                    self._business_success_seen=True
+            if self._business_slogan_popup() and self._pad_business_confirms<6:
+                # The slogan only appears once business has started.
+                self._business_success_seen=True
                 pad_press(self,'a');self._pad_business_confirms+=1
                 return self.round_retry('确认营业结果，等待实际营业页',wait=1)
+            words=menu_words(self,Rect(400,300,1500,850))
+            if (any('准备营业' in w for w in words) and '确认' in words
+                    and self._start_confirm_focused() and self._pad_business_confirms<6):
+                # The earlier confirm did not reach the game.
+                pad_press(self,'a');self._pad_business_confirms+=1
+                return self.round_retry('重新确认营业，等待实际营业状态',wait=1)
             # After the success popup the game closes the store page and returns to the counter.
             if getattr(self,'_business_success_seen',False) and self.check_and_update_current_screen(
                     self.last_screenshot, screen_name_list=['大世界-普通']) == '大世界-普通':
