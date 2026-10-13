@@ -28,6 +28,7 @@ from zzz_od.operation.challenge_mission.check_next_after_battle import (
     ChooseNextOrFinishAfterBattle,
 )
 from zzz_od.operation.challenge_mission.exit_in_battle import ExitInBattle
+from zzz_od.operation.compendium.compendium_choose_mission_type import CompendiumChooseMissionType
 from zzz_od.operation.choose_predefined_team import ChoosePredefinedTeam
 from zzz_od.operation.deploy import Deploy
 from zzz_od.operation.restore_charge import RestoreCharge
@@ -64,6 +65,7 @@ class CombatSimulation(ZOperation):
 
         self.plan: ChargePlanItem = plan
         self.scroll_count: int = 0  # 滑动次数计数器
+        self.battle_entered: bool = False
 
     @operation_node(name='等待入口加载', is_start_node=True, node_max_retry_times=60)
     def wait_entry_load(self) -> OperationRoundResult:
@@ -143,6 +145,11 @@ class CombatSimulation(ZOperation):
                 log.info(f'找到代理人目标，点击位置: {target_point}')
 
             if target_point is None:
+                list_area = self.ctx.screen_loader.get_area('实战模拟室', '副本名称列表')
+                if CompendiumChooseMissionType.has_empty_agent_targets(
+                    self.ctx, self.last_screenshot, list_area.rect
+                ):
+                    return self.round_success(CompendiumChooseMissionType.STATUS_NO_AGENT_TARGETS)
                 start = area.center + Point(-100, 0)
                 end = start + Point(-400, 0)
                 self.ctx.controller.drag_to(start=start, end=end)
@@ -275,6 +282,8 @@ class CombatSimulation(ZOperation):
     @node_from(from_name='判断下一次', status='战斗结果-再来一次')
     @operation_node(name='加载自动战斗指令')
     def init_auto_battle(self) -> OperationRoundResult:
+        self.battle_entered = False
+        self.ctx.auto_battle_context.last_check_end_result = None
         if self.plan.predefined_team_idx == -1:
             auto_battle = self.plan.auto_battle_config
         else:
@@ -290,7 +299,10 @@ class CombatSimulation(ZOperation):
     @node_from(from_name='加载自动战斗指令')
     @operation_node(name='等待战斗画面加载', node_max_retry_times=60)
     def wait_battle_screen(self) -> OperationRoundResult:
-        return self.round_by_find_area(self.last_screenshot, '战斗画面', '按键-普通攻击', retry_wait_round=1)
+        result = self.round_by_find_area(self.last_screenshot, '战斗画面', '按键-普通攻击', retry_wait_round=1)
+        if result.is_success:
+            self.battle_entered = True
+        return result
 
     @node_from(from_name='等待战斗画面加载')
     @operation_node(name='向前移动准备战斗')
@@ -317,10 +329,15 @@ class CombatSimulation(ZOperation):
 
         return self.round_wait(wait=self.ctx.battle_assistant_config.screenshot_interval)
 
-    @node_from(from_name='自动战斗')
+    @node_from(from_name='自动战斗', status='普通战斗-完成')
     @node_notify(when=NotifyTiming.CURRENT_SUCCESS, detail=True)
     @operation_node(name='战斗结束')
     def after_battle(self) -> OperationRoundResult:
+        if not getattr(self, 'battle_entered', False) or self.previous_node.status != '普通战斗-完成':
+            return self.round_fail('未核验进入战斗及胜利结果，不计完成次数')
+        if self.plan.run_times >= self.plan.plan_times:
+            return self.round_fail('计划已完成，不重复增加完成次数')
+        self.battle_entered = False
         self.config.add_plan_run_times(self.plan)
         return self.round_success()
 
@@ -353,11 +370,11 @@ class CombatSimulation(ZOperation):
             from onedragon.base.geometry.rectangle import Rect
             from src.navigation.menus import press_labelled
             if press_labelled(self, self.last_screenshot, '撤退', Rect(400, 800, 1500, 960)):
-                return self.round_success('战斗结果-撤退', wait=2)
+                return self.round_fail('战斗结果-撤退', wait=2)
             return self.round_retry('未核验撤退按钮，未操作', wait=1)
         result = self.round_by_find_and_click_area(self.last_screenshot, '战斗画面', '战斗结果-撤退')
         if result.is_success:
-            return self.round_success(result.status, wait=5)
+            return self.round_fail(result.status, wait=5)
 
         return self.round_retry(result.status, wait=1)
 

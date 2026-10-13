@@ -264,6 +264,8 @@ class ApplicationRunContext:
 
         app = self.get_application(app_id, instance_idx, group_id)
         if not self.start_running():
+            from onedragon.base.operation import dry_run
+            dry_run.end_run()
             return ApplicationRunResult(RunFinishReason.NOT_STARTED,
                                         app_id, instance_idx, group_id)
 
@@ -287,5 +289,7 @@ class ApplicationRunContext:
                 self._finish_running(RunFinishReason.FAILED)
         finally:
             self.current_application = None
+            from onedragon.base.operation import dry_run
+            dry_run.end_run()
 
         return self.last_run_result

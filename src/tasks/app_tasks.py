@@ -59,19 +59,16 @@ class App_ChargePlan(AppTaskBase):
         self.description = '运行一条龙应用：体力刷本'
         self.default_config.update({
             'plan_list': '',
-            'combat_simulation_double_reward_config': '{\n "tab_name": "训练",\n "category_name": "实战模拟室",\n "mission_type_name": "基础材料",\n "mission_name": "调查专项",\n "level": "默认等级",\n "auto_battle_config": "全配队通用",\n "run_times": 0,\n "plan_times": 1,\n "card_num": "默认数量",\n "predefined_team_idx": -1,\n "notorious_hunt_buff_num": 1,\n "plan_id": "b903dbed-9d85-45ba-bb56-c43483df1cb8",\n "skipped": false\n}',
             'daily_reset_plan_times': False,
-            'double_reward': False,
             'loop': True,
             'restore_charge': '不使用',
             '结束后': '无',
             '关机延迟秒': 60,
         })
         self.config_type.update({
-            'combat_simulation_double_reward_config': {'type': 'text_edit'},
             'restore_charge': {'type': 'drop_down', 'options': ['不使用', '使用储蓄电量', '使用以太电池', '同时使用储蓄电量和以太电池']},
         })
-        self._option_keys = ['combat_simulation_double_reward_config', 'daily_reset_plan_times', 'double_reward', 'loop', 'restore_charge']
+        self._option_keys = ['daily_reset_plan_times', 'loop', 'restore_charge']
 
 
 class App_CityFund(AppTaskBase):

@@ -3,7 +3,7 @@ DEBUG_APPS = {'mouse_sensitivity_checker', 'predefined_team_checker',
               'operation_debug', 'screenshot_helper'}
 
 TASK_DESCRIPTIONS = {
-    'charge_plan': '按计划顺序刷取材料或驱动盘；记录完成次数，体力不足时按恢复设置处理',
+    'charge_plan': '按计划顺序刷取材料或驱动盘；每条计划可设置燃竭双倍和单倍次数，记录完成次数，体力不足时按恢复设置处理',
     'notorious_hunt': '挑战选定的恶名狩猎副本，按编队与战斗配置完成每周计划次数',
     'shiyu_defense': '逐个挑战式舆防卫战节点，使用预备编队并在设定的最大节点结束',
     'withered_domain': '按挑战配置探索枯萎之都，选择事件、商店与战斗，完成每日或每周计划',
@@ -46,7 +46,6 @@ OPTION_DESCRIPTIONS = {
     'predefined_team_idx': '选择游戏内已保存的预备编队；不指定时沿用当前队伍',
     'loop': '全部计划完成后重置计划计数并继续；未启用时完成一轮即结束',
     'daily_reset_plan_times': '跨过游戏每日刷新时间后重置体力计划完成次数',
-    'double_reward': '有双倍奖励次数时先执行双倍奖励计划，再执行普通计划',
     'restore_charge': '体力不足时按选项使用储蓄电量或以太电池；不使用时结束刷本',
     'transport_point': '选择前往咖啡店等日常地点时使用的传送点',
     'run_charge_plan_afterwards': '当前任务结束后继续执行保存的体力刷本计划',

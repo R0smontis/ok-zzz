@@ -77,10 +77,27 @@ class AppPriorityWidget(ConfigLabelAndWidget):
             box.blockSignals(False)
 
 
+def _install_start_card_status():
+    """首页状态栏只显示运行、断开等真实状态；空闲时的「点击选择任务开始」提示不显示。"""
+    start_card = import_module('ok.ui.qt.start.StartCard').StartCard
+    if getattr(start_card, '_zzz_status', False):
+        return
+    original_update = start_card.update_status
+
+    def update_status(self):
+        original_update(self)
+        if self.status_bar.titleLabel.text() == self.tr('Waiting for task to be enabled'):
+            self.status_bar.hide()
+
+    start_card.update_status = update_status
+    start_card._zzz_status = True
+
+
 def install_option_widgets():
     """只适配明确声明的应用选项；其它依赖控件仍走原来的工厂。"""
     from src.tasks.diagnostic_controls import install_diagnostic_controls
     install_diagnostic_controls()
+    _install_start_card_status()
     task_card = import_module('ok.ui.qt.tasks.TaskCard').TaskCard
     if not getattr(task_card, '_zzz_default_expanded', False):
         original_init = task_card.__init__

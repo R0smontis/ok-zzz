@@ -25,6 +25,21 @@ class MissionTypeTargetWrapper:
 
 
 class CompendiumChooseMissionType(ZOperation):
+    STATUS_NO_AGENT_TARGETS = '没有可运行的特训目标'
+
+    @staticmethod
+    def has_empty_agent_targets(ctx: ZContext, screen, rect: Rect) -> bool:
+        """只把明确的空态文字视为空列表；头像/OCR 未识别到仍走原重试流程。"""
+        empty_messages = (
+            '暂无特训目标', '暂无培养目标', '暂无目标',
+            '未设置特训目标', '未设置培养目标', '没有特训目标',
+        )
+        words = ctx.ocr.crop_and_run_ocr(screen, rect)
+        return any(
+            any(message in ''.join(text.split()) for message in empty_messages)
+            for text in words
+        )
+
 
     def __init__(self, ctx: ZContext, mission_type: CompendiumMissionType):
         """
@@ -129,6 +144,9 @@ class CompendiumChooseMissionType(ZOperation):
         )
 
         if click_pos is None:
+            list_area = self.ctx.screen_loader.get_area('快捷手册', '副本列表')
+            if self.has_empty_agent_targets(self.ctx, self.last_screenshot, list_area.rect):
+                return self.round_success(self.STATUS_NO_AGENT_TARGETS)
             log.debug("未找到有效的代理人头像，执行滑动操作")
             return self.handle_scroll(area.rect)
 
@@ -177,6 +195,12 @@ class CompendiumChooseMissionType(ZOperation):
 
         self.ctx.controller.click(target_go_point)
         return self.round_success(wait=1)
+
+    @node_from(from_name='选择代理人方案', status=STATUS_NO_AGENT_TARGETS)
+    @operation_node(name='无特训目标')
+    def no_agent_targets(self) -> OperationRoundResult:
+        # 没有发起传送，不进入传送确认节点。
+        return self.round_success(self.STATUS_NO_AGENT_TARGETS)
 
     @node_from(from_name='选择副本')
     @node_from(from_name='选择代理人方案')

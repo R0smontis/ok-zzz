@@ -53,6 +53,7 @@ class ExpertChallenge(ZOperation):
         )
 
         self.plan: ChargePlanItem = plan
+        self.battle_entered: bool = False
 
     @operation_node(name='等待入口加载', is_start_node=True, node_max_retry_times=60)
     def wait_entry_load(self) -> OperationRoundResult:
@@ -62,18 +63,12 @@ class ExpertChallenge(ZOperation):
         )
 
     @node_from(from_name='等待入口加载')
-    @operation_node(name='关闭燃竭模式')
+    @operation_node(name='关闭燃竭模式', node_max_retry_times=10)
     def close_burnout_mode(self):
-        result = self.round_by_find_and_click_area(self.last_screenshot, '恶名狩猎', '按钮-深度追猎-确认')
-        if result.is_success:
-            return self.round_wait(result.status, wait=1)
-
-        result = self.round_by_find_area(self.last_screenshot, '恶名狩猎', '按钮-深度追猎-ON')
-        if result.is_success:
-            self.round_by_click_area('恶名狩猎', '按钮-深度追猎-ON')
-            return self.round_retry(wait=1)
-        else:
-            return self.round_success()
+        from src.navigation.menus import verified_reward_mode
+        return verified_reward_mode(
+            self, self.last_screenshot, self.plan.use_double_reward
+        )
 
     @node_from(from_name='关闭燃竭模式')
     @node_from(from_name='恢复电量', status=RestoreCharge.STATUS_RESTORE_SUCCESS)
@@ -128,6 +123,7 @@ class ExpertChallenge(ZOperation):
     @node_from(from_name='判断下一次', status='战斗结果-再来一次')
     @operation_node(name='加载自动战斗指令')
     def init_auto_battle(self) -> OperationRoundResult:
+        self.battle_entered = False
         if self.plan.predefined_team_idx == -1:
             auto_battle = self.plan.auto_battle_config
         else:
@@ -143,7 +139,10 @@ class ExpertChallenge(ZOperation):
     @node_from(from_name='加载自动战斗指令')
     @operation_node(name='等待战斗画面加载', node_max_retry_times=60)
     def wait_battle_screen(self) -> OperationRoundResult:
-        return self.round_by_find_area(self.last_screenshot, '战斗画面', '按键-普通攻击', retry_wait_round=1)
+        result = self.round_by_find_area(self.last_screenshot, '战斗画面', '按键-普通攻击', retry_wait_round=1)
+        if result.is_success:
+            self.battle_entered = True
+        return result
 
     @node_from(from_name='等待战斗画面加载')
     @operation_node(name='向前移动准备战斗')
@@ -165,10 +164,13 @@ class ExpertChallenge(ZOperation):
 
         return self.round_wait(wait=self.ctx.battle_assistant_config.screenshot_interval)
 
-    @node_from(from_name='自动战斗')
+    @node_from(from_name='自动战斗', status='普通战斗-完成')
     @node_notify(when=NotifyTiming.CURRENT_SUCCESS, detail=True)
     @operation_node(name='战斗结束')
     def after_battle(self) -> OperationRoundResult:
+        if not getattr(self, 'battle_entered', False) or self.previous_node.status != '普通战斗-完成':
+            return self.round_fail('未核验进入战斗及胜利结果，不计完成次数')
+        self.battle_entered = False
         self.config.add_plan_run_times(self.plan)
         return self.round_success()
 
@@ -177,7 +179,8 @@ class ExpertChallenge(ZOperation):
     def check_next(self) -> OperationRoundResult:
         op = ChooseNextOrFinishAfterBattle(
             self.ctx,
-            self.plan.plan_times > self.plan.run_times,
+            self.plan.plan_times > self.plan.run_times
+            and self.plan.run_times != self.plan.double_times,
             is_agent_plan=self.plan.is_agent_plan,
         )
         return self.round_by_op_result(op.execute())
@@ -208,17 +211,18 @@ class ExpertChallenge(ZOperation):
 
     @node_from(from_name='自动战斗', status='普通战斗-撤退')
     @operation_node(name='战斗失败')
+    @node_notify(when=NotifyTiming.CURRENT_FAIL, detail=True)
     def battle_fail(self) -> OperationRoundResult:
         if getattr(self.ctx.controller, 'background_mode', False):
             # Retreat instead of rewinding a lost fight: 倒带 restarts the same losing battle.
             from onedragon.base.geometry.rectangle import Rect
             from src.navigation.menus import press_labelled
             if press_labelled(self, self.last_screenshot, '撤退', Rect(400, 800, 1500, 960)):
-                return self.round_success('战斗结果-撤退', wait=2)
+                return self.round_fail('战斗失败：已撤退', wait=2)
             return self.round_retry('未核验撤退按钮，未操作', wait=1)
         result = self.round_by_find_and_click_area(self.last_screenshot, '战斗画面', '战斗结果-撤退')
         if result.is_success:
-            return self.round_success(result.status, wait=5)
+            return self.round_fail('战斗失败：已撤退', wait=5)
 
         return self.round_retry(result.status, wait=1)
 

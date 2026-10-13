@@ -57,7 +57,7 @@ class NotoriousHuntConfig(ApplicationConfig):
         self.plan_list: list[ChargePlanItem] = []
 
         for plan_item in self.data.get('plan_list', []):
-            self.plan_list.append(ChargePlanItem(**plan_item))
+            self.plan_list.append(ChargePlanItem.from_dict(plan_item))
 
         # 旧配置迁移，2026-09-21 可删除
         self._migrate_legacy_config()

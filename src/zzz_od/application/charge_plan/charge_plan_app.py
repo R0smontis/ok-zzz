@@ -27,6 +27,7 @@ from zzz_od.operation.challenge_mission.check_next_after_battle import (
 )
 from zzz_od.operation.compendium.area_patrol import AreaPatrol
 from zzz_od.operation.compendium.combat_simulation import CombatSimulation
+from zzz_od.operation.compendium.compendium_choose_mission_type import CompendiumChooseMissionType
 from zzz_od.operation.compendium.expert_challenge import ExpertChallenge
 from zzz_od.operation.compendium.notorious_hunt import NotoriousHunt
 from zzz_od.operation.compendium.tp_by_compendium import TransportByCompendium
@@ -60,16 +61,14 @@ class ChargePlanApp(ZApplication):
         self.battery_charge: int = 0  # 电量
         self.backup_battery_charge: int = 0  # 储蓄电量
         self.ether_battery: int = 0  # 以太电池数量
-        self.temp_plan: ChargePlanItem | None = None  # 本次运行临时插入的计划
         self.last_tried_plan: ChargePlanItem | None = None
         self.current_plan: ChargePlanItem | None = None
-        self.double_reward_checked: bool = False  # 本次运行是否已检查过双倍活动
+        self.challenge_failure: str | None = None
 
     @operation_node(name='开始体力计划', is_start_node=True)
     def start_charge_plan(self) -> OperationRoundResult:
-        self.temp_plan = None
         self.last_tried_plan = None
-        self.double_reward_checked = False
+        self.challenge_failure = None
         for plan in self.config.plan_list:
             plan.skipped = False
         current_dt = self.run_record.get_current_dt()
@@ -144,64 +143,9 @@ class ChargePlanApp(ZApplication):
         self.ether_battery = ether_battery
         self.run_record.record_current_charge_power(self.battery_charge)
         log.info('剩余电量 %s 储蓄电量 %s 以太电池 %s', self.battery_charge, self.backup_battery_charge, self.ether_battery)
-        if self.config.double_reward and not self.double_reward_checked:
-            self.double_reward_checked = True
-            return self.round_success('查看双倍活动')
         return self.round_success('查找候选计划')
 
-    @node_from(from_name='识别电量', status='查看双倍活动')
-    @operation_node(name='查看双倍活动')
-    def check_double_reward_event(self) -> OperationRoundResult:
-        """
-        实战模拟室的每日双倍总数都是5次, 刷盘子的2次暂不考虑. 理由:
-        1. 如果没抽角色, 体力没事干的时候就去屯金盘收益最高, 此时体力计划能顺便覆盖盘子双倍
-        2. 双倍盘子活动出现的时机一般在卡池开了之后几天, 此时如果抽了角色也差不多养好了要刷盘子了
-        3. 双倍基础材料活动都是在版本末期, 没事干的时候整一出双倍材料, 总不能没事干的时候一直刷基础材料吧.
-           这个活动就显得很鸡肋, 像是专门给预抽卡的人群(比如氪佬)设计的
-        """
-
-        op = TransportByCompendium(self.ctx, '训练', '实战模拟室')
-        result1 = self.round_by_op_result(op.execute())
-        if not result1.is_success:
-            return result1
-
-        # 查看剩余几次的文字
-        result1 = self.round_by_find_area(
-            self.screenshot(), '快捷手册', '每日怪物卡双倍掉落次数'
-        )
-        if not result1.is_success:
-            return self.round_success('无双倍活动')
-        # ocr 检测剩余次数
-        area = self.ctx.screen_loader.get_area('快捷手册', '怪物卡双倍剩余次数')
-        part = cv2_utils.crop_image_only(self.last_screenshot, area.rect)
-        ocr_result = self.ctx.ocr.run_ocr_single_line(part)
-        digit = str_utils.get_positive_digits(ocr_result, None)
-        if digit is None:
-            return self.round_retry('双倍活动识别出错', wait=1)
-        times_left = digit // 10
-        if times_left == 0 or digit % 10 != 5:
-            return self.round_success('无双倍活动')
-        # 识别出错
-        if times_left > 5:
-            return self.round_retry('双倍活动识别出错', wait=1)
-
-        card_num = min(self.battery_charge // 20, times_left)
-        if card_num <= 0:
-            self.temp_plan = None
-            return self.round_success('无双倍活动')
-
-        temp_plan = self.config.combat_simulation_double_reward_config
-        temp_plan.skipped = False
-        temp_plan.run_times = 1
-        temp_plan.plan_times = 1
-        temp_plan.card_num = str(card_num)
-
-        self.temp_plan = temp_plan
-        return self.round_success()
-
     @node_from(from_name='识别电量', status='查找候选计划')
-    @node_from(from_name='查看双倍活动')
-    @node_from(from_name='查看双倍活动', success=False)
     @node_from(from_name='判断是否执行', status=STATUS_FIND_NEXT_PLAN)
     @operation_node(name='查找候选计划')
     def find_next_plan(self) -> OperationRoundResult:
@@ -210,9 +154,9 @@ class ChargePlanApp(ZApplication):
 
         找到后更新 self.current_plan；是否执行交给后续节点判断。
         """
-        if self.temp_plan is not None:
-            self.current_plan = self.temp_plan
-            return self.round_success()
+
+        if not self.config.plan_list:
+            return self.round_success(ChargePlanApp.STATUS_NO_PLAN)
 
         # 检查是否所有计划都已完成
         if self.config.all_plan_finished():
@@ -225,6 +169,8 @@ class ChargePlanApp(ZApplication):
 
         candidate_plan = self.config.get_next_plan(self.last_tried_plan)
         if candidate_plan is None:
+            if self.config.all_plan_finished():
+                return self.round_success(ChargePlanApp.STATUS_ROUND_FINISHED)
             return self.round_fail(ChargePlanApp.STATUS_NO_PLAN)
 
         self.current_plan = candidate_plan
@@ -233,8 +179,6 @@ class ChargePlanApp(ZApplication):
     @node_from(from_name='查找候选计划')
     @operation_node(name='判断是否执行')
     def check_before_transport(self) -> OperationRoundResult:
-        if self.current_plan is self.temp_plan:
-            return self.round_success()
 
         # 未知类型会返回 0，交给副本内流程继续判断真实消耗
         need_battery_charge = self.current_plan.estimated_charge_power
@@ -330,14 +274,14 @@ class ChargePlanApp(ZApplication):
     @node_from(from_name='合成电池', success=False)
     @operation_node(name='挑战完成')
     def challenge_complete(self) -> OperationRoundResult:
-        # 成功后继续正常轮转；失败则标记当前计划已跳过，避免在同一轮里死循环重试
-        if self.previous_node.is_success:
-            self.last_tried_plan = None
-        else:
-            self.current_plan.skipped = True
-            self.last_tried_plan = self.current_plan
-        if self.current_plan is self.temp_plan:
-            self.temp_plan = None
+        if not self.previous_node.is_success:
+            self.challenge_failure = (
+                f'{self.current_plan.category_name} {self.current_plan.mission_type_name}失败：'
+                f'{self.previous_node.status or "未知原因"}'
+            )
+            log.error(self.challenge_failure)
+            return self.round_fail(self.challenge_failure)
+        self.last_tried_plan = None
         return self.round_success()
 
     @node_from(from_name='实战模拟室', status=CombatSimulation.STATUS_CHARGE_NOT_ENOUGH)
@@ -349,7 +293,8 @@ class ChargePlanApp(ZApplication):
     @node_from(from_name='区域巡防', status=ChooseNextOrFinishAfterBattle.STATUS_AGENT_PLAN_FINISHED)
     @node_from(from_name='专业挑战室', status=ChooseNextOrFinishAfterBattle.STATUS_AGENT_PLAN_FINISHED)
     @node_from(from_name='恶名狩猎', status=ChooseNextOrFinishAfterBattle.STATUS_AGENT_PLAN_FINISHED)
-    @node_from(from_name='传送', success=False, status='找不到 代理人方案培养')
+    @node_from(from_name='传送', status=CompendiumChooseMissionType.STATUS_NO_AGENT_TARGETS)
+    @node_from(from_name='实战模拟室', status=CompendiumChooseMissionType.STATUS_NO_AGENT_TARGETS)
     @operation_node(name='跳过或结束计划')
     def skip_plan_or_finish(self) -> OperationRoundResult:
         is_agent_plan = self.current_plan.is_agent_plan
@@ -360,18 +305,16 @@ class ChargePlanApp(ZApplication):
             # 标记当前计划为跳过，继续尝试下一个
             self.current_plan.skipped = True
             self.last_tried_plan = self.current_plan
-            if self.current_plan is self.temp_plan:
-                self.temp_plan = None
             return self.round_success(ChargePlanApp.STATUS_FIND_NEXT_PLAN)
         else:
             # 不跳过，直接结束本轮计划
             self.last_tried_plan = None
-            if self.current_plan is self.temp_plan:
-                self.temp_plan = None
             return self.round_success(ChargePlanApp.STATUS_ROUND_FINISHED)
 
+    @node_from(from_name='挑战完成', success=False)
     @node_from(from_name='跳过或结束计划', status=STATUS_ROUND_FINISHED)
     @node_from(from_name='查找候选计划', status=STATUS_ROUND_FINISHED)
+    @node_from(from_name='查找候选计划', status=STATUS_NO_PLAN)
     @node_from(from_name='查找候选计划', success=False)
     @node_from(from_name='判断是否执行', status=STATUS_ROUND_FINISHED)
     @node_notify(when=NotifyTiming.CURRENT_DONE, detail=True)
@@ -379,6 +322,13 @@ class ChargePlanApp(ZApplication):
     def back_to_world(self) -> OperationRoundResult:
         op = BackToNormalWorld(self.ctx)
         op_result = op.execute()
+        failure = getattr(self, 'challenge_failure', None)
+        if failure is None and not self.previous_node.is_success:
+            failure = self.previous_node.status or '体力计划失败'
+        if failure is not None:
+            if not op_result.success:
+                failure += f'；返回大世界失败：{op_result.status or "未知原因"}'
+            return self.round_fail(failure)
         return self.round_by_op_result(op_result, status=f'剩余电量 {self.battery_charge}')
 
 

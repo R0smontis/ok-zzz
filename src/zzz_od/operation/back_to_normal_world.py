@@ -46,8 +46,8 @@ class BackToNormalWorld(ZOperation):
         for key in tuple(self.__dict__):
             if key.startswith(('_map_open_', '_quick_nav_')):
                 self.__dict__.pop(key, None)
+        self._exit_confirm_sent = False
 
-    @node_from(from_name='打开地图', success=False)
     @node_from(from_name='执行传送')
     @node_from(from_name='执行传送', success=False)
     @node_from(from_name='确认脱离卡死', success=False)
@@ -60,6 +60,8 @@ class BackToNormalWorld(ZOperation):
         screen_name_list = ['大世界-普通', '大世界-勘域']
         current_screen = self.check_and_update_current_screen()
         if current_screen in screen_name_list:
+            self.click_exit_battle = False
+            self._exit_confirm_sent = False
             if current_screen == '大世界-勘域':
                 already_transport = self.previous_node.name == '执行传送' and self.previous_node.is_success
                 if self.ensure_normal_world:
@@ -72,6 +74,12 @@ class BackToNormalWorld(ZOperation):
                         return self.round_success('传送到录像店')
 
             return self.round_success(status=current_screen)
+
+        # 退出菜单/确认和战斗 HUD 必须先于通用返回、路径导航和小地图兜底。
+        # 否则 B 会取消退出确认，小地图也会把仍在特殊模式的角色误当作已返回。
+        battle_result = self._handle_battle_exit()
+        if battle_result is not None:
+            return battle_result
 
         if getattr(self.ctx.controller, 'background_mode', False):
             from src.navigation.menus import lost_void_gateway_visible
@@ -143,6 +151,8 @@ class BackToNormalWorld(ZOperation):
 
         mini_map = self.ctx.world_patrol_service.cut_mini_map(self.last_screenshot)
         if mini_map.play_mask_found:
+            if self.ensure_normal_world:
+                return self.round_success('传送到录像店')
             return self.round_success(status='发现地图')
 
         if getattr(self.ctx.controller, 'background_mode', False):
@@ -154,16 +164,6 @@ class BackToNormalWorld(ZOperation):
             return self.round_retry(result.status, wait=1)
 
 
-        # 战斗菜单-退出战斗（完全通用，包括但不限于危局强袭战！）
-        result = self.round_by_find_and_click_area(self.last_screenshot, '战斗-菜单', '按钮-退出战斗')
-        if result.is_success:
-            self.click_exit_battle = True
-            return self.round_retry(result.status, wait=1)
-        if self.click_exit_battle:  # 必须置前，因为会被通用的"取消"误判
-            result = self.round_by_find_and_click_area(self.last_screenshot, '战斗-菜单', '按钮-退出战斗-确认')
-            if result.is_success:
-                return self.round_retry(result.status, wait=1)
-        self.click_exit_battle = False
 
         # 战斗菜单-脱离卡死（大世界-勘域不慎进入战斗状态时使用）
         result = self.round_by_find_and_click_area(self.last_screenshot, '战斗-菜单', '按钮-脱离卡死')
@@ -214,14 +214,6 @@ class BackToNormalWorld(ZOperation):
         if self._check_agent_dialog(self.last_screenshot):
             return self._handle_agent_dialog(self.last_screenshot)
 
-        # 判断在战斗画面
-        result = self.round_by_find_area(self.last_screenshot, '战斗画面', '按键-普通攻击')
-        if result.is_success:
-            if self.allow_battle:
-                # 锄大地传送后落地即进入战斗，直接返回成功让调用方处理战斗
-                return self.round_success(status='大世界-战斗')
-            self.round_by_click_area('战斗画面', '菜单')
-            return self.round_retry(result.status, wait=0.5)
 
         # 通用返回按钮（兜底点击型）
         # 区域位于左上角的红色返回按钮，不进行识别，相当于点击空白区域，故不能提前使用
@@ -236,33 +228,72 @@ class BackToNormalWorld(ZOperation):
         else:
             return self.round_fail()
 
+    def _handle_battle_exit(self) -> OperationRoundResult | None:
+        screen = self.last_screenshot
+        background = getattr(self.ctx.controller, 'background_mode', False)
+        if getattr(self, 'click_exit_battle', False):
+            if background:
+                from onedragon.base.geometry.rectangle import Rect
+                from src.navigation.menus import label_focused
+                rows = self.ctx.ocr_service.get_ocr_result_list(image=screen, rect=Rect(600, 380, 1320, 760))
+                rows = rows if isinstance(rows, (list, tuple)) else []
+                confirm = next((r for r in rows if str(r.data).strip() == '确认'), None)
+                cancel = next((r for r in rows if str(r.data).strip() == '取消'), None)
+                if confirm is not None:
+                    if getattr(self, '_exit_confirm_sent', False):
+                        return self.round_retry('等待退出确认关闭，未重复按键', wait=.5)
+                    if label_focused(screen, confirm.center):
+                        pad(self.ctx, 'a')
+                        self._exit_confirm_sent = True
+                        return self.round_retry('手柄确认退出，等待实际画面', wait=1)
+                    if cancel is not None and label_focused(screen, cancel.center):
+                        pad(self.ctx, 'dpad_right' if confirm.center.x > cancel.center.x else 'dpad_left')
+                        return self.round_retry('选择退出确认，等待实际焦点', wait=.5)
+                    return self.round_retry('未核验退出确认焦点，未操作', wait=.5)
+                if not getattr(self, '_exit_confirm_sent', False):
+                    return self.round_retry('等待退出确认文字，未操作', wait=.5)
+            else:
+                result = self.round_by_find_and_click_area(screen, '战斗-菜单', '按钮-退出战斗-确认')
+                if result.is_success:
+                    return self.round_retry(result.status, wait=1)
+            self.click_exit_battle = False
+            self._exit_confirm_sent = False
+
+        if background:
+            from onedragon.base.geometry.rectangle import Rect
+            from src.navigation.menus import press_labelled
+            button = press_labelled(self, screen, '退出战斗', Rect(0, 0, 1920, 1080))
+            if button:
+                self.click_exit_battle = True
+                return self.round_retry(f'手柄退出战斗（{button.upper()}），等待确认画面', wait=1)
+        else:
+            result = self.round_by_find_and_click_area(screen, '战斗-菜单', '按钮-退出战斗')
+            if result.is_success:
+                self.click_exit_battle = True
+                return self.round_retry(result.status, wait=1)
+
+        result = self.round_by_find_area(screen, '战斗画面', '按键-普通攻击')
+        if result.is_success:
+            if getattr(self, 'allow_battle', False):
+                return self.round_success(status='大世界-战斗')
+            self.round_by_click_area('战斗画面', '菜单')
+            return self.round_retry(result.status, wait=.5)
+        return None
+
     def _back_by_gamepad(self) -> OperationRoundResult:
         """Controller fallback: the click fallbacks below report success while the game ignores them."""
         from onedragon.base.geometry.rectangle import Rect
         from src.navigation.menus import press_labelled
         screen = self.last_screenshot
-        # Result screens (「B 退出」/「完成」) and the battle menu's 退出战斗 show their button glyph.
-        for label, rect in (('退出', Rect(1300, 960, 1920, 1080)), ('完成', Rect(1300, 960, 1920, 1080)),
-                            ('退出战斗', Rect(0, 0, 1920, 1080))):
-            button = press_labelled(self, screen, label, rect)
+        # Result screens show their actual controller button glyph.
+        for label in ('退出', '完成'):
+            button = press_labelled(self, screen, label, Rect(1300, 960, 1920, 1080))
             if button:
-                self.click_exit_battle = label == '退出战斗'
                 return self.round_retry(f'手柄{label}（{button.upper()}），等待实际画面', wait=1)
-        if self.click_exit_battle:
-            # 退出战斗 asks for confirmation; focus starts on 确认.
-            self.click_exit_battle = False
-            pad(self.ctx, 'a')
-            return self.round_retry('手柄确认退出战斗', wait=1)
         result = hollow_event_utils.check_in_hollow(self.ctx, screen)
         if result is not None:
             HollowExitByMenu(self.ctx).execute()
             return self.round_retry(result, wait=1)
-        result = self.round_by_find_area(screen, '战斗画面', '按键-普通攻击')
-        if result.is_success:
-            if self.allow_battle:
-                return self.round_success(status='大世界-战斗')
-            self.round_by_click_area('战斗画面', '菜单')  # gamepad_key: menu
-            return self.round_retry(result.status, wait=0.5)
         # Unknown menu or popup: B backs out of nearly every game screen.
         pad(self.ctx, 'b')
         return self.round_retry('未知画面，手柄返回', wait=1)

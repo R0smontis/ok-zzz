@@ -7,6 +7,49 @@ from src.controls.gamepad import is_ds4, press as pad
 TABS=('目标','日常','训练','作战','战术')
 MAIN_MENU_ITEMS=frozenset({'更多','勘域编队','邮件','设置','公告','成就','绳网','仓库','代理人','商城','丽都城募','调频'})
 
+def verified_reward_mode(op, screen, enabled):
+    """Set expert challenge 燃竭模式; verify page text, RS hint and each resulting frame."""
+    rows = op.ctx.ocr_service.get_ocr_result_list(image=screen, rect=Rect(300, 430, 1910, 850))
+    rows = rows if isinstance(rows, (list, tuple)) else []
+    text = lambda row: str(row.data).strip().replace(' ', '')
+    popup_text = ''.join(text(row) for row in rows if 450 < row.center.x < 1500 and 450 < row.center.y < 590)
+    popup = '是否退出' in popup_text and '燃竭模式' in popup_text
+    requests = getattr(op, '_reward_mode_requests', 0)
+    if popup:
+        confirm = next((row for row in rows if text(row) == '确认' and 1000 < row.center.x < 1300 and 570 < row.center.y < 690), None)
+        if enabled:
+            return op.round_fail('燃竭模式状态冲突：退出确认框仍在显示')
+        if confirm is None or not label_focused(screen, confirm.center, half_width=130):
+            return op.round_retry('未核验燃竭模式确认文字及手柄焦点，未操作', wait=1)
+        if requests >= 4:
+            return op.round_fail('燃竭模式确认后画面未变化')
+        op._reward_mode_requests = requests + 1
+        if getattr(op.ctx.controller, 'background_mode', False):
+            pad_press(op, 'a')
+        else:
+            op.ctx.controller.click(confirm.center)
+        return op.round_retry('确认退出燃竭模式，等待实际OFF状态', wait=1)
+    labels = [row for row in rows if text(row) == '燃竭模式' and row.center.x > 1300 and 630 < row.center.y < 760]
+    toggles = [row for row in rows if text(row).upper() in ('ON', 'OFF') and 1640 < row.center.x < 1790 and 630 < row.center.y < 760]
+    if len(labels) != 1 or len(toggles) != 1:
+        return op.round_retry('未核验燃竭模式及ON/OFF文字，未操作', wait=1)
+    target = 'ON' if enabled else 'OFF'
+    if text(toggles[0]).upper() == target:
+        op._reward_mode_requests = 0
+        return op.round_success('已核验燃竭模式：' + target)
+    if requests >= 4:
+        return op.round_fail('燃竭模式切换未生效：' + target)
+    if getattr(op.ctx.controller, 'background_mode', False):
+        hints = [row for row in rows if text(row).upper() == 'RS' and 1530 < row.center.x < 1700 and abs(row.center.y - toggles[0].center.y) < 35]
+        if len(hints) != 1:
+            return op.round_retry('未核验燃竭模式RS按键提示，未操作', wait=1)
+        pad_press(op, 'r_thumb')
+    else:
+        op.ctx.controller.click(toggles[0].center)
+    op._reward_mode_requests = requests + 1
+    return op.round_retry('切换燃竭模式，等待实际' + target + '状态', wait=1)
+
+
 
 def compendium_category(op, screen, target):
     """Choose a controller category and verify its blue selection next frame."""
@@ -27,6 +70,17 @@ def compendium_category(op, screen, target):
         part=screen[max(0,y-22):y+22,195:415]
         if part.size and np.mean((part[:,:,2]>120)&(part[:,:,0]<140)&(part[:,:,2].astype(np.int16)-part[:,:,0]>40))>.35:
             selected.append(row)
+    # A selected category can contain a second status line (e.g. an unset goal).
+    # Count highlighted controls, not OCR lines; the first line names the control.
+    controls=[]
+    for row in sorted(selected,key=lambda item:item.center.y):
+        if controls:
+            band=screen[controls[-1].center.y:row.center.y+1,195:415]
+            blue=(band[:,:,2]>120)&(band[:,:,0]<140)&(band[:,:,2].astype(np.int16)-band[:,:,0]>40)
+            if band.size and np.all(np.mean(blue,axis=1)>.35):
+                continue
+        controls.append(row)
+    selected=controls
     if target_row is None or len(selected)!=1:
         # Right after a tab switch the category list is still animating; give it a few frames.
         waits=getattr(op,'_pad_category_unverified',0)
@@ -45,10 +99,11 @@ def compendium_category(op, screen, target):
     # When already in categories use only the directional control.
     # Each verified press waits (not retries): reaching a lower category takes more presses than
     # the node's retry budget, and _pad_category_steps already bounds the loop.
-    if any(w=='前往' for w in menu_words(op,Rect(1300,400,1650,940),screen)):
-        if np.mean(focus_mask(screen[400:940,1300:1650]))>.02:
-            pad_press(op,'b');op._pad_category_steps=count+1
-            return op.round_wait('返回分类列表，等待实际焦点',wait=.6)
+    if panel_button_focused(screen):
+        # Empty training-goal pages may focus a setup button instead of 前往.
+        # Return from any verified card-panel button, not only populated cards.
+        pad_press(op,'b');op._pad_category_steps=count+1
+        return op.round_wait('返回分类列表，等待实际焦点',wait=.6)
     pad_press(op,'dpad_up' if target_row.center.y<current.center.y else 'dpad_down')
     op._pad_category_steps=count+1
     return op.round_wait('手柄选择分类：'+target,wait=.6)
@@ -136,31 +191,44 @@ def compendium_card(op, screen, is_target, label):
 def combat_simulation_mission(op, screen, target, names):
     """Focus the 实战模拟室 mission tile; the focused tile is the selection, so nothing is confirmed.
 
-    Window-message clicks are ignored on this screen. The focused tile carries the yellow-green border;
-    the compendium order of `names` decides the d-pad direction when the target is off screen.
+    Window-message clicks are ignored on this screen. The focused tile carries the yellow-green border.
+    The game's tile order can differ from the compendium order and the row may wrap around, so the
+    d-pad direction comes from the visible tiles; an off-screen target is searched in one direction.
     """
     from difflib import get_close_matches
     rows=op.ctx.ocr_service.get_ocr_result_list(image=screen,rect=Rect(80,700,1850,900))
     if not isinstance(rows,(list,tuple)):
         return op.round_retry('未识别实战模拟室副本，未操作',wait=.6)
-    focused=[]
+    focused=[]; visible={}
     for row in rows:
         # Close names such as 击破演练/命破演练 need a strict cutoff.
         match=get_close_matches(str(row.data).replace(' ',''),names,n=1,cutoff=.8)
+        if not match:
+            continue
         x=row.center.x
+        visible[match[0]]=x
         part=screen[700:880,max(0,x-90):x+250]
-        if match and part.size and np.mean(focus_mask(part))>.04:
+        if part.size and np.mean(focus_mask(part))>.04:
             focused.append(match[0])
     if len(focused)!=1:
         return op.round_retry('未核验唯一副本焦点，未操作',wait=.6)
-    if focused[0]==target:
+    current=focused[0]
+    if current==target:
         return op.round_success('已核验副本焦点：'+target)
     count=getattr(op,'_pad_mission_steps',0)
-    if count>=12:
+    if count>=2*len(names)+2:
         return op.round_fail('手柄副本选择未生效：'+target)
     op._pad_mission_steps=count+1
-    pad_press(op,'dpad_right' if names.index(target)>names.index(focused[0]) else 'dpad_left')
-    return op.round_wait(f'手柄选择副本：{focused[0]} → {target}',wait=.6)
+    if target in visible:
+        direction='dpad_right' if visible[target]>visible[current] else 'dpad_left'
+    else:
+        direction=getattr(op,'_pad_mission_direction','dpad_right')
+        if current==getattr(op,'_pad_mission_last',None):
+            direction='dpad_left' if direction=='dpad_right' else 'dpad_right'  # Focus did not move: row end.
+    op._pad_mission_direction=direction
+    op._pad_mission_last=current
+    pad_press(op,direction)
+    return op.round_wait(f'手柄选择副本：{current} → {target}',wait=.6)
 
 
 def grid_target(op, screen, target, rect, half_width=66):

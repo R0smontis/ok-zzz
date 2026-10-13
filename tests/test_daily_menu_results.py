@@ -144,6 +144,38 @@ def test_compendium_category_presses_are_bounded_by_own_step_limit():
     op.ctx.controller.btn_press.assert_not_called()
 
 
+def test_category_returns_from_real_header_focus_without_go_buttons():
+    from src.navigation.menus import panel_button_focused
+    op=store();rows=fixture(op,'compendium-hunt-other-focused')
+    op.last_screenshot=cv2.cvtColor(cv2.imread(str(BASE/'compendium-hunt-header-focus.png')),cv2.COLOR_BGR2RGB)
+    # Reuse a real focused header. No 前往 OCR is available: the category exit must not depend on it.
+    rows[:]=[r for r in rows if str(r.data).strip()!='前往']
+    assert panel_button_focused(op.last_screenshot)
+    result=compendium_category(op,op.last_screenshot,'实战模拟室')
+    assert result.result==R.WAIT and result.status=='返回分类列表，等待实际焦点'
+    op.ctx.controller.btn_press.assert_called_once_with('xbox_b',press_time=.12)
+    op.ctx.controller.btn_press.reset_mock()
+    fixture(op,'compendium-combat-sim-cards')
+    result=compendium_category(op,op.last_screenshot,'实战模拟室')
+    assert result.is_success
+    op.ctx.controller.btn_press.assert_not_called()
+
+
+def test_unset_goal_subtitle_is_one_category_control_not_two_selections():
+    op=store();fixture(op,'compendium-training-unset')
+    result=compendium_category(op,op.last_screenshot,'专业挑战室')
+    assert result.result==R.WAIT
+    op.ctx.controller.btn_press.assert_called_once_with('xbox_dpad_down',press_time=.12)
+
+
+def test_two_separate_highlighted_categories_still_block_navigation():
+    op=store();fixture(op,'compendium-training-unset')
+    op.last_screenshot[440:500,195:415]=(30,70,230)
+    op._pad_category_unverified=6
+    assert compendium_category(op,op.last_screenshot,'专业挑战室').result==R.RETRY
+    op.ctx.controller.btn_press.assert_not_called()
+
+
 def is_butcher(text):
     import difflib
     return difflib.get_close_matches(text,['初生死路屠夫'],n=1)==['初生死路屠夫']
@@ -242,6 +274,7 @@ def test_lost_void_gateway_does_not_confirm_without_selection_marker():
 def test_world_return_uses_gamepad_back_on_verified_deep_investigation_gateway():
     op=operation(BackToNormalWorld);fixture(op,'lost-void-gateway')
     op.check_and_update_current_screen=Mock(return_value=None)
+    op.round_by_find_area=Mock(return_value=SimpleNamespace(is_success=False))
     op._background_menu_back=0
     for _ in range(6):
         assert op.check_screen_and_run().result==R.RETRY
@@ -443,7 +476,7 @@ def test_combat_simulation_moves_focus_toward_target_tile(target,button):
     op=store();fixture(op,'combat-sim-mission-focus')
     assert combat_simulation_mission(op,op.last_screenshot,target,SIM_MISSIONS).result==R.WAIT
     op.ctx.controller.btn_press.assert_called_once_with(button,press_time=.12)
-    op._pad_mission_steps=12
+    op._pad_mission_steps=2*len(SIM_MISSIONS)+2
     assert combat_simulation_mission(op,op.last_screenshot,target,SIM_MISSIONS).is_fail
 
 
@@ -453,6 +486,30 @@ def test_combat_simulation_without_unique_focus_sends_nothing():
     op.last_screenshot[700:880,:]=30
     assert combat_simulation_mission(op,op.last_screenshot,'调查专项',SIM_MISSIONS).result==R.RETRY
     op.ctx.controller.btn_press.assert_not_called()
+
+
+SKILL_MISSIONS=['刚性测试','升温测试','冰结测试','电流测试','风切测试','共鸣测试','琢光测试']  # 图鉴顺序
+
+
+def test_combat_simulation_off_screen_target_searches_one_way_and_reverses_at_row_end():
+    """真实画面：焦点在电流测试，风切测试不在屏上；图鉴里风切排在电流之后、共鸣之前，
+    游戏行序不同。旧逻辑按图鉴序号在电流/共鸣之间来回，永远到不了风切测试。"""
+    from src.navigation.menus import combat_simulation_mission
+    op=store();fixture(op,'combat-sim-skill-wrap')
+    assert combat_simulation_mission(op,op.last_screenshot,'风切测试',SKILL_MISSIONS).result==R.WAIT
+    # 同一画面再次出现：焦点没有移动，说明已到行尾，改为反方向继续查找
+    assert combat_simulation_mission(op,op.last_screenshot,'风切测试',SKILL_MISSIONS).result==R.WAIT
+    assert [c.args[0] for c in op.ctx.controller.btn_press.call_args_list]==['xbox_dpad_right','xbox_dpad_left']
+    op._pad_mission_steps=2*len(SKILL_MISSIONS)+2
+    assert combat_simulation_mission(op,op.last_screenshot,'风切测试',SKILL_MISSIONS).is_fail
+
+
+def test_combat_simulation_visible_target_uses_screen_position_not_compendium_order():
+    from src.navigation.menus import combat_simulation_mission
+    op=store();fixture(op,'combat-sim-skill-wrap')  # 焦点电流测试；共鸣测试在其右侧
+    assert combat_simulation_mission(op,op.last_screenshot,'共鸣测试',SKILL_MISSIONS).result==R.WAIT
+    assert combat_simulation_mission(op,op.last_screenshot,'刚性测试',SKILL_MISSIONS).result==R.WAIT
+    assert [c.args[0] for c in op.ctx.controller.btn_press.call_args_list]==['xbox_dpad_right','xbox_dpad_left']
 
 
 def test_combat_simulation_next_uses_menu_button_and_is_bounded():
@@ -519,11 +576,13 @@ def test_background_world_return_leaves_battle_result_with_b():
 def test_obtained_popup_confirms_only_verified_focus():
     op=operation(BackToNormalWorld);rows=fixture(op,'combat-sim-after-result')  # 确认 focused, 前往 not.
     op.check_and_update_current_screen=Mock(return_value=None)
+    op.round_by_find_area=Mock(return_value=SimpleNamespace(is_success=False))
     op._background_menu_back=0
     assert op.check_screen_and_run().result==R.RETRY
     op.ctx.controller.btn_press.assert_called_once_with('xbox_a',press_time=.12)
     op=operation(BackToNormalWorld);rows=fixture(op,'combat-sim-after-result')
     op.check_and_update_current_screen=Mock(return_value=None)
+    op.round_by_find_area=Mock(return_value=SimpleNamespace(is_success=False))
     op._background_menu_back=0
     op.last_screenshot[680:780,1000:1300]=20  # 确认 no longer focused.
     assert op.check_screen_and_run().result==R.RETRY

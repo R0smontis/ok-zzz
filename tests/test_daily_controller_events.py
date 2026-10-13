@@ -72,8 +72,9 @@ def test_bakery_current_daily_one_portion_label_opens_without_exchange():
 def test_bakery_menu_without_back_footer_returns_with_b_and_bounds_attempts():
     op=operation(BackToNormalWorld)
     op.check_and_update_current_screen=Mock(return_value=None)
+    op.round_by_find_area=Mock(return_value=SimpleNamespace(is_success=False))
     op.ctx.ocr_service=SimpleNamespace(get_ocr_result_list=lambda **_: [
-        SimpleNamespace(data=w) for w in ('集卡兑换','选择盲盒（每日可领取一份）')])
+        SimpleNamespace(data=w,center=SimpleNamespace(x=1500,y=1000)) for w in ('集卡兑换','选择盲盒（每日可领取一份）')])
     for _ in range(6):assert op.check_screen_and_run().result==R.RETRY
     assert op.check_screen_and_run().is_fail
     assert op.ctx.controller.btn_press.call_count==6
@@ -82,8 +83,9 @@ def test_bakery_menu_without_back_footer_returns_with_b_and_bounds_attempts():
 def test_bakery_claimed_menu_returns_without_missing_select_box_label():
     op=operation(BackToNormalWorld)
     op.check_and_update_current_screen=Mock(return_value=None)
+    op.round_by_find_area=Mock(return_value=SimpleNamespace(is_success=False))
     op.ctx.ocr_service=SimpleNamespace(get_ocr_result_list=lambda **_: [
-        SimpleNamespace(data=w) for w in ('集卡兑换','今日已领取同类型奖励')])
+        SimpleNamespace(data=w,center=SimpleNamespace(x=1500,y=1000)) for w in ('集卡兑换','今日已领取同类型奖励')])
     assert op.check_screen_and_run().result==R.RETRY
     op.ctx.controller.btn_press.assert_called_once_with('xbox_b',press_time=.12)
     assert all(c.args==('xbox_b',) for c in op.ctx.controller.btn_press.call_args_list)

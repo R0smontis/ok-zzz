@@ -14,8 +14,7 @@ OPTION_LABELS = {
     'extra_task': '额外任务', 'extra_exit': '额外任务退出时机',
     'predefined_team_idx': '预备编队编号', 'loop': '循环执行',
     'weekly_challenge_start_weekday': '每周挑战开始日',
-    'combat_simulation_double_reward_config': '双倍奖励刷本计划',
-    'daily_reset_plan_times': '每日重置计划次数', 'double_reward': '刷取双倍奖励',
+    'daily_reset_plan_times': '每日重置计划次数',
     'restore_charge': '体力恢复方式', 'transport_point': '传送点',
     'run_charge_plan_afterwards': '完成后执行体力计划',
     'dialog_click_interval': '对话点击间隔秒', 'dialog_option': '对话选项',
@@ -212,7 +211,5 @@ def configure_app_options(task):
                                                 '未配置计划时只领取奖励')
     if task.app_id == 'charge_plan':
         task.config_type['plan_list'] = {'type': 'charge_plans'}
-        task.config_type['combat_simulation_double_reward_config'] = {'type': 'charge_plans', 'single': True}
-        task.config_type['double_reward'] = {'sub_configs': {True: ['combat_simulation_double_reward_config']}}
-        task.config_description['plan_list'] = '从上到下执行；下拉选择类别、类型与副本，填写次数与编队；多条计划在列表内滚动查看'
-        task.config_description['combat_simulation_double_reward_config'] = '有实战模拟室双倍奖励次数时优先执行这一条计划'
+        task.config_description['plan_list'] = ('从上到下执行；专业挑战室分别设置双倍（燃竭）与单倍次数，其余副本设置计划次数；'
+                                                '选择副本与编队，添加按钮位于列表下方')

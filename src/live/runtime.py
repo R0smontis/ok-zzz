@@ -178,6 +178,10 @@ class GameRuntime:
         context = getattr(self.app, '_context', None)
         if context is not None:
             context.run_context.stop_running()
+            # 停止运行状态不会停止战斗指令线程；接管时必须同时停止，否则周期转向会持续输入。
+            battle = context.__dict__.get('_auto_battle_context')
+            if battle is not None:
+                battle.stop_auto_battle()
             if context.controller is not None:
                 context.controller.cancel_inputs()
         return self.app.context

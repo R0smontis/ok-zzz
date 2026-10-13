@@ -4,6 +4,7 @@ from ok import ConfigOption
 from src.controls.interaction import INTERACTIONS
 from src.controls.hotkey_settings import validate_hotkey
 from src.runtime.inference import recognition_config
+from src.runtime.game_discovery import validate_game_path
 
 version = "0.1.0"
 
@@ -27,6 +28,13 @@ key_config_option = ConfigOption('Game Hotkey Config', {
 }, description='游戏内键鼠战斗按键，修改后在下次任务启动时生效；手柄键位在 config/00/game.yml 调整',
    validator=validate_hotkey)
 
+game_path_config_option = ConfigOption('游戏安装设置', {'游戏路径': ''},
+    description='首次运行后台只读发现游戏目录；多个客户端或发现失败时，请手动选择 ZenlessZoneZero.exe。',
+    config_type={'游戏路径': {'type': 'file_selector', 'selector_type': 'file',
+        'filter': 'ZenlessZoneZero.exe (ZenlessZoneZero.exe)', 'dialog_title': '选择绝区零游戏程序'}},
+    config_description={'游戏路径': '选择游戏目录中的 ZenlessZoneZero.exe；手动保存后立即用于启动游戏，并同步当前账户。'},
+    validator=validate_game_path)
+
 # ok-script 截图后遮挡 UID，避免识别模型把 UID 当目标
 def make_uid_black(frame):
     """遮挡右下角 UID 区域（坐标对齐一条龙 ScreenNormalWorldEnum.UID）。"""
@@ -47,7 +55,7 @@ config = {
     'debug': False,
     'gui': gui_config,
     'config_folder': 'configs',
-    'global_configs': [key_config_option, recognition_config],
+    'global_configs': [key_config_option, recognition_config, game_path_config_option],
     'screenshot_processor': make_uid_black,
     'gui_icon': 'icons/icon.png',
     'wait_until_before_delay': 0,

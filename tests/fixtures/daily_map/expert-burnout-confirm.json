@@ -1,0 +1,8 @@
+{
+  "source": "debug/charge-conqueror-mode-off.png",
+  "annotation": "Human-labelled visible text centers; not OCR engine output",
+  "labels": [
+    {"text": "是否退出「燃竭模式」，恢复电量消耗和奖励产出至正常水平？", "center": [960, 536]},
+    {"text": "确认", "center": [1129, 625]}
+  ]
+}

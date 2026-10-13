@@ -33,6 +33,8 @@ class Globals:
         install_gpu_ocr()
         from src.runtime.startup import install_update_compat
         install_update_compat()
+        from src.runtime.game_discovery import install_game_discovery
+        self._game_discovery_timer = install_game_discovery()
         self.exit_event = exit_event
         self._context = None
         self._shutdown_lock = threading.Lock()
@@ -157,24 +159,14 @@ class Globals:
 
     @staticmethod
     def _adopt_game_path(context):
-        """Apps launch a closed game from the account's game path; reuse the exe ok-script already found."""
-        import os
-        account = context.game_account_config
-        if account.game_path:
-            return
-        manager = getattr(og, 'device_manager', None)
-        try:
-            device = manager.get_preferred_device() if manager is not None else None
-            path = manager.get_exe_path(device) if device and device.get('device') == 'windows' else None
-            if not path and manager is not None:
-                # The game is closed, so no window device: use the exe ok-script remembered.
-                path = (getattr(manager, 'config', None) or {}).get('pc_full_path')
-        except Exception as error:
-            logger.warning(f'读取游戏路径失败: {error}')
-            return
-        if path and os.path.isfile(path):
-            account.game_path = path
-            logger.info(f'已使用检测到的游戏路径：{path}')
+        """Share the selected/detected executable with the account's launch config."""
+        from src.runtime.game_discovery import configure_game_path, OPTION_NAME, PATH_KEY
+        global_config = getattr(og, 'global_config', None)
+        settings = global_config.get_config(OPTION_NAME) if global_config is not None else {}
+        path = configure_game_path(getattr(og, 'device_manager', None),
+            context.game_account_config, selected_path=settings.get(PATH_KEY, ''))
+        if path:
+            logger.info(f'已使用游戏路径：{path}')
 
     def ensure_context_for_game(self):
         """游戏启动后的完整初始化（画面区域等）。"""

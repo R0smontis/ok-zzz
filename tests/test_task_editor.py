@@ -7,13 +7,13 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QScrollArea
 from PySide6.QtCore import Qt, QPointF
 from PySide6.QtGui import QDropEvent
 from ok import og
 from ok.util.config import Config
 from ok.ui.qt.tasks.ConfigCard import ConfigCard
-from qfluentwidgets import FluentIcon
+from qfluentwidgets import FluentIcon, PushButton
 from src.tasks.option_widgets import install_option_widgets
 from src.tasks.app_tasks import App_ChargePlan, App_NotoriousHunt
 from src.tasks.daily_task import OneDragonDailyTask
@@ -44,6 +44,46 @@ def editor(tmp_path, monkeypatch):
     _APP.processEvents()
 
 
+def test_category_switch_shows_split_counts_only_for_double_capable_plans(editor):
+    task, card = editor(App_ChargePlan)
+    widget = card.config_widget_by_key['plan_list']
+    widget.add_plan()
+    widget.editors[0]['plan_times'].setValue(4)
+    assert {'double_times', 'single_times'}.isdisjoint(widget.editors[0])
+    category = widget.editors[0]['category_name']
+    category.setCurrentIndex(category.findData('专业挑战室'))
+    _APP.processEvents()
+    controls = widget.editors[0]
+    assert 'plan_times' not in controls
+    assert (controls['double_times'].value(), controls['single_times'].value()) == (0, 4)
+    controls['double_times'].setValue(2)
+    saved = json.loads(task.config['plan_list'])[0]
+    assert (saved['double_times'], saved['single_times'], saved['plan_times']) == (2, 4, 6)
+    controls['single_times'].setValue(0)
+    controls['double_times'].setValue(0)
+    assert widget.error_label.text()
+    assert json.loads(task.config['plan_list'])[0]['plan_times'] == 2
+    controls['single_times'].setValue(1)
+    assert not widget.error_label.text()
+    category = widget.editors[0]['category_name']
+    category.setCurrentIndex(category.findData('区域巡防'))
+    _APP.processEvents()
+    controls = widget.editors[0]
+    assert {'double_times', 'single_times'}.isdisjoint(controls)
+    saved = json.loads(task.config['plan_list'])[0]
+    assert (saved['double_times'], saved['plan_times']) == (0, 1)
+    card.close()
+
+
+def test_legacy_disabled_double_plan_runs_its_total_as_single():
+    rows = parse_charge_plans([{'category_name': '专业挑战室', 'mission_type_name': '「征服者」',
+        'mission_name': None, 'plan_times': 8, 'run_times': 1, 'double_reward_enabled': False,
+        'double_times': 2, 'single_times': 6, 'plan_id': 'kept'}])
+    assert (rows[0]['double_times'], rows[0]['single_times'], rows[0]['plan_times']) == (0, 8, 8)
+    assert (rows[0]['run_times'], rows[0]['plan_id']) == (1, 'kept')
+    assert 'double_reward_enabled' not in rows[0]
+
+
 def test_charge_rows_edit_add_reorder_and_preserve_identity(editor):
     task,card=editor(App_ChargePlan)
     widget=card.config_widget_by_key['plan_list']
@@ -60,7 +100,7 @@ def test_charge_rows_edit_add_reorder_and_preserve_identity(editor):
     assert saved[1]['plan_times']==4
     widget.remove_plan(0)
     assert json.loads(task.config['plan_list'])[0]['plan_id']==first['plan_id']
-    assert isinstance(card.config_widget_by_key['combat_simulation_double_reward_config'],ChargePlanWidget)
+    assert widget.editors[0]['plan_times'].value() == 4
     card.close()
 
 
@@ -159,21 +199,72 @@ def test_charge_dropdown_dependencies_save_game_values_and_keep_progress(editor,
     card.close()
 
 
-def test_many_charge_plans_scroll_without_growing_or_overlapping_dialog(editor):
+def test_many_charge_plans_keep_small_dialog_actions_reachable(editor):
     task, card = editor(App_ChargePlan)
     dialog = AppSettingsDialog(task)
+    dialog.resize(760, 420)
     dialog.show()
     widget = dialog.form.config_widget_by_key['plan_list']
     for _ in range(8):
-        widget.add_plan()
+        widget.add_button.click()
     _APP.processEvents()
-    assert widget.scroll.height() == 320
     assert widget.scroll.verticalScrollBar().maximum() > 0
-    assert len(widget.editors) == 8 and len(json.loads(dialog.draft['plan_list'])) == 8
+    widget.scroll.ensureWidgetVisible(widget.editors[-1]['plan_times'])
+    _APP.processEvents()
+    widget.editors[-1]['plan_times'].setValue(7)
+    assert json.loads(dialog.draft['plan_list'])[-1]['plan_times'] == 7
+    widget.remove_plan(0)
+    _APP.processEvents()
+    assert len(json.loads(dialog.draft['plan_list'])) == 7
     assert widget.scroll.geometry().bottom() < widget.add_button.geometry().top()
-    assert dialog.height() <= 700
+    outer_scroll = next(scroll for scroll in dialog.findChildren(QScrollArea)
+                        if scroll.widget() is dialog.form)
+    outer_scroll.ensureWidgetVisible(dialog.form.reset_config)
+    _APP.processEvents()
+    reset = dialog.form.reset_config
+    assert outer_scroll.viewport().rect().contains(
+        reset.mapTo(outer_scroll.viewport(), reset.rect().center()))
+    save = next(button for button in dialog.findChildren(PushButton)
+                if button.text() == '保存设置')
+    assert dialog.rect().contains(save.mapTo(dialog, save.rect().center()))
     dialog.reject()
     dialog.close()
+    card.close()
+
+
+def test_charge_card_refreshes_height_after_empty_plan_add_and_remove(editor):
+    from PySide6.QtCore import QPoint
+    from PySide6.QtTest import QTest
+    task, card = editor(App_ChargePlan)
+    window = QScrollArea()
+    window.setWidgetResizable(True)
+    window.setWidget(card)
+    window.resize(760, 420)
+    window.show()
+    card.setExpand(True)
+    QTest.qWait(250)
+    widget = card.config_widget_by_key['plan_list']
+    empty_height = card.height()
+    for _ in range(8):
+        widget.add_button.click()
+    _APP.processEvents()
+    assert card.height() > empty_height
+    assert widget.scroll.verticalScrollBar().maximum() > 0
+    widget.editors[-1]['plan_times'].setValue(9)
+    assert json.loads(task.config['plan_list'])[-1]['plan_times'] == 9
+    assert widget.scroll.geometry().bottom() < widget.add_button.geometry().top()
+    reset = card.reset_config
+    window.ensureWidgetVisible(reset)
+    _APP.processEvents()
+    assert window.viewport().rect().contains(
+        reset.mapTo(window.viewport(), reset.rect().center()))
+    assert reset.mapTo(card.view, QPoint(0, reset.height())).y() <= card.view.height()
+    while widget.rows:
+        widget.remove_plan(0)
+    _APP.processEvents()
+    assert card.height() < empty_height + 20
+    assert json.loads(task.config['plan_list']) == []
+    window.close()
     card.close()
 
 
@@ -184,10 +275,10 @@ def test_charge_plan_save_reloads_engine_list_and_keeps_run_counts(editor,tmp_pa
     compendium=ctx.compendium_service
     monkeypatch.setattr(os_utils,'get_work_dir',lambda:str(tmp_path))
     engine=ChargePlanConfig(0,'one_dragon')
-    original=ChargePlanItem(plan_times=5,run_times=2)
+    original=ChargePlanItem(category_name='专业挑战室',mission_type_name='「征服者」',mission_name=None,plan_times=5,run_times=2)
     engine.add_plan(original)
     edited=original.to_dict()
-    edited.update(plan_times=6,run_times=0)
+    edited.update(run_times=0, double_times=3, single_times=3)
     task.config['plan_list']=json.dumps([edited],ensure_ascii=False)
     fake=SimpleNamespace(current_instance_idx=0,compendium_service=compendium,
         run_context=SimpleNamespace(get_config=lambda *a,**k:engine))
@@ -196,7 +287,15 @@ def test_charge_plan_save_reloads_engine_list_and_keeps_run_counts(editor,tmp_pa
     reloaded=ChargePlanConfig(0,'one_dragon')
     assert len(reloaded.plan_list)==1
     assert reloaded.plan_list[0].plan_id==original.plan_id
-    assert reloaded.plan_list[0].plan_times==6 and reloaded.plan_list[0].run_times==2
+    plan = reloaded.plan_list[0]
+    assert plan.plan_times == 6 and plan.run_times == 2
+    assert (plan.double_times, plan.single_times) == (3, 3)
+    assert plan.use_double_reward
+    engine.add_plan_run_times(engine.plan_list[0])
+    task.apply_options()
+    reloaded = ChargePlanConfig(0, 'one_dragon')
+    assert reloaded.plan_list[0].run_times == 3
+    assert not reloaded.plan_list[0].use_double_reward
     card.close()
 
 
@@ -223,12 +322,24 @@ def test_invalid_plan_never_reaches_engine(value):
 def test_edited_plans_survive_config_reload(editor, cls):
     task, card = editor(cls)
     assert task.config['plan_list'] == ''  # not yet loaded from the engine: apply keeps engine plans
-    card.config_widget_by_key['plan_list'].add_button.click()
+    widget = card.config_widget_by_key['plan_list']
+    widget.add_button.click()
+    if cls is App_ChargePlan:
+        category = widget.editors[0]['category_name']
+        category.setCurrentIndex(category.findData('专业挑战室'))
+        _APP.processEvents()
+        controls = widget.editors[0]
+        controls['double_times'].setValue(2)
+        controls['single_times'].setValue(4)
     saved = task.config['plan_list']
     assert len(json.loads(saved)) == 1
     card.close()
     reloaded, card = editor(cls)
     assert reloaded.config['plan_list'] == saved
+    if cls is App_ChargePlan:
+        controls = card.config_widget_by_key['plan_list'].editors[0]
+        assert (controls['double_times'].value(), controls['single_times'].value()) == (2, 4)
+        assert json.loads(saved)[0]['plan_times'] == 6
     card.close()
 
 

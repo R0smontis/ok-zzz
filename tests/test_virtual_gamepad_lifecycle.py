@@ -115,8 +115,10 @@ def test_bus_is_never_opened_just_to_close_it(monkeypatch):
 def test_context_adopts_detected_game_exe_only_when_unset(tmp_path, monkeypatch):
     from src.globals import Globals
     exe = tmp_path/'ZenlessZoneZero.exe'; exe.write_bytes(b'')
-    manager = SimpleNamespace(get_preferred_device=lambda: {'device': 'windows'}, get_exe_path=lambda device: str(exe))
+    manager = SimpleNamespace(config={}, device_dict={},
+        get_preferred_device=lambda: {'device': 'windows'}, get_exe_path=lambda device: str(exe))
     monkeypatch.setattr('ok.og.device_manager', manager, raising=False)
+    monkeypatch.setattr('ok.og.global_config', None)
     account = SimpleNamespace(game_path='')
     Globals._adopt_game_path(SimpleNamespace(game_account_config=account))
     assert account.game_path == str(exe)

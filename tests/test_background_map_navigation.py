@@ -28,6 +28,7 @@ def fixture(name, area, point):
         return [r for r in rows if rect.x1<=r.center.x<rect.x2 and rect.y1<=r.center.y<rect.y2]
     op.ctx.ocr_service=SimpleNamespace(get_ocr_result_list=ocr)
     op.ctx.map_service=MapAreaService()
+    op.ctx.map_service.reload()
     op.ctx.game_config.get_action_keys=lambda mode:{'move_'+a:('ds4_' if mode=='ds4' else 'xbox_')+'ls_'+b for a,b in [('a','left'),('d','right'),('w','up'),('s','down')]}
     return op,screen
 
@@ -228,3 +229,69 @@ def test_player_cone_over_the_target_icon_becomes_a_candidate(monkeypatch):
     monkeypatch.setattr(navigation,'map_state',lambda op,screen: dict(state))
     assert choose_point(op,screen).result==R.RETRY
     assert op.ctx.controller.btn_press.call_args.args[0] in ('xbox_ls_right','xbox_ls_slow_right')  # Toward x≈1095.
+
+
+def test_region_grid_selects_store_and_waits_for_verified_point_list():
+    op, screen = fixture('map-quick-nav', '录像店', '房间')
+    assert map_state(op, screen)['selected'] == '布亚斯特城区'
+    assert choose_area(op, screen).result == R.RETRY
+    op.ctx.controller.btn_press.assert_called_once_with('xbox_dpad_down', press_time=.12)
+    # The next frame must show the new focus before another directional press.
+    # Move only the controller outline on the real grid; retain its real OCR.
+    from src.navigation.menus import focus_mask
+    def focused_grid(col, row):
+        frame = screen.copy()
+        frame[focus_mask(frame)] = 0
+        x0, x1, y0, y1 = 12 + 636 * col, 636 + 636 * col, 102 + 279 * row, 368 + 279 * row
+        frame[y0:y1, x0-2:x0+10] = (170, 205, 45)
+        frame[y0:y1, x1-10:x1+2] = (170, 205, 45)
+        return frame
+    for col, row, button in [(0, 1, 'xbox_dpad_down'), (0, 2, 'xbox_dpad_right'), (1, 2, 'xbox_a')]:
+        assert choose_area(op, focused_grid(col, row)).result == R.RETRY
+        assert op.ctx.controller.btn_press.call_args.args == (button,)
+    # Highlighting the target card alone never completes area selection.
+    assert op.ctx.controller.btn_press.call_count == 4
+    selected_op, selected = fixture('quick-nav-video-store', '录像店', '房间')
+    op.ctx.ocr_service = selected_op.ctx.ocr_service
+    assert choose_area(op, selected).is_success
+    assert op.ctx.controller.btn_press.call_count == 4
+    assert choose_point(op, selected).result == R.WAIT
+    assert op.ctx.controller.btn_press.call_args.args == ('xbox_dpad_right',)
+
+
+def test_region_grid_without_unique_focus_or_target_never_sends_input():
+    op, screen = fixture('map-quick-nav', '录像店', '房间')
+    from src.navigation.menus import focus_mask
+    screen[focus_mask(screen)] = 0
+    assert choose_area(op, screen).result == R.RETRY
+    op.ctx.controller.btn_press.assert_not_called()
+    op.ctx.ocr_service.get_ocr_result_list = lambda **_: []
+    assert choose_area(op, screen).result == R.RETRY
+    assert return_from_map(op, screen) is None
+    op.ctx.controller.btn_press.assert_not_called()
+
+
+def test_verified_region_grid_can_return_without_selecting_destination():
+    op, screen = fixture('map-quick-nav', '录像店', '房间')
+    assert return_from_map(op, screen).result == R.RETRY
+    op.ctx.controller.btn_press.assert_called_once_with('xbox_b', press_time=.12)
+
+
+def test_unchanged_region_grid_focus_stops_without_blind_search():
+    op, screen = fixture('map-quick-nav', '录像店', '房间')
+    for _ in range(3):
+        assert choose_area(op, screen).result == R.RETRY
+    assert choose_area(op, screen).is_fail
+    assert op.ctx.controller.btn_press.call_count == 3
+
+
+def test_region_grid_target_outline_does_not_accept_another_regions_points():
+    op, screen = fixture('quick-nav-video-store', '录像店', '房间')
+    original = op.ctx.ocr_service.get_ocr_result_list
+    def stale_points(image, rect):
+        return [SimpleNamespace(data='吼吼饼铺' if row.data == '房间' else row.data,
+                                confidence=row.confidence, center=row.center)
+                for row in original(image, rect)]
+    op.ctx.ocr_service.get_ocr_result_list = stale_points
+    assert choose_area(op, screen).result == R.RETRY
+    op.ctx.controller.btn_press.assert_not_called()

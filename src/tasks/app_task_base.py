@@ -34,9 +34,9 @@ class AppTaskBase(ZzzBaseTask, BaseTask):
         from zzz_od.application.app_options_data import APP_OPTIONS
         from src.tasks.app_option_ui import OPTION_LABELS
         label = OPTION_LABELS.get(key, key)
-        if self.app_id == 'charge_plan' and key in ('plan_list', 'combat_simulation_double_reward_config'):
+        if self.app_id == 'charge_plan' and key == 'plan_list':
             from src.tasks.plan_widgets import parse_charge_plans
-            return parse_charge_plans(value, single=key != 'plan_list')
+            return parse_charge_plans(value)
         if self.app_id == 'notorious_hunt' and key == 'plan_list':
             from src.tasks.plan_widgets import NOTORIOUS_HUNT, parse_charge_plans
             return parse_charge_plans(value, category=NOTORIOUS_HUNT)
@@ -72,14 +72,10 @@ class AppTaskBase(ZzzBaseTask, BaseTask):
         from zzz_od.application.charge_plan.charge_plan_config import ChargePlanItem
         if self.app_id == 'charge_plan':
             from zzz_od.application.charge_plan.charge_plan_config import ChargePlanConfig
-            for key in ('plan_list', 'combat_simulation_double_reward_config'):
-                if key not in updates:
-                    continue
-                rows = updates[key] if key == 'plan_list' else [updates[key]]
-                for row in rows:
-                    error = ChargePlanConfig.validate_item(ctx, ChargePlanItem.from_dict(row))
-                    if error:
-                        raise ValueError(f'刷本计划：{error}')
+            for row in updates.get('plan_list', []):
+                error = ChargePlanConfig.validate_item(ctx, ChargePlanItem.from_dict(row))
+                if error:
+                    raise ValueError(f'刷本计划：{error}')
         if self.app_id == 'notorious_hunt':
             from zzz_od.application.notorious_hunt.notorious_hunt_config import NotoriousHuntConfig
             for row in updates.get('plan_list', []):

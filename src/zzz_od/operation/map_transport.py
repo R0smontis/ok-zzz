@@ -44,7 +44,9 @@ class MapTransport(ZOperation):
         self._area_search_started: bool = False
         for key in ('_background_region_search', '_background_point_steps',
                     '_background_map_velocity', '_background_map_motion', '_background_go_requests', '_background_map_zooms',
-                    '_background_region_direction', '_background_region_reversed', '_background_area_passes'):
+                    '_background_region_direction', '_background_region_reversed', '_background_area_passes',
+                    '_quick_nav_steps', '_quick_nav_confirms', '_quick_nav_chosen', '_quick_nav_opens',
+                    '_quick_nav_strip', '_quick_nav_strip_direction'):
             self.__dict__.pop(key, None)
 
     @node_from(from_name='选择传送点', success=False)

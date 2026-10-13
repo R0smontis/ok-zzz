@@ -33,6 +33,10 @@ class RestoreChargeEnum(Enum):
     BOTH = ConfigItem('同时使用储蓄电量和以太电池')
 
 
+# 只有入口具备「燃竭模式」（双倍电量、双倍奖励）开关的副本类别才能设置双倍次数
+DOUBLE_REWARD_CATEGORIES = frozenset({'专业挑战室'})
+
+
 @dataclass
 class ChargePlanItem:
     tab_name: str = '训练'
@@ -43,6 +47,8 @@ class ChargePlanItem:
     auto_battle_config: str = '全配队通用'
     run_times: int = 0
     plan_times: int = 1
+    double_times: int = 0
+    single_times: int | None = None  # 支持双倍的类别：单倍次数；其余类别等于计划次数
     card_num: str = CardNumEnum.DEFAULT.value.value  # 实战模拟室的卡片数量
     predefined_team_idx: int = -1  # 预备配队下标 -1为使用当前配队
     notorious_hunt_buff_num: int = 1  # 恶名狩猎 选择的buff
@@ -52,6 +58,21 @@ class ChargePlanItem:
     def __post_init__(self) -> None:
         if self.plan_id is None:
             self.plan_id = str(uuid.uuid4())
+        if self.supports_double_reward:
+            if self.single_times is None:
+                self.single_times = self.plan_times - self.double_times
+            self.plan_times = self.double_times + self.single_times
+        else:
+            self.double_times = 0
+            self.single_times = self.plan_times
+
+    @property
+    def supports_double_reward(self) -> bool:
+        return self.category_name in DOUBLE_REWARD_CATEGORIES
+
+    @property
+    def use_double_reward(self) -> bool:
+        return self.run_times < self.double_times
 
     @property
     def is_agent_plan(self) -> bool:
@@ -75,7 +96,7 @@ class ChargePlanItem:
         if self.category_name == '区域巡防':
             return 60
         if self.category_name == '专业挑战室':
-            return 40
+            return 40 * (2 if self.use_double_reward else 1)
         if self.category_name == '恶名狩猎':
             return 60
         if self.category_name == '合成电池':
@@ -91,6 +112,11 @@ class ChargePlanItem:
 
     @classmethod
     def from_dict(cls, data: dict) -> 'ChargePlanItem':
+        data = dict(data)
+        # 旧版每计划双倍开关：关闭时双倍次数不生效，2027-04 可删除
+        if data.pop('double_reward_enabled', True) is False:
+            data['double_times'] = 0
+            data.pop('single_times', None)
         return cls(**data)
 
 
@@ -107,7 +133,7 @@ class ChargePlanConfig(ApplicationConfig):
         self.plan_list: list[ChargePlanItem] = []
 
         for plan_item in self.data.get('plan_list', []):
-            self.plan_list.append(ChargePlanItem(**plan_item))
+            self.plan_list.append(ChargePlanItem.from_dict(plan_item))
 
     def save(self):
         plan_list = []
@@ -332,22 +358,6 @@ class ChargePlanConfig(ApplicationConfig):
     def skip_plan(self, new_value: bool) -> None:
         self.update('skip_plan', new_value)
 
-    @property
-    def double_reward(self) -> bool:
-        return self.get('double_reward', False)
-
-    @double_reward.setter
-    def double_reward(self, new_value: bool) -> None:
-        self.update('double_reward', new_value)
-
-    @property
-    def combat_simulation_double_reward_config(self) -> ChargePlanItem:
-        data = self.get('combat_simulation_double_reward_config', {})
-        return ChargePlanItem.from_dict(data)
-
-    @combat_simulation_double_reward_config.setter
-    def combat_simulation_double_reward_config(self, new_value: ChargePlanItem) -> None:
-        self.update('combat_simulation_double_reward_config', new_value.to_dict())
 
     @property
     def restore_charge(self) -> str:

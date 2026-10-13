@@ -9,7 +9,7 @@
 
 ## 本机客户端
 
-接口地址和认证信息保存在程序目录 `debug/live/session.json`。端口每次启动自动分配，只监听 127.0.0.1。
+接口地址和认证信息保存在运行目录 `debug/live/session.json`；安装版运行目录为 `%LOCALAPPDATA%/ok-zzz`，源码版为项目目录。端口每次启动自动分配，只监听 127.0.0.1。
 客户端自动读取认证信息；不要把 session.json 放入公共诊断包。程序退出时会删除当前会话文件。
 
 源码环境：
@@ -21,7 +21,7 @@ python tools/live_debug.py --root D:\okzzz events
 python tools/live_debug.py --root D:\okzzz bundle D:\okzzz\debug\live-bundle
 ```
 
-无需额外 Python 的打包版：在程序目录运行。无控制台 EXE 请指定 `--output`，客户端不会开启程序主窗口。
+无需额外 Python 的打包版：使用安装目录中的 EXE，客户端自动切到上述用户运行目录读取会话。无控制台 EXE 请指定 `--output`，相对输出路径位于用户运行目录，客户端不会开启程序主窗口。
 
 ```powershell
 Start-Process .\ok-zzz.exe -ArgumentList '--live-client --output debug\status.json status' -Wait
@@ -106,4 +106,4 @@ Windows 10 2004及以上可尝试WGC，低于20348的系统保留捕获边框。
 {"op":"task_start","task":"App_DriveDiscDismantle","stop_before":["快速选择"]}
 ```
 
-停止时写入日志 `调试演练：已到达 … 之前，停止执行`，`/status` 的 `dry_run.hits` 记录已触发的节点；列表只在带 `stop_before` 的 `task_start` 设置，且必须提供节点名称。该开关默认关闭，不带 `stop_before` 的启动不受影响。
+停止时写入日志 `调试演练：已到达 … 之前，停止执行`，`/status` 的 `dry_run.hits` 记录已触发的节点。列表只在带 `stop_before` 的 `task_start` 中设置，且必须提供节点名称；它只作用于这一次应用运行，运行结束（含未命中、失败或人工停止）即清空。之后从界面、热键或定时启动的任务都不受影响。`dry_run.hits` 保留到下一次 `task_start`。

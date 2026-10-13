@@ -27,5 +27,12 @@ def application_inputs(task):
         task.log_info(f'任务交互方式：{task.info["任务交互方式"]}')
         yield
     finally:
-        if ctx.controller is not None:
-            ctx.controller.cancel_inputs()
+        # 人工停止只让节点循环退出，战斗指令线程（含周期转向）不会随之停止。
+        # 常驻战斗助手已在应用启动前停用，此时仍在运行的战斗指令属于本应用。
+        battle = vars(ctx).get('_auto_battle_context')
+        try:
+            if battle is not None:
+                battle.stop_auto_battle()
+        finally:
+            if ctx.controller is not None:
+                ctx.controller.cancel_inputs()

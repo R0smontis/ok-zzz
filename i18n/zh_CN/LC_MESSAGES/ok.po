@@ -64,14 +64,8 @@ msgstr "循环执行"
 msgid "weekly_challenge_start_weekday"
 msgstr "每周挑战开始日"
 
-msgid "combat_simulation_double_reward_config"
-msgstr "双倍奖励刷本计划"
-
 msgid "daily_reset_plan_times"
 msgstr "每日重置计划次数"
-
-msgid "double_reward"
-msgstr "刷取双倍奖励"
 
 msgid "restore_charge"
 msgstr "体力恢复方式"

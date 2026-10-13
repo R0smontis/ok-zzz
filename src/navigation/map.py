@@ -23,6 +23,12 @@ def _rows(op, screen, rect):
 def map_state(op, screen):
     if not isinstance(screen, np.ndarray) or screen.shape[:2] != (1080, 1920):
         return None
+    grid = quick_nav_state(op, screen)
+    if grid is not None and not grid['dialog']:
+        selected = [tile for tile in grid['tiles'] if tile[2]]
+        return dict(info=False, detail=False, title='', point='', can_go=False,
+                    selected=selected[0][0] if len(selected) == 1 else None,
+                    rows=[], grid=grid)
     rows = _rows(op, screen, Rect(1390, 15, 1870, 965))
     words = [_text(row.data) for row in rows]
     if '快捷导航' not in words:
@@ -73,6 +79,37 @@ def choose_area(op, screen):
     state = map_state(op, screen)
     if state is None:
         return op.round_retry('未核验新版区域地图，未操作', wait=.5)
+    if state.get('grid') is not None:
+        grid = state['grid']
+        tiles = [tile for tile in grid['tiles'] if tile[2]]
+        points = [point for point in grid['points'] if point[2]]
+        target = next((tile for tile in grid['tiles'] if _match(tile[0], op.area_name)), None)
+        if len(tiles) != 1 or len(points) > 1 or target is None:
+            return op.round_retry('区域九宫格目标或焦点未唯一核验，未操作', wait=.6)
+        current = tiles[0]
+        if points:
+            if current is target:
+                area = op.ctx.map_service.area_name_map.get(op.area_name)
+                visible = [point[0] for point in grid['points']]
+                if area is None or not all(any(_match(name, expected) for expected in area.tp_list) for name in visible):
+                    return op.round_retry('区域九宫格点位列表尚未核验目标区域，未操作', wait=.6)
+                return op.round_success(f'已核验地图区域及传送点列表：{op.area_name}')
+            _press(op, 'back')
+            return op.round_retry('传送点列表不属于目标区域，返回区域九宫格', wait=.8)
+        prior, unchanged, total = getattr(op, '_background_region_search', (None, 0, 0))
+        unchanged = unchanged + 1 if current[0] == prior else 0
+        if unchanged >= 3 or total >= 18:
+            return op.round_fail(f'区域九宫格切换未生效：{current[0]} → {op.area_name}')
+        if current is target:
+            _press(op, 'confirm')
+            message = f'选择地图区域 {op.area_name}，等待实际传送点列表'
+        else:
+            dx, dy = target[1].x - current[1].x, target[1].y - current[1].y
+            direction = ('down' if dy > 0 else 'up') if abs(dy) > 140 else ('right' if dx > 0 else 'left')
+            _press(op, 'dpad_' + direction)
+            message = f'手柄选择区域：{current[0]} → {op.area_name}'
+        op._background_region_search = (current[0], unchanged, total + 1)
+        return op.round_retry(message, wait=.6)
     current = state['selected'] or state['title']
     if _match(current, op.area_name):
         return op.round_success(f'已核验地图区域：{op.area_name}')
@@ -228,6 +265,13 @@ def _coffee_occlusion_candidates(screen, focused_ramen=False):
 
 
 def choose_point(op, screen):
+    # The region grid exposes named points instead of the map's hover icons.
+    # Reuse its existing closed-loop point selection and confirmation dialog.
+    if quick_nav_state(op, screen) is not None or getattr(op, '_quick_nav_steps', 0):
+        result = quick_nav(op, screen)
+        if result.is_success:
+            op._background_go_requests = 1
+        return result
     state = map_state(op, screen)
     if state is None:
         return op.round_retry('未核验地图，暂停传送点搜索', wait=.5)

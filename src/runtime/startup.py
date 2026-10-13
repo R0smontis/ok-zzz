@@ -5,6 +5,41 @@ import sys
 from pathlib import Path
 
 
+def prepare_runtime_directory():
+    """Keep installed binaries read-only; seed per-user resources before imports."""
+    import os
+    import shutil
+
+    if not getattr(sys, 'frozen', False):
+        return None
+    installation = Path(sys.executable).resolve().parent
+    local_data = Path(os.environ.get('LOCALAPPDATA') or Path.home() / 'AppData' / 'Local')
+    work = local_data / 'ok-zzz'
+    work.mkdir(parents=True, exist_ok=True)
+    # Configs are copied only when absent, including settings from older releases.
+    # Bundled assets refresh on upgrade; downloaded models remain untouched.
+    for folder in ('config', 'configs', 'assets', 'icons', 'i18n'):
+        source = installation / folder
+        if not source.is_dir():
+            continue
+        for original in source.rglob('*'):
+            if not original.is_file():
+                continue
+            target = work / folder / original.relative_to(source)
+            if target.exists():
+                if folder in ('config', 'configs'):
+                    continue
+                old, new = target.stat(), original.stat()
+                if old.st_size == new.st_size and old.st_mtime_ns == new.st_mtime_ns:
+                    continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(original, target)
+    from onedragon.utils import os_utils
+    os_utils.set_work_dir(work)
+    os.chdir(work)
+    return work
+
+
 def ensure_output_streams(output_path=None):
     # Windowed PyInstaller bootloaders intentionally provide no stdio handles.
     # Dependencies still print and create StreamHandlers during initialization.

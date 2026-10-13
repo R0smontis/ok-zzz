@@ -88,6 +88,7 @@ class NotoriousHunt(ZOperation):
         self.plan: ChargePlanItem = plan
         self.use_charge_power: bool = use_charge_power  # 是否使用电量 深度追猎
         self.can_run_times: int = -1
+        self.battle_entered: bool = False
 
     @operation_node(name='初始化加载', is_start_node=True)
     def init_for_notorious_hunt(self) -> OperationRoundResult:
@@ -443,6 +444,8 @@ class NotoriousHunt(ZOperation):
     @node_from(from_name='重新开始-确认')
     @operation_node(name='加载自动战斗指令')
     def init_auto_battle(self) -> OperationRoundResult:
+        self.battle_entered = False
+        self.ctx.auto_battle_context.last_check_end_result = None
         if self.plan.predefined_team_idx == -1:
             auto_battle = self.plan.auto_battle_config
         else:
@@ -460,10 +463,12 @@ class NotoriousHunt(ZOperation):
     def wait_battle_screen(self) -> OperationRoundResult:
         result = self.round_by_find_area(self.last_screenshot, '战斗画面', '按键-普通攻击')
         if result.is_success:
+            self.battle_entered = True
             return self.round_success(self.plan.mission_type_name)
 
         result = self.round_by_find_area(self.last_screenshot, '战斗画面', '按键-交互')
         if result.is_success:
+            self.battle_entered = True
             return self.round_success(self.plan.mission_type_name)
 
         return self.round_retry(result.status, wait=1)
@@ -558,15 +563,22 @@ class NotoriousHunt(ZOperation):
         else:
             return self.round_retry(status=result.status, wait=1)
 
-    @node_from(from_name='自动战斗')
+    @node_from(from_name='自动战斗', status='普通战斗-完成')
     @node_notify(when=NotifyTiming.CURRENT_SUCCESS, detail=True)
     @operation_node(name='战斗结束')
     def after_battle(self) -> OperationRoundResult:
-        self.can_run_times -= 1
+        if not getattr(self, 'battle_entered', False) or self.previous_node.status != '普通战斗-完成':
+            return self.round_fail('未核验进入战斗及胜利结果，不计完成次数')
+        if self.plan.run_times >= self.plan.plan_times:
+            return self.round_fail('计划已完成，不重复增加完成次数')
+        if not self.use_charge_power and (self.can_run_times <= 0 or self.run_record.left_times <= 0):
+            return self.round_fail('未核验可用免费奖励次数，不计完成次数')
+        self.battle_entered = False
         if self.use_charge_power:
             self.charge_plan_config.add_plan_run_times(self.plan)
         else:
-            self.run_record.left_times = self.run_record.left_times - 1
+            self.can_run_times -= 1
+            self.run_record.left_times -= 1
             self.config.add_plan_run_times(self.plan)
         return self.round_success()
 
@@ -579,7 +591,7 @@ class NotoriousHunt(ZOperation):
             try_next = self.can_run_times > 0
         op = ChooseNextOrFinishAfterBattle(self.ctx, try_next, is_agent_plan=self.plan.is_agent_plan)
         result = op.execute()
-        if result.status == '战斗结果-完成' and self.can_run_times > 0:
+        if not self.use_charge_power and result.success and result.status == '战斗结果-完成' and self.can_run_times > 0:
             # 可能是其他设备挑战了 没有剩余次数了
             self.run_record.left_times = 0
         return self.round_by_op_result(result)

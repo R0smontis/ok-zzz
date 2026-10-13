@@ -8,7 +8,7 @@ from PySide6.QtCore import Qt, QMimeData, Signal, QTimer
 from PySide6.QtGui import QDrag, QPainter, QPen, QPalette, QColor
 from PySide6.QtWidgets import (QDialog, QGridLayout, QGroupBox, QHBoxLayout,
     QLabel, QTableWidgetItem, QVBoxLayout, QWidget, QHeaderView, QScrollArea,
-    QAbstractItemView, QLayout)
+    QAbstractItemView, QLayout, QSizePolicy)
 from qfluentwidgets import (CheckBox, ComboBox, FluentIcon, PushButton, SpinBox,
     PrimaryPushButton, TableWidget, ScrollArea, isDarkTheme, qconfig)
 from ok import og
@@ -47,9 +47,11 @@ def parse_charge_plans(value, *, single=False, category=None):
     allowed = {field.name for field in fields(ChargePlanItem) if field.name != 'skipped'}
     result = []
     for number, row in enumerate(rows, 1):
-        if not isinstance(row, dict) or set(row)-allowed-{'skipped'}:
+        if not isinstance(row, dict) or set(row)-allowed-{'skipped', 'double_reward_enabled'}:
             raise ValueError(f'计划 {number} 含未知字段或格式错误')
-        item = ChargePlanItem(**{key: val for key, val in row.items() if key in allowed})
+        if not isinstance(row.get('double_reward_enabled', True), bool):
+            raise ValueError(f'计划 {number} 的双倍开关格式错误')
+        item = ChargePlanItem.from_dict({key: val for key, val in row.items() if key != 'skipped'})
         if category is not None and item.category_name != category:
             raise ValueError(f'计划 {number} 的副本类别应为{category}')
         for key in ('category_name', 'mission_type_name', 'mission_name', 'level', 'auto_battle_config'):
@@ -58,8 +60,11 @@ def parse_charge_plans(value, *, single=False, category=None):
                 raise ValueError(f'计划 {number} 的文本字段格式错误')
         if not item.category_name or not item.auto_battle_config:
             raise ValueError(f'计划 {number} 的副本类别和战斗模板不能为空')
+        if item.supports_double_reward and item.plan_times == 0:
+            raise ValueError(f'计划 {number} 的双倍次数和单倍次数不能都为 0')
         for key, low, high in (('plan_times', 1, 99999), ('run_times', 0, 99999),
-                ('predefined_team_idx', -1, 19), ('notorious_hunt_buff_num', 1, 3)):
+                ('predefined_team_idx', -1, 19), ('notorious_hunt_buff_num', 1, 3),
+                ('double_times', 0, 99999), ('single_times', 0, 99999)):
             val = getattr(item, key)
             if isinstance(val, bool) or not isinstance(val, int) or not low <= val <= high:
                 raise ValueError(f'计划 {number} 的 {key} 超出允许范围')
@@ -76,7 +81,8 @@ class ChargePlanWidget(ConfigLabelAndWidget):
     fields = [('category_name', '副本类别'), ('mission_type_name', '副本类型'),
         ('mission_name', '副本名称'), ('level', '副本等级'),
         ('auto_battle_config', '战斗模板'), ('card_num', '卡片数量'),
-        ('plan_times', '计划次数'), ('predefined_team_idx', '预备编队'),
+        ('plan_times', '计划次数'), ('double_times', '双倍次数'), ('single_times', '单倍次数'),
+        ('predefined_team_idx', '预备编队'),
         ('notorious_hunt_buff_num', '狩猎增益编号')]
     hunt_fields = [('mission_type_name', '狩猎目标'), ('level', '副本等级'),
         ('auto_battle_config', '战斗模板'), ('plan_times', '计划次数'),
@@ -98,6 +104,8 @@ class ChargePlanWidget(ConfigLabelAndWidget):
         self.scroll = ScrollArea(self)
         self.scroll.setWidgetResizable(True)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
         self.body = QWidget(self)
         self.body.setObjectName('chargePlanBody')
         self.rows_layout = QVBoxLayout(self.body)
@@ -144,7 +152,15 @@ class ChargePlanWidget(ConfigLabelAndWidget):
         self._render()
 
     def _save(self):
-        self.update_config(json.dumps(self.rows[0] if self.single else self.rows, ensure_ascii=False))
+        value = json.dumps(self.rows[0] if self.single else self.rows, ensure_ascii=False)
+        try:
+            parse_charge_plans(value, single=self.single,
+                               category=NOTORIOUS_HUNT if self.hunt else None)
+        except (ValueError, TypeError) as exc:
+            self.error_label.setText(str(exc))
+            return
+        self.error_label.clear()
+        self.update_config(value)
 
     def add_plan(self):
         from zzz_od.application.charge_plan.charge_plan_config import ChargePlanItem
@@ -169,6 +185,11 @@ class ChargePlanWidget(ConfigLabelAndWidget):
 
     def _changed(self, index, key, value):
         self.rows[index][key] = value or None if key == 'mission_name' else value
+        row = self.rows[index]
+        if key in ('double_times', 'single_times'):
+            row['plan_times'] = row['double_times'] + row['single_times']
+        elif key == 'plan_times':
+            row['single_times'] = value
         self._save()
 
     @staticmethod
@@ -224,6 +245,12 @@ class ChargePlanWidget(ConfigLabelAndWidget):
         value = control.currentData()
         row = self.rows[index]
         row[key] = value
+        if key == 'category_name':
+            from zzz_od.application.charge_plan.charge_plan_config import ChargePlanItem
+            # 支持双倍的类别显示双倍/单倍次数，其余类别只显示计划次数
+            row.update(ChargePlanItem(**{**row, 'plan_times': max(row['plan_times'], 1),
+                                         'single_times': None}).to_dict())
+            QTimer.singleShot(0, self._render)  # 不在控件自身信号中删除控件
         downstream = ('mission_type_name', 'mission_name', 'level') if key == 'category_name' else (
             ('mission_name',) if key == 'mission_type_name' else ())
         for child in downstream:
@@ -234,6 +261,14 @@ class ChargePlanWidget(ConfigLabelAndWidget):
             row[child] = row.get(child) if row.get(child) in values else values[0]
             self._set_choices(self.editors[index][child], choices, row[child], preserve=False)
         self._save()
+
+    def _row_fields(self, row):
+        from zzz_od.application.charge_plan.charge_plan_config import DOUBLE_REWARD_CATEGORIES
+        if self.hunt:
+            return self.fields
+        hidden = ('plan_times',) if row['category_name'] in DOUBLE_REWARD_CATEGORIES else (
+            'double_times', 'single_times')
+        return [(key, title) for key, title in self.fields if key not in hidden]
 
     def _render(self):
         self.add_button.setVisible(not self.single or not self.rows)
@@ -253,16 +288,17 @@ class ChargePlanWidget(ConfigLabelAndWidget):
             grid.setHorizontalSpacing(16)
             grid.setVerticalSpacing(6)
             editors = {}
-            for slot, (key, title) in enumerate(self.fields):
+            for slot, (key, title) in enumerate(self._row_fields(row)):
                 cell = QWidget(group)
                 cell_layout = QVBoxLayout(cell)
                 cell_layout.setContentsMargins(0, 0, 0, 6)
                 label = QLabel(title, cell)
                 cell_layout.addWidget(label)
                 value = row.get(key)
-                if key in ('plan_times', 'notorious_hunt_buff_num'):
+                if key in ('plan_times', 'notorious_hunt_buff_num', 'double_times', 'single_times'):
                     control = SpinBox(cell)
                     limits = {'plan_times': (1, 99999), 'predefined_team_idx': (-1, 19),
+                              'double_times': (0, 99999), 'single_times': (0, 99999),
                               'notorious_hunt_buff_num': (1, 3)}
                     control.setRange(*limits[key])
                     control.setValue(value)
@@ -295,6 +331,28 @@ class ChargePlanWidget(ConfigLabelAndWidget):
                     actions.addWidget(button)
                 layout.addLayout(actions)
             self.rows_layout.addWidget(group)
+        # ExpandSettingCard fixes its height when built. Rebuilding the rows can
+        # change this editor from its empty height to its populated height;
+        # propagate that change after Qt has laid out the new controls.
+        QTimer.singleShot(0, self._refresh_container_geometry)
+
+    def _refresh_container_geometry(self):
+        self.error_label.setVisible(bool(self.error_label.text()))
+        self.rows_layout.activate()
+        self.layout.invalidate()
+        self.layout.activate()
+        self.updateGeometry()
+        parent = self.parentWidget()
+        while parent is not None:
+            if parent.layout() is not None:
+                parent.layout().invalidate()
+                parent.layout().activate()
+            adjust = getattr(parent, '_adjust_config_content_size', None)
+            if callable(adjust):
+                adjust()
+                parent.updateGeometry()
+                break
+            parent = parent.parentWidget()
 
 
 class DailyOrderTable(TableWidget):

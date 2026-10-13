@@ -4,9 +4,8 @@ import os
 if __name__ == '__main__':
     from src.runtime.performance_policy import configure_native_threads
     configure_native_threads()
-    if getattr(sys, 'frozen', False):
-        os.chdir(os.path.dirname(sys.executable))
-    from src.runtime.startup import ensure_output_streams
+    from src.runtime.startup import ensure_output_streams, prepare_runtime_directory
+    prepare_runtime_directory()
     check_output = None
     if '--check-package-output' in sys.argv:
         index = sys.argv.index('--check-package-output')

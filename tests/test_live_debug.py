@@ -362,6 +362,45 @@ def test_dry_run_stops_before_named_node_without_running_it():
     assert hits == [{'operation': '演练', 'node': '拆解确认'}]
 
 
+def test_dry_run_gate_does_not_leak_into_next_normal_run():
+    from types import SimpleNamespace
+    from onedragon.base.operation import dry_run
+    from onedragon.base.operation.application.application_run_context import ApplicationRunContext
+    from onedragon.base.operation.operation import Operation
+    from onedragon.base.operation.operation_edge import node_from
+    from onedragon.base.operation.operation_node import operation_node
+    ran = []
+    ctx = SimpleNamespace(controller=None, current_instance_idx=0, unlisten_all_event=Mock(),
+                          is_game_window_ready=True)
+    ctx.run_context = ApplicationRunContext(ctx)
+
+    class Charge(Operation):
+        @operation_node(name='选择预备编队', is_start_node=True)
+        def team(self):
+            return self.round_success()
+
+        @node_from(from_name='选择预备编队')
+        @operation_node(name='出战')
+        def deploy(self):
+            ran.append('出战')
+            return self.round_success()
+
+    def create(*_):
+        op = Charge(ctx, op_name='体力刷本')
+        op.screenshot = lambda: None
+        return op
+    ctx.run_context.get_application = create
+    dry_run.set_stop_before(['出战'])
+    try:
+        ctx.run_context.run_application('charge_plan')
+        assert ran == [] and dry_run.hits() == [{'operation': '体力刷本', 'node': '出战'}]
+        ctx.run_context.run_application('charge_plan')
+    finally:
+        dry_run.set_stop_before(())
+    assert ran == ['出战']
+    assert ctx.run_context.last_application_result.success
+
+
 def test_dry_run_list_is_only_accepted_on_task_start(tmp_path):
     service = LiveDebugService(SubstituteGame(), tmp_path / 'live')
     for bad in ({'op': 'task_stop', 'task': 'X', 'stop_before': ['a']},

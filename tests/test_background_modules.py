@@ -119,6 +119,42 @@ def test_application_inputs_follow_switch_never_activate_and_release_after_error
     controller.cancel_inputs.assert_called_once()
 
 
+def test_stopped_application_halts_its_running_battle_turning(monkeypatch):
+    """人工停止只让节点循环退出；周期转向线程必须随应用结束一起停止。"""
+    import time
+    import src.controls.application_input as policy
+    import zzz_od.auto_battle.auto_battle_operator as module
+    turns = []
+    monkeypatch.setattr(module, 'AtomicBtnLock', lambda ctx: None)
+    monkeypatch.setattr(module, 'AtomicTurn', lambda ctx, _: SimpleNamespace(execute=lambda: turns.append(1)))
+    op = object.__new__(module.AutoBattleOperator)
+    op.ctx = SimpleNamespace(last_check_in_battle=True)
+    op.auto_lock_interval, op.auto_turn_interval, op.last_turn_time = 0, .01, 0
+    op._stop_event, op._periodic_generation, op.is_running = threading.Event(), 1, True
+    def stop_auto_battle():
+        op._stop_event.set()
+        op.is_running = False
+    battle = SimpleNamespace(stop_auto_battle=stop_auto_battle)
+    worker = threading.Thread(target=op.operate_periodically, args=(1,), daemon=True)
+    worker.start()
+    controller = SimpleNamespace(background_mode=True, cancel_inputs=Mock())
+    ctx = SimpleNamespace(controller=controller, init_controller=lambda activate: None,
+                          _auto_battle_context=battle)
+    task = SimpleNamespace(ctx=ctx, log_info=Mock(), log_error=Mock(), info={})
+    try:
+        with policy.application_inputs(task):
+            deadline = time.monotonic() + 1
+            while not turns and time.monotonic() < deadline:
+                time.sleep(.005)
+        assert turns
+        worker.join(1)
+        assert not worker.is_alive()
+        controller.cancel_inputs.assert_called_once()
+    finally:
+        stop_auto_battle()
+
+
+
 def test_background_mode_without_virtual_gamepad_stops_instead_of_falling_back():
     import src.controls.application_input as policy
     from src.controls.interaction import BACKGROUND_UNAVAILABLE

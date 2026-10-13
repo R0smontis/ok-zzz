@@ -7,7 +7,6 @@ def test_options_data_coverage():
     from zzz_od.application.app_options_data import APP_OPTIONS
     by_id = {a['app_id']: a for a in APP_OPTIONS if 'app_id' in a}
     assert len(by_id) >= 25
-    assert len(by_id['charge_plan']['options']) >= 5
     assert len(by_id['suibian_temple']['options']) >= 10
     assert len(by_id['commission_assistant']['options']) >= 8
     assert len(by_id['world_patrol']['options']) >= 6

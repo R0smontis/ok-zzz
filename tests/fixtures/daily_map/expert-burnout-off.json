@@ -1,0 +1,9 @@
+{
+  "source": "debug/charge-conqueror-normal.png",
+  "annotation": "Human-labelled visible text centers; not OCR engine output",
+  "labels": [
+    {"text": "燃竭模式", "center": [1475, 695]},
+    {"text": "RS", "center": [1618, 695]},
+    {"text": "OFF", "center": [1700, 695]}
+  ]
+}
