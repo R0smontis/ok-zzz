@@ -229,6 +229,19 @@ python -m PyInstaller --noconfirm deploy/ok-zzz.spec
 `--check-package` 离线加载依赖、资源及配置控件，并执行闪避和 OCR 模型推理，
 报告尚未安装的空洞导航模型，不连接游戏或发送输入。
 
+安装包（NSIS）：脚本按自身位置定位仓库根目录，因此用绝对路径调用 makensis
+（`%CD%` 为仓库根目录）：
+
+```powershell
+makensis /DAPP_VERSION=0.1.0 /DBUILD_TAG=v0.1.0-20261013 "%CD%\deploy\ok-zzz.nsi"
+```
+
+产物为 `dist/ok-zzz-v0.1.0-20261013-setup.exe`：安装到 `%ProgramFiles%\ok-zzz` 并需要管理员权限，
+创建开始菜单与桌面快捷方式，可选择把安装目录加入 Windows Defender 排除项；
+卸载时询问是否保留 `config/`，程序文件与 `logs`、`debug`、`cache` 一律删除。
+静默安装（`/S`）与交互式安装的文件结果相同，但不添加 Defender 排除项。
+脚本默认从 `dist/ok-zzz` 取包，`/DDIST_DIR`、`/DOUT_FILE` 可覆盖路径。
+
 目录结构：
 
 ```

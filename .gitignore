@@ -10,6 +10,7 @@ logs/
 # Runtime output folders live at the repo root; anchor them so source packages
 # such as src/onedragon/base/debug/ are not ignored.
 /debug/
+/.debug/
 /build/
 /dist/
 *.spec.bak
