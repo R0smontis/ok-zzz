@@ -222,7 +222,7 @@ class TransportBy3dMap(ZOperation):
         self.target_icon = target_icon
         self.map_area = self.ctx.screen_loader.get_area('3D地图', '区域-地图')
 
-        for key in ('_patrol_steps', '_patrol_visited', '_patrol_target_rel', '_background_expected_point',
+        for key in ('_patrol_steps', '_patrol_visited', '_patrol_target_rel', '_patrol_nudges', '_patrol_blocked', '_background_map_stalls', '_background_expected_point',
                     '_background_map_motion', '_background_go_requests'):
             self.__dict__.pop(key, None)
         log.info(f'初始化传送点搜索完成，目标：{self.target_tp_name}')

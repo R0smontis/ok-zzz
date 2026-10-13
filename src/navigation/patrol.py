@@ -36,11 +36,21 @@ def choose_patrol_point(op, screen):
             return op.round_success(f'已核验目标传送点：{op.area_name} / {op.tp_name}')
         return op.round_fail(f'传送点 {op.tp_name} 尚未解锁')
     steps = getattr(op, '_patrol_steps', 0)
-    if steps >= 60:
+    if steps >= 40:
         return op.round_fail(f'后台未找到传送点 {op.tp_name}')
     op._patrol_steps = steps + 1
 
     icons = teleport_icons(screen)
+    if getattr(op, '_background_map_stalls', 0) >= 3:
+        # The map stopped panning (its edge): that icon cannot be brought under the cursor.
+        blocked = op.__dict__.setdefault('_patrol_blocked', [])
+        expected = getattr(op, '_background_expected_point', None)
+        if expected is not None and icons:
+            blocked.append(min(icons, key=lambda i: abs(i[0] - expected[0]) + abs(i[1] - expected[1])))
+        op._background_map_stalls = 0
+        op.__dict__.pop('_background_map_motion', None)
+    blocked = getattr(op, '_patrol_blocked', [])
+    icons = [i for i in icons if not any(_near(i, b, 20) for b in blocked)]
     visited = op.__dict__.setdefault('_patrol_visited', {})
     target_rel = getattr(op, '_patrol_target_rel', None)
     centre = next((i for i in sorted(icons, key=lambda i: abs(i[0] - CURSOR[0]) + abs(i[1] - CURSOR[1]))
@@ -63,7 +73,14 @@ def choose_patrol_point(op, screen):
         return steer_to(op, state, *follow)
     centre_rel = target_rel if target_rel is not None else (0., 0.)
     if not (state['detail'] and state['point']):
-        return op.round_retry('传送点已在光标下，等待详情', wait=.5)
+        # Near the cursor is not under it: nudge it closer; a fan that never opens its panel
+        # (e.g. under the player's own marker) is skipped after a few nudges.
+        nudges = op.__dict__.get('_patrol_nudges', 0) + 1
+        op._patrol_nudges = nudges
+        if nudges <= 3:
+            return steer_to(op, state, *centre)
+        state = dict(state, point='（无详情）')
+    op._patrol_nudges = 0
     visited[centre_rel] = state['point']
     cx, cy = centre
     candidates = []
