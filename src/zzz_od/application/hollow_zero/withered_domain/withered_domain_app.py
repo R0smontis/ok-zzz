@@ -61,6 +61,9 @@ class WitheredDomainApp(ZApplication):
         self.level: int = 1
         self.phase: int = 1
 
+    def _background(self) -> bool:
+        return bool(getattr(self.ctx.controller, 'background_mode', False))
+
     def handle_init(self):
         self.ctx.withered_domain.init_before_run()
         mission_name = self.config.mission_name
@@ -112,6 +115,9 @@ class WitheredDomainApp(ZApplication):
     @operation_node(name='前往枯萎之都-入口', node_max_retry_times=20)
     def choose_withered_domain_entry(self) -> OperationRoundResult:
         """前往枯萎之都入口"""
+        if self._background():
+            from src.navigation.hollow import entrance_step
+            return entrance_step(self, self.last_screenshot)
         entry_result = self.round_by_find_area(self.last_screenshot, '零号空洞-入口', '街区')
         if entry_result.is_success:
             return self.round_success('已进入枯萎之都-入口')
@@ -128,6 +134,9 @@ class WitheredDomainApp(ZApplication):
         if (self.run_record.is_finished_by_week()
             or self.run_record.is_finished_by_day()):
             return self.round_success(WitheredDomainApp.STATUS_TIMES_FINISHED)
+        if self._background():
+            from src.navigation.hollow import zone_step
+            return zone_step(self, self.last_screenshot, self.mission_type_name)
 
         result = self.round_by_find_and_click_area(self.last_screenshot, '零号空洞-入口', '下一步')
         if result.is_success:
@@ -139,6 +148,9 @@ class WitheredDomainApp(ZApplication):
     @node_from(from_name='选择副本类型')
     @operation_node(name='选择副本')
     def choose_mission(self) -> OperationRoundResult:
+        if self._background():
+            from src.navigation.hollow import mission_step
+            return mission_step(self, self.last_screenshot, self.mission_name)
         area = self.ctx.screen_loader.get_area('零号空洞-入口', '副本列表')
         return self.round_by_ocr_and_click(self.last_screenshot, self.mission_name, area=area,
                                            success_wait=1, retry_wait=1)
@@ -147,6 +159,9 @@ class WitheredDomainApp(ZApplication):
     @node_from(from_name='选择副本')
     @operation_node(name='下一步')
     def click_next(self) -> OperationRoundResult:
+        if self._background():
+            from src.navigation.hollow import next_step
+            return next_step(self, self.last_screenshot)
         result = self.round_by_find_and_click_area(self.last_screenshot, '零号空洞-入口', '下一步')
         if result.is_success:
             time.sleep(0.5)
