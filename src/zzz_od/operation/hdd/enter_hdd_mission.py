@@ -33,6 +33,9 @@ class EnterHddMission(ZOperation):
         self.mission_name: str = mission_name
         self.predefined_team_idx = predefined_team_idx  # 预备编队下标 -1代表不选择
 
+    def _background(self) -> bool:
+        return bool(getattr(self.ctx.controller, 'background_mode', False))
+
     def handle_init(self):
         for key in ('_hdd_chapter_rounds', '_hdd_chapter_opens', '_hdd_backs'):
             self.__dict__.pop(key, None)
@@ -64,8 +67,9 @@ class EnterHddMission(ZOperation):
     @node_from(from_name='选择章节')
     @operation_node(name='选择委托')
     def choose_mission_type(self) -> OperationRoundResult:
-        if getattr(self.ctx.controller, 'background_mode', False):
-            return self.round_fail('HDD后台委托分类和副本选择尚待实机核验，未出战')
+        if self._background():
+            from src.navigation.hdd import choose_mission_type
+            return choose_mission_type(self, self.last_screenshot)
         area = self.ctx.screen_loader.get_area('HDD', '委托区域')
         result = self.round_by_ocr_and_click(self.last_screenshot, self.mission_type, area=area)
         if result.is_success:
@@ -82,6 +86,9 @@ class EnterHddMission(ZOperation):
     @node_from(from_name='选择委托')
     @operation_node(name='选择副本', node_max_retry_times=10)  # 有些副本比较多 多允许滑动几次找找
     def choose_mission(self) -> OperationRoundResult:
+        if self._background():
+            from src.navigation.hdd import choose_mission
+            return choose_mission(self, self.last_screenshot)
         area = self.ctx.screen_loader.get_area('HDD', '副本区域')
         result = self.round_by_ocr_and_click(self.last_screenshot, self.mission_name, area=area)
         if result.is_success:
@@ -100,6 +107,9 @@ class EnterHddMission(ZOperation):
     @node_from(from_name='选择副本')
     @operation_node(name='下一步')
     def click_next(self) -> OperationRoundResult:
+        if self._background():
+            from src.navigation.hdd import press_next
+            return press_next(self, self.last_screenshot)
         return self.round_by_find_and_click_area(self.last_screenshot, 'HDD', '下一步',
                                                  success_wait=2, retry_wait=1)
 
@@ -115,12 +125,18 @@ class EnterHddMission(ZOperation):
     @node_from(from_name='选择预备编队')
     @operation_node(name='出战')
     def click_deploy(self) -> OperationRoundResult:
+        if self._background():
+            # The HDD deployment page is the common one: 出战 on the menu button, popups on A.
+            from zzz_od.operation.deploy import Deploy
+            return self.round_by_op_result(Deploy(self.ctx).execute())
         return self.round_by_find_and_click_area(self.last_screenshot, 'HDD', '出战',
                                                  success_wait=1, retry_wait=1)
 
     @node_from(from_name='出战')
     @operation_node(name='识别低等级')
     def check_level(self) -> OperationRoundResult:
+        if self._background():
+            return self.round_success('出战确认已由出战处理')
         return self.round_by_find_and_click_area(self.last_screenshot, 'HDD', '确定并出战',
                                                  retry_wait=1)
 
