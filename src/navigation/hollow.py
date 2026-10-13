@@ -136,11 +136,32 @@ def mission_step(op, screen, mission):
 
 
 def next_step(op, screen):
-    """下一步 on the menu button until the deployment page shows 出战."""
+    """下一步 on the menu button until the deployment page shows 出战.
+
+    A suspended run answers 下一步 with 「当前正在处理：…是否继续？」; 确认 resumes it.
+    """
+    from src.navigation.menus import label_focused
     rows = _rows(op, screen)
     words = {_text(r.data) for r in rows}
     if '出战' in words and '战斗设置' in words:
         return op.round_success('出战')
+    resume = any('是否继续' in _text(r.data) for r in rows)
+    if getattr(op, '_hollow_resume_pending', False):
+        if resume:
+            if _bump(op, '_hollow_resume_waits', 6):
+                return op.round_fail('确认继续后对话框未关闭，未重复确认')
+            return op.round_wait('等待继续探索生效，未重复确认', wait=.6)
+        op._hollow_resume_pending = False
+        return op.round_success('继续-确认')
+    if resume:
+        confirm = next((r for r in rows if _text(r.data) == '确认' and 560 < r.center.y < 660), None)
+        if confirm is None or not label_focused(screen, confirm.center, 120):
+            return op.round_retry('继续探索的确认焦点未核验，未操作', wait=.6)
+        if _bump(op, '_hollow_resume_presses', 2):
+            return op.round_fail('手柄确认继续探索未生效')
+        op._hollow_resume_pending = True
+        pad(op.ctx, 'a')
+        return op.round_wait('手柄确认继续已暂离的探索', wait=1.2)
     if mission_list(rows):
         if _bump(op, '_hollow_next_presses', 3):
             return op.round_fail('手柄下一步未生效')
@@ -149,3 +170,77 @@ def next_step(op, screen):
     if _bump(op, '_hollow_next_waits', 8):
         return op.round_fail('下一步后未出现出战画面')
     return op.round_wait('等待出战画面', wait=.8)
+
+
+def _leader_identity(rows):
+    """The character picker prints the focused agent's full name at the bottom left."""
+    from zzz_od.game_data.agent import AgentEnum
+    text = ''.join(_text(row.data) for row in sorted(rows, key=lambda r: r.center.x)
+                   if 50 < row.center.x < 1050 and 850 < row.center.y < 970)
+    matches = [a.value for a in AgentEnum if text.startswith(_text(a.value.agent_name))]
+    return max(matches, key=lambda a: len(a.agent_name), default=None)
+
+
+def squad_step(op, screen, targets):
+    """Keep an existing leader; an empty squad may select its configured first target with A/X.
+
+    The picker is only operated after this flow verified and opened an empty leader slot.
+    A/X delivery never counts as success: the deployment page must show the chosen name.
+    """
+    from zzz_od.game_data.agent import AgentEnum, AgentTypeEnum
+    rows = _rows(op, screen)
+    words = {_text(row.data) for row in rows}
+    pending = getattr(op, '_leader_pending', None)
+    if '领队' in words and '战斗设置' in words and '出战' in words:
+        names = {_text(r.data) for r in rows if 300 < r.center.x < 620 and 420 < r.center.y < 510}
+        assigned = next((a.value for a in AgentEnum if _text(a.value.agent_name) in names), None)
+        if assigned is not None:
+            if pending is not None and assigned.agent_id != pending:
+                return op.round_fail('确认后领队身份不匹配，未出战')
+            return op.round_success(f'已核验领队：{assigned.agent_name}')
+        if 'EMPTY' not in names:
+            return op.round_retry('领队槽状态未识别，未操作', wait=.6)
+        if pending is not None:
+            return op.round_fail('选择后领队仍为空，未重复操作')
+        if not isinstance(targets, (list, tuple)) or not targets or not isinstance(targets[0], str):
+            return op.round_fail('队伍为空：请配置挑战模板的目标代理人或在游戏内配置领队')
+        target = targets[0]
+        accepted = {a.value.agent_id for a in AgentEnum} | {a.value.agent_name for a in AgentEnum}
+        accepted |= {t.value for t in AgentTypeEnum}
+        if target not in accepted:
+            return op.round_fail(f'领队目标配置无效：{target}')
+        focus = screen[242:312, 450:660]
+        if not focus.size or float(np.mean(focus_mask(focus))) <= .35:
+            return op.round_retry('空领队槽焦点未核验，未操作', wait=.6)
+        if _bump(op, '_leader_opens', 3):
+            return op.round_fail('手柄打开领队列表未生效')
+        op._leader_target = target
+        pad(op.ctx, 'a')
+        return op.round_wait('手柄打开空领队的角色列表', wait=1.2)
+    if '确认阵容' in words and '角色详情' in words and '快捷编队' in words:
+        if not getattr(op, '_leader_opens', 0):
+            return op.round_fail('未由本流程打开角色列表，不改变已选队伍')
+        if pending is not None:
+            if _bump(op, '_leader_confirms', 3):
+                return op.round_fail('手柄确认阵容未生效')
+            pad(op.ctx, 'x')
+            return op.round_wait('手柄确认领队阵容，等待实际编队页', wait=1.2)
+        current = _leader_identity(rows)
+        if current is None:
+            return op.round_retry('当前角色姓名未核验，未选择', wait=.6)
+        target = op._leader_target
+        if target in (current.agent_id, current.agent_name, current.agent_type.value):
+            op._leader_pending = current.agent_id
+            pad(op.ctx, 'a')
+            return op.round_wait(f'手柄选择领队 {current.agent_name}', wait=.8)
+        step = getattr(op, '_leader_scan', 0)
+        if step >= 36:
+            return op.round_fail(f'角色列表中未找到领队目标 {target}，未出战')
+        # Three staggered columns; browse each row back and forth, reading the name after every press.
+        direction = ('right', 'right', 'down', 'left', 'left', 'down')[step % 6]
+        op._leader_scan = step + 1
+        pad(op.ctx, 'dpad_' + direction)
+        return op.round_wait(f'手柄浏览角色：{current.agent_name} → {target}', wait=.6)
+    if _bump(op, '_leader_waits', 8):
+        return op.round_fail('未核验枯萎之都编队画面')
+    return op.round_wait('等待枯萎之都编队画面', wait=.6)

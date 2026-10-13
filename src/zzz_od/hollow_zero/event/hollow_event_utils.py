@@ -138,11 +138,17 @@ def check_event_text_and_run(op: ZOperation, screen: MatLike, handlers: List[Eve
     """
     识别当前事件的文本 并做出选择
     """
+    background = getattr(op.ctx.controller, 'background_mode', False)
+    if background:
+        from src.navigation.hollow_events import pending_option
+        pending = pending_option(op, screen)
+        if pending is not None:
+            return pending
     area = get_event_text_area(op.ctx)
     part = cv2_utils.crop_image_only(screen, area.rect)
     white = cv2.inRange(part, (230, 230, 230), (255, 255, 255))
     white = cv2_utils.dilate(white, 5)
-    to_ocr = cv2.bitwise_and(part, part, mask=white)
+    to_ocr = part if background else cv2.bitwise_and(part, part, mask=white)
 
     ocr_result_map = op.ctx.ocr.run_ocr(to_ocr)
 
@@ -160,6 +166,10 @@ def check_event_text_and_run(op: ZOperation, screen: MatLike, handlers: List[Eve
             continue  # 过滤单字符识别结果
 
         mrl.add_offset(area.left_top)
+        if background:
+            from src.navigation.hollow_events import option_enabled
+            if not option_enabled(screen, mrl.max.rect):
+                continue  # 灰色的选项不可选（遮罩OCR时同样识别不到）
         ocr_result_list.append(ocr_result)
         mrl_list.append(mrl)
 
@@ -209,6 +219,9 @@ def check_event_text_and_run(op: ZOperation, screen: MatLike, handlers: List[Eve
 
 
 def click_empty(op: ZOperation, bottom_opt_pos: Optional[MatchResult] = None) -> OperationRoundResult:
+    if getattr(op.ctx.controller, 'background_mode', False):
+        from src.navigation.hollow_events import advance_dialogue
+        return advance_dialogue(op, op.last_screenshot)
     if bottom_opt_pos is not None:
         op.ctx.controller.click(bottom_opt_pos.center)
         time.sleep(0.2)
@@ -220,6 +233,9 @@ def click_rect(op: ZOperation, status: str, rect: Rect, wait: float = 1) -> Oper
     """
     点击一个位置
     """
+    if getattr(op.ctx.controller, 'background_mode', False):
+        from src.navigation.hollow_events import event_option
+        return event_option(op, op.last_screenshot, status, rect)
     click = op.ctx.controller.click(rect.center)
     if click:
         time.sleep(0.1)

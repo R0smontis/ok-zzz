@@ -28,6 +28,9 @@ class ChooseResonium(ZOperation):
 
     @operation_node(name='选择', is_start_node=True)
     def choose_one(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from src.navigation.hollow_events import free_resonium
+            return free_resonium(self, self.last_screenshot)
         item_list = resonium_utils.get_to_choose_list(self.ctx, self.last_screenshot, '选择')
         if len(item_list) == 0:
             return self.round_retry(status='识别不到选项', wait=0.5)
@@ -48,6 +51,14 @@ class ChooseResonium(ZOperation):
     @node_from(from_name='选择', success=False)  # 防止识别有问题 兜底随便选一个
     @operation_node(name='兜底选择')
     def choose_default(self):
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from onedragon.base.geometry.rectangle import Rect
+            from src.navigation.hollow_events import bottom_button, default_card
+            result = default_card(self, self.last_screenshot)
+            if result.is_success or getattr(self, '_pad_default_pending', None) is not None:
+                return result
+            # 「获得」弹窗同样带有「A 选择」提示，焦点在黄色的确认按钮上。
+            return bottom_button(self, self.last_screenshot, ['确认', '确定'], band=Rect(240, 640, 1750, 840))
         area = self.ctx.screen_loader.get_area('零号空洞-事件', '底部-选择列表')
         return self.round_by_ocr_and_click(self.last_screenshot, '选择', area=area,
                                            success_wait=1, retry_wait=1,

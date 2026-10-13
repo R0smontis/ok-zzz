@@ -65,6 +65,9 @@ class WitheredDomainApp(ZApplication):
         return bool(getattr(self.ctx.controller, 'background_mode', False))
 
     def handle_init(self):
+        for key in tuple(self.__dict__):
+            if key.startswith(('_hollow_', '_leader_')):
+                self.__dict__.pop(key, None)
         self.ctx.withered_domain.init_before_run()
         mission_name = self.config.mission_name
         idx = mission_name.find('-')
@@ -161,7 +164,11 @@ class WitheredDomainApp(ZApplication):
     def click_next(self) -> OperationRoundResult:
         if self._background():
             from src.navigation.hollow import next_step
-            return next_step(self, self.last_screenshot)
+            result = next_step(self, self.last_screenshot)
+            if result.is_success and result.status == '继续-确认':
+                self.level = -1
+                self.phase = -1
+            return result
         result = self.round_by_find_and_click_area(self.last_screenshot, '零号空洞-入口', '下一步')
         if result.is_success:
             time.sleep(0.5)
@@ -185,6 +192,14 @@ class WitheredDomainApp(ZApplication):
         return self.round_retry(wait=1)
 
     @node_from(from_name='下一步', status='出战')
+    @operation_node(name='检测编队')
+    def check_squad(self) -> OperationRoundResult:
+        if self._background():
+            from src.navigation.hollow import squad_step
+            return squad_step(self, self.last_screenshot, self.ctx.withered_domain.challenge_config.target_agents)
+        return self.round_success('沿用游戏内编队')
+
+    @node_from(from_name='检测编队')
     @operation_node(name='出战')
     def deploy(self) -> OperationRoundResult:
         op = Deploy(self.ctx)

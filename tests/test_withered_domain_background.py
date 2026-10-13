@@ -62,3 +62,105 @@ def test_next_is_pressed_on_the_menu_button_until_deployment():
     op, screen = frame('wd-5')
     result = next_step(op, screen)
     assert result.is_success and result.status == '出战'
+
+
+def test_squad_keeps_existing_leader_without_replacing_user_team():
+    from src.navigation.hollow import squad_step
+    op, screen = frame('hollow-leader-ready')
+    assert squad_step(op, screen, ['ellen', '击破', 'soukaku']).is_success
+    assert pressed(op) == []
+
+
+def test_empty_leader_opens_with_a_then_selects_and_confirms_with_ax():
+    from src.navigation.hollow import squad_step
+    op, screen = frame('hollow-squad-empty')
+    assert squad_step(op, screen, ['roxy']).result == R.WAIT
+    assert pressed(op) == ['xbox_a']
+    _, screen = frame('hollow-picker-settled', op)
+    assert squad_step(op, screen, ['roxy']).result == R.WAIT
+    assert pressed(op) == ['xbox_a', 'xbox_a']
+    assert op._leader_pending == 'roxy'
+    _, screen = frame('hollow-roxy-chosen', op)
+    assert squad_step(op, screen, ['roxy']).result == R.WAIT
+    assert pressed(op)[-1] == 'xbox_x'  # X 确认阵容, not A again (which would deselect).
+    _, screen = frame('hollow-leader-ready', op)
+    assert squad_step(op, screen, ['roxy']).is_success
+    assert len(pressed(op)) == 3
+
+
+@pytest.mark.parametrize('targets', [[], [None], 'roxy', ['不存在的角色']])
+def test_empty_leader_needs_valid_configuration(targets):
+    from src.navigation.hollow import squad_step
+    op, screen = frame('hollow-squad-empty')
+    assert squad_step(op, screen, targets).is_fail
+    assert pressed(op) == []
+
+
+def test_role_type_matches_current_agent_but_unowned_name_is_not_selected():
+    from src.navigation.hollow import squad_step
+    op, screen = frame('hollow-squad-empty')
+    squad_step(op, screen, ['击破'])
+    _, screen = frame('hollow-picker-settled', op)
+    assert squad_step(op, screen, ['击破']).result == R.WAIT
+    assert op._leader_pending == 'roxy'
+    op, screen = frame('hollow-squad-empty')
+    squad_step(op, screen, ['ellen'])
+    _, screen = frame('hollow-picker-settled', op)
+    assert squad_step(op, screen, ['ellen']).result == R.WAIT
+    assert pressed(op)[-1] == 'xbox_dpad_right'
+    assert getattr(op, '_leader_pending', None) is None
+
+
+def test_unrelated_picker_and_mismatched_confirmation_do_not_succeed():
+    from src.navigation.hollow import squad_step
+    op, screen = frame('hollow-roxy-chosen')
+    assert squad_step(op, screen, ['roxy']).is_fail
+    assert pressed(op) == []
+    op, screen = frame('hollow-leader-ready')
+    op._leader_pending = 'ellen'
+    assert squad_step(op, screen, ['ellen']).is_fail
+    assert pressed(op) == []
+
+
+def test_roster_selection_and_deploy_are_separate_nodes():
+    entries = WitheredDomainApp.check_squad.operation_edge_annotation
+    assert any(e.node_from_name == '下一步' and e.status == '出战' for e in entries)
+    deploy = WitheredDomainApp.deploy.operation_edge_annotation
+    assert all(e.node_from_name == '检测编队' for e in deploy)
+
+
+def test_suspended_run_dialog_is_confirmed_once_and_resumes_without_deploying():
+    op, screen = frame('hollow-resume-dialog')
+    assert next_step(op, screen).result == R.WAIT
+    assert pressed(op) == ['xbox_a']
+    assert next_step(op, screen).result == R.WAIT  # still visible: no repeated confirm
+    op, screen = frame('hollow-back-world', op)
+    result = next_step(op, screen)
+    assert result.is_success and result.status == '继续-确认'
+    assert pressed(op) == ['xbox_a']
+
+
+def test_resume_dialog_that_never_closes_fails_without_repeating():
+    op, screen = frame('hollow-resume-dialog')
+    next_step(op, screen)
+    results = [next_step(op, screen) for _ in range(7)]
+    assert results[-1].is_fail and pressed(op) == ['xbox_a']
+
+
+def test_resume_dialog_without_verified_confirm_focus_is_not_operated():
+    op, screen = frame('hollow-resume-dialog')
+    screen = screen.copy()
+    screen[560:660, 960:1240] = 0
+    assert next_step(op, screen).result == R.RETRY and pressed(op) == []
+
+
+def test_app_resets_level_after_resume_confirmation():
+    op, screen = frame('hollow-resume-dialog')
+    op.ctx.controller.background_mode = True
+    op._background = lambda: True
+    op.level = op.phase = 2
+    op.last_screenshot = screen
+    op.click_next()
+    _, op.last_screenshot = frame('hollow-back-world', op)
+    assert op.click_next().status == '继续-确认'
+    assert op.level == -1 and op.phase == -1

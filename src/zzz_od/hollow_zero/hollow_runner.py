@@ -147,12 +147,28 @@ class HollowRunner(ZOperation):
                     return result
             # 识别不到地图 说明可能是空洞里有需要确认的对话框 随便点击一下吧对话框取消掉
             else:
-                self.round_by_click_area('零号空洞-事件', '空白')
+                popup = self._tap_blank()
+                if popup is not None:
+                    return popup
         else:
             # 未知的情况 点击一下继续
-            self.round_by_click_area('零号空洞-事件', '空白')
+            popup = self._tap_blank()
+            if popup is not None:
+                return popup
 
         return self.round_retry('未能识别当前画面', wait=1)
+
+    def _tap_blank(self) -> Optional[OperationRoundResult]:
+        if not getattr(self.ctx.controller, 'background_mode', False):
+            self.round_by_click_area('零号空洞-事件', '空白')
+            return None
+        # 后台不能盲点空白：只确认带黄色焦点的「确认/确定」弹窗（例如 受到侵蚀、获得）。
+        from onedragon.base.geometry.rectangle import Rect
+        from src.navigation.hollow_events import bottom_button
+        result = bottom_button(self, self.last_screenshot, ['确认', '确定'], band=Rect(240, 560, 1750, 860))
+        if result.is_success:
+            return self.round_wait(result.status)
+        return None if result.result.name == 'RETRY' else result
 
     def _handle_event(self, screen: MatLike, event_name: str) -> OperationRoundResult:
         """
@@ -200,6 +216,9 @@ class HollowRunner(ZOperation):
         :param current_map: 分析得到的地图
         :return:
         """
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from src.navigation.hollow_board import board_step
+            return board_step(self, screen, screen_time, current_map)
         target_node: HollowZeroMapNode = self.ctx.withered_domain.get_next_to_move(current_map)
         if target_node is None:
             return None
@@ -207,6 +226,8 @@ class HollowRunner(ZOperation):
         # if target_node.entry.entry_name == '不宜久留':  # 测试代码 在特殊情况停下
         #     return self.round_fail('不宜久留')
         next_to_move = target_node.next_node_to_move
+        if next_to_move is None:
+            return self.round_retry('自动寻路未提供移动节点，未操作', wait=1)
         log.info(f"前往目标: [{target_node.entry.entry_name}] 当前移动: [{next_to_move.entry.entry_name}]")
 
         # 999 是寻路兜底策略的特殊标识 是在识别识别的情况下使用的
@@ -379,7 +400,18 @@ class HollowRunner(ZOperation):
     @node_from(from_name='画面识别', status='通关-完成')
     @operation_node(name='通关-完成', node_max_retry_times=60)
     def mission_complete(self) -> OperationRoundResult:
-        result = self.round_by_find_and_click_area(self.last_screenshot, '零号空洞-事件', '通关-完成')
+        if getattr(self.ctx.controller, 'background_mode', False):
+            # 结算页的「完成」是 B 键提示。
+            result = self.round_by_find_area(self.last_screenshot, '零号空洞-事件', '通关-完成')
+            if result.is_success:
+                presses = getattr(self, '_pad_complete_presses', 0)
+                if presses >= 10:
+                    return self.round_fail('手柄确认通关完成未生效')
+                self._pad_complete_presses = presses + 1
+                from src.controls.gamepad import press
+                press(self.ctx, 'b')
+        else:
+            result = self.round_by_find_and_click_area(self.last_screenshot, '零号空洞-事件', '通关-完成')
         if result.is_success:
             reward = self.round_by_find_area(self.last_screenshot, '零号空洞-战斗', '通关-丁尼奖励')
             if not reward.is_success:

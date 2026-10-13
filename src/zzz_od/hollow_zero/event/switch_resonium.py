@@ -28,6 +28,9 @@ class SwitchResonium(ZOperation):
 
     @operation_node(name='选择', is_start_node=True)
     def choose_one(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from src.navigation.hollow_events import resonium_card
+            return resonium_card(self, self.last_screenshot, '交换')
         item_list = resonium_utils.get_to_choose_list(self.ctx, self.last_screenshot, '交换')
         if len(item_list) == 0:
             return self.round_retry(status='识别不到选项', wait=0.5)
@@ -45,6 +48,9 @@ class SwitchResonium(ZOperation):
     @node_from(from_name='选择', success=False)  # 防止识别有问题 兜底随便选一个
     @operation_node(name='兜底选择')
     def choose_default(self):
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from src.navigation.hollow_events import default_card
+            return default_card(self, self.last_screenshot, '交换')
         area = self.ctx.screen_loader.get_area('零号空洞-事件', '底部-选择列表')
         return self.round_by_ocr_and_click(self.last_screenshot, '交换', area=area,
                                            success_wait=1, retry_wait=1,

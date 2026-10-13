@@ -39,6 +39,9 @@ class BambooMerchant(ZOperation):
     @node_from(from_name='购买后确定')
     @operation_node(name='画面识别', is_start_node=True)
     def check_screen(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            # 商店购买尚未在实机核验手柄操作：后台暂不进入商店，继续寻路。
+            return self.round_success('后台暂不进入商店')
         area = self.ctx.screen_loader.get_area('零号空洞-商店', '二级标题')
         result = self.round_by_ocr(self.last_screenshot, '交易', area=area, lcs_percent=1)
         if result.is_success:

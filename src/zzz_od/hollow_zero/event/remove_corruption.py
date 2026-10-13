@@ -24,6 +24,9 @@ class RemoveCorruption(ZOperation):
 
     @operation_node(name='选择', is_start_node=True)
     def choose_one(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from src.navigation.hollow_events import remove_corruption
+            return remove_corruption(self, self.last_screenshot)
         area = self.ctx.screen_loader.get_area('零号空洞-事件', '底部-清除列表')
         return self.round_by_ocr_and_click(self.last_screenshot, '清除', area=area,
                                            color_range=[(240, 240, 240), (255, 255, 255)],

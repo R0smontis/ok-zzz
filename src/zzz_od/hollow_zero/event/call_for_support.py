@@ -180,6 +180,12 @@ class CallForSupport(ZOperation):
     @node_from(from_name='画面识别', status=STATUS_ACCEPT)
     @operation_node(name=STATUS_ACCEPT)
     def accept_backup(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from src.navigation.hollow_events import pad_option
+            result = pad_option(self, self.last_screenshot, [CallForSupport.STATUS_ACCEPT, '接替小队成员'])
+            if result.is_success:
+                self.replace = result.status == '接替小队成员'
+            return result
         area = hollow_event_utils.get_event_text_area(self.ctx)
         result = self.round_by_ocr_and_click(self.last_screenshot, CallForSupport.STATUS_ACCEPT, area=area)
         if result.is_success:
@@ -201,6 +207,9 @@ class CallForSupport(ZOperation):
             cn = '接替%d号队员的位置' % self.should_call_pos
         else:
             cn = '%d号位' % self.should_call_pos
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from src.navigation.hollow_events import pad_option
+            return pad_option(self, self.last_screenshot, [cn], cn, lcs=1)
         return self.round_by_ocr_and_click(self.last_screenshot, cn, area=area, lcs_percent=1,
                                            success_wait=2, retry_wait=1)
 
@@ -250,6 +259,9 @@ class CallForSupport(ZOperation):
         to_ocr = cv2.bitwise_and(part, part, mask=white)
 
         target_list = [gt(i.word, 'game') for i in opts]
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from src.navigation.hollow_events import pad_option
+            return pad_option(self, self.last_screenshot, target_list, CallForSupport.STATUS_NO_NEED)
         ocr_result_map = self.ctx.ocr.run_ocr(to_ocr)
         for ocr_result, mrl in ocr_result_map.items():
             results = difflib.get_close_matches(ocr_result, target_list, n=1)

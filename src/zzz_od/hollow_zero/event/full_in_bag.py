@@ -25,6 +25,10 @@ class FullInBag(ZOperation):
 
     @operation_node(name='丢弃', is_start_node=True)
     def drop(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from onedragon.base.geometry.rectangle import Rect
+            from src.navigation.hollow_events import bottom_button
+            return bottom_button(self, self.last_screenshot, ['丢弃'], band=Rect(240, 600, 1750, 960))
         return self.round_by_ocr_and_click(self.last_screenshot, '丢弃',
                                            success_wait=1, retry_wait=1)
 

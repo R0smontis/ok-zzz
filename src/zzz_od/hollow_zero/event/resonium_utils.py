@@ -59,7 +59,7 @@ def choose_resonium_by_priority(item_list: List[Resonium], priority_list: List[s
 
     # 按优先级顺序 将匹配的鸣徽下标加入
     # 同时 优先考虑等级高的
-    for target_level in ['S', 'A', 'B', '']:
+    for target_level in ['SS', 'S', 'A', 'B', '']:
         for priority_item in priority_list:
             split_idx = priority_item.find(' ')
             if split_idx != -1:
@@ -84,14 +84,14 @@ def choose_resonium_by_priority(item_list: List[Resonium], priority_list: List[s
                     idx_list.append(i)
                     continue
 
-                if item.name == priority_item:  # 符合名称
+                if item.name == item_name:  # 符合配置中分类之后的名称
                     idx_list.append(i)
 
     if only_priority:
         return idx_list
 
     # 不符合优先级的
-    for level in ['S', 'A', 'B', '']:
+    for level in ['SS', 'S', 'A', 'B', '']:
         for i in range(len(item_list)):
             if item_list[i].level != level:
                 continue

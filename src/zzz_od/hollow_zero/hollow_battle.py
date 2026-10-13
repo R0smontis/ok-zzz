@@ -196,6 +196,9 @@ class HollowBattle(ZOperation):
     def period_reward_full(self) -> OperationRoundResult:
         time.sleep(1)  # 第一次稍等等一段时间 避免按键还不能响应
         self.run_record.period_reward_complete = True
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from src.navigation.hollow_events import result_confirm
+            return result_confirm(self, self.screenshot())
         return self.round_by_find_and_click_area(self.last_screenshot, '零号空洞-战斗', '结算周期上限-确认',
                                                  success_wait=1, retry_wait=1)
 
@@ -203,6 +206,12 @@ class HollowBattle(ZOperation):
     @node_from(from_name='自动战斗', status='零号空洞-挑战结果')
     @operation_node(name='战斗结果-确定')
     def after_battle(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from src.navigation.hollow_events import result_confirm
+            if getattr(self, '_pad_result_pending', None) is None:
+                time.sleep(2)  # 按钮刚出来的时候按不会有响应
+                self.screenshot()
+            return result_confirm(self, self.last_screenshot)
         # 找到后稍微等待: 1.按钮刚出来的时候按不会有响应 2. 奖励列表可能还没有出现
         time.sleep(2)
 
