@@ -69,3 +69,19 @@ def test_trigrams_divines_with_a_and_accepts_the_taken_reward():
     assert trigrams_step(op, screen).result == R.WAIT and op.claim_reward  # A 确认
     op, screen = frame('trigram-1', op)
     assert trigrams_step(op, screen).is_success and pressed(op) == ['xbox_a', 'xbox_a']
+
+
+def test_scratch_card_is_scratched_with_right_stick_strokes():
+    from src.navigation.signin import scratch_step
+    op, screen = frame('scratch-page')
+    assert scratch_step(op, screen).result == R.WAIT
+    assert pressed(op) == ['xbox_rs_up', 'xbox_rs_right', 'xbox_rs_down', 'xbox_rs_left'] * 3
+    # Scraped: the prizes show and only 「B 返回」 is left.
+    op, screen = frame('scratch-what', op)
+    assert scratch_step(op, screen).is_success
+
+
+def test_scratch_waits_for_the_card_before_any_stroke():
+    from src.navigation.signin import scratch_step
+    op, screen = frame('scratch-stuck')
+    assert scratch_step(op, screen).result == R.RETRY and pressed(op) == []

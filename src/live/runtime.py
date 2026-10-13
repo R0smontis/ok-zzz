@@ -59,7 +59,7 @@ class GameRuntime:
     actions = {'normal_attack', 'special_attack', 'ultimate', 'dodge', 'switch_next', 'switch_prev',
                'chain_left', 'chain_right', 'move_w', 'move_a', 'move_s', 'move_d',
                'confirm', 'back', 'menu', 'dpad_up', 'dpad_down', 'dpad_left', 'dpad_right',
-               'turn_left', 'turn_right'}
+               'turn_left', 'turn_right', 'turn_up', 'turn_down'}
     actions |= {'map', 'region_list', 'focus_details', 'tab_prev', 'tab_next', 'interact', 'compendium'}
     PAD_BUTTONS = ('a', 'b', 'x', 'y', 'lb', 'rb', 'lt', 'rt', 'start', 'back', 'l_thumb', 'r_thumb')
     actions |= {'pad_' + button for button in PAD_BUTTONS}  # raw buttons for exploring new pages
@@ -254,6 +254,7 @@ class GameRuntime:
                            'tab_prev': 'xbox_lb', 'tab_next': 'xbox_rb',
                            'compendium': ['xbox_lt','xbox_a'],
                            'turn_left': 'xbox_rs_left', 'turn_right': 'xbox_rs_right',
+                           'turn_up': 'xbox_rs_up', 'turn_down': 'xbox_rs_down',
                            **{f'dpad_{d}': f'xbox_dpad_{d}' for d in ('up', 'down', 'left', 'right')},
                            **{f'pad_{b}': f'xbox_{b}' for b in self.PAD_BUTTONS}}
                           if pad else {'confirm': 'enter', 'back': 'esc', 'menu': 'esc',

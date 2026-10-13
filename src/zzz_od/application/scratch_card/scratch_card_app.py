@@ -106,11 +106,11 @@ class ScratchCardApp(ZApplication):
     @node_from(from_name='点击刮刮卡')
     @operation_node(name='刮刮')
     def scratch(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            return signin.scratch_step(self, self.last_screenshot)
         result = self.round_by_find_area(self.last_screenshot, '报刊亭', '每日可刮取一次')
         if not result.is_success:
             return self.round_retry(status=result.status, wait=1)
-        if getattr(self.ctx.controller, 'background_mode', False):
-            return signin.unverified_gesture(self, self.last_screenshot, '刮刮卡')
 
         areas = [
             self.ctx.screen_loader.get_area('报刊亭', f'刮层-{i}')

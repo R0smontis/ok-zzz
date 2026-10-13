@@ -5,6 +5,8 @@ All three sign-ins (吼吼饼铺, 刮刮卡, 卦象集录) share one reward a da
 刮刮卡 button under an X prompt, and opening it answers 「今日已经完成过一次相同类型的奖励领取」
 with a focused 确认 that A accepts.
 """
+import numpy as np
+
 from onedragon.base.geometry.rectangle import Rect
 from onedragon.utils.log_utils import log
 from src.controls.gamepad import press as pad
@@ -73,3 +75,30 @@ def trigrams_step(op, screen):
             return op.round_success('卦象集录')
         return _press(op, 'a', '_trigram_divines', 3, '手柄占卜')
     return op.round_retry('未识别卦象集录画面，未操作', wait=1)
+
+
+def scratch_step(op, screen):
+    """The 刮刮卡 page prints 「R 刮一刮」: right-stick strokes scrape the coating (live 2026-10-13).
+
+    Strokes from the centre in the four directions clear it within one round. The game then
+    shows the prizes with only 「B 返回」 left, also when the card is opened again that day.
+    """
+    card = op.round_by_find_area(screen, '报刊亭', '每日可刮取一次').is_success
+    prompts = [_text(r.data) for r in _rows(op, screen, Rect(760, 700, 1160, 780))]
+    count = op.__dict__.get('_scratch_rounds', 0)
+    if not card:
+        if count == 0:
+            return op.round_retry('等待刮刮卡画面，未操作', wait=1)
+        return op.round_success('刮刮卡已刮开')
+    coating = screen[530:615, 810:1110]
+    scraped = bool(coating.size) and float(np.mean(coating.max(axis=2) < 60)) < .3
+    if not any('刮一刮' in t for t in prompts) or scraped:
+        return op.round_success('刮刮卡已刮开') if '返回' in prompts or scraped else op.round_retry(
+            '等待刮刮卡提示，未操作', wait=1)
+    if count >= 4:
+        return op.round_fail('手柄刮刮卡未生效')
+    op._scratch_rounds = count + 1
+    for _ in range(3):
+        for direction in ('up', 'right', 'down', 'left'):
+            pad(op.ctx, 'rs_' + direction, .2)
+    return op.round_wait('手柄右摇杆刮刮卡', wait=1.5)
