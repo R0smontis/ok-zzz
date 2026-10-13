@@ -238,3 +238,10 @@ def test_background_wait_on_an_unchanged_picture_fails_instead_of_hanging(monkey
     op.ctx.controller.background_mode = False
     clock[0] += 500
     assert not op._background_wait_stalled(other)
+
+
+def test_context_provides_every_upstream_application_context():
+    # ok-zzz's ZContext is hand-written; 枯萎之都 failed with 初始化失败 when withered_domain was missing.
+    from zzz_od.context.zzz_context import ZContext
+    for name in ('lost_void', 'withered_domain', 'world_patrol_service', 'auto_battle_context'):
+        assert isinstance(getattr(ZContext, name, None), property), name

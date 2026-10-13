@@ -307,6 +307,14 @@ class ZContext(ContextEventBus):
         return self._get_or_create('lost_void', lambda: LostVoidContext(self))
 
     @property
+    def withered_domain(self):
+        """枯萎之都（零号空洞）的事件、代理人与挑战配置，首次使用时装配。"""
+        from zzz_od.application.hollow_zero.withered_domain.withered_domain_context import (
+            WitheredDomainContext,
+        )
+        return self._get_or_create('withered_domain', lambda: WitheredDomainContext(self))
+
+    @property
     def world_patrol_service(self):
         """通用返回流程所需的小地图识别服务，无需先运行巡逻任务。"""
         from zzz_od.application.world_patrol.world_patrol_service import WorldPatrolService
@@ -322,6 +330,13 @@ class ZContext(ContextEventBus):
 
     def after_app_shutdown(self) -> None:
         """进程退出前清理资源。"""
+        try:
+            # 上层清理依赖框架服务(如 StateRecordService)，必须先于战斗引擎清理
+            withered = self.__dict__.get('withered_domain')
+            if withered is not None:
+                withered.after_app_shutdown()
+        except Exception as e:
+            log.warning(f'枯萎之都清理异常: {e}')
         try:
             battle = self.__dict__.get('_auto_battle_context')
             if battle is not None:
