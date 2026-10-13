@@ -94,7 +94,8 @@ class Transport(ZOperation):
         if now - started >= Transport.MAP_OPEN_TIMEOUT_SECONDS:
             return self.round_fail('手柄打开地图未生效')
         # A map that is still opening must not be toggled shut: press only on a verified world frame.
-        if self.check_and_update_current_screen(self.last_screenshot, screen_name_list=['大世界-普通']) != '大世界-普通':
+        worlds = ('大世界-普通', '大世界-勘域')
+        if self.check_and_update_current_screen(self.last_screenshot, screen_name_list=list(worlds)) not in worlds:
             return self.round_wait('等待地图或大世界画面，未操作', wait=1)
         keys = self.ctx.game_config.get_gamepad_action_keys().get('minimap', [])
         if not keys:

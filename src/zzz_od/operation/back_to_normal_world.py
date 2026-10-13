@@ -42,6 +42,10 @@ class BackToNormalWorld(ZOperation):
         self.click_exit_battle: bool = False  # 是否点击了退出战斗
         self.prefer_dialog_confirm: bool = False  # 第一次优先取消，后续确认/取消轮流点击
         self._background_menu_back = 0
+        self._normal_arrival_waits = 0
+        for key in tuple(self.__dict__):
+            if key.startswith(('_map_open_', '_quick_nav_')):
+                self.__dict__.pop(key, None)
 
     @node_from(from_name='打开地图', success=False)
     @node_from(from_name='执行传送')
@@ -58,8 +62,14 @@ class BackToNormalWorld(ZOperation):
         if current_screen in screen_name_list:
             if current_screen == '大世界-勘域':
                 already_transport = self.previous_node.name == '执行传送' and self.previous_node.is_success
-                if self.ensure_normal_world and not already_transport:
-                    return self.round_success('传送到录像店')
+                if self.ensure_normal_world:
+                    if already_transport and getattr(self.ctx.controller, 'background_mode', False):
+                        self._normal_arrival_waits += 1
+                        if self._normal_arrival_waits > 6:
+                            return self.round_fail('确认传送后仍在勘域，未核验返回普通大世界')
+                        return self.round_wait('等待录像店加载，未把勘域算作普通大世界', wait=1)
+                    if not already_transport:
+                        return self.round_success('传送到录像店')
 
             return self.round_success(status=current_screen)
 
@@ -268,12 +278,22 @@ class BackToNormalWorld(ZOperation):
     @operation_node(name='打开地图', node_max_retry_times=60)
     def open_map(self) -> OperationRoundResult:
         """脱离卡死后，识别到大世界立即点击地图按钮"""
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from src.navigation.map import map_state, quick_nav_state
+            if map_state(self, self.last_screenshot) is not None or quick_nav_state(self, self.last_screenshot) is not None:
+                return self.round_success('已核验地图画面')
+            from zzz_od.operation.transport import Transport
+            return Transport._open_map_by_gamepad(self)
         return self.round_by_find_and_click_area(self.last_screenshot, '大世界', '地图', retry_wait=0.5)
 
     @node_from(from_name='打开地图')
     @operation_node(name='执行传送')
     def do_transport(self) -> OperationRoundResult:
         """打开地图后，传送到录像店房间"""
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from src.navigation.map import quick_nav
+            self.area_name, self.tp_name = '录像店', '房间'
+            return quick_nav(self, self.last_screenshot)
         op = MapTransport(self.ctx, '录像店', '房间')
         return self.round_by_op_result(op.execute())
 

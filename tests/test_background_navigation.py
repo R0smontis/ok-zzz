@@ -137,3 +137,72 @@ def test_keyboard_prompt_compendium_is_woken_by_controller_back():
     op,_=compendium_fixture()  # Captured with keyboard prompts: no footer hints at all.
     assert compendium_tab(op,op.last_screenshot,'大世界-普通').result==R.WAIT
     op.ctx.controller.btn_press.assert_called_once_with('xbox_b',press_time=.12)
+
+
+def test_transport_opens_map_from_verified_hollow_overworld(monkeypatch):
+    op, _ = map_open_operation(monkeypatch)
+    op.check_and_update_current_screen.return_value = '大世界-勘域'
+    assert op.open_map().result == R.WAIT
+    op.ctx.controller.btn_press.assert_called_once_with('xbox_back', press_time=.12)
+
+
+def test_return_world_uses_pad_map_open_not_ignored_mouse(monkeypatch):
+    from zzz_od.operation.back_to_normal_world import BackToNormalWorld
+    import src.navigation.map as nav
+    op = operation(BackToNormalWorld)
+    op.check_and_update_current_screen = Mock(return_value='大世界-勘域')
+    monkeypatch.setattr(nav, 'map_state', lambda *_: None)
+    monkeypatch.setattr(nav, 'quick_nav_state', lambda *_: None)
+    assert op.open_map().result == R.WAIT
+    op.ctx.controller.btn_press.assert_called_once_with('xbox_back', press_time=.12)
+    op.ctx.controller.click.assert_not_called()
+
+
+def test_return_world_existing_quick_nav_needs_no_toggle(monkeypatch):
+    from zzz_od.operation.back_to_normal_world import BackToNormalWorld
+    import src.navigation.map as nav
+    op = operation(BackToNormalWorld)
+    monkeypatch.setattr(nav, 'map_state', lambda *_: None)
+    monkeypatch.setattr(nav, 'quick_nav_state', lambda *_: {'dialog': False})
+    assert op.open_map().is_success
+    op.ctx.controller.btn_press.assert_not_called()
+
+
+def test_return_world_teleports_to_named_room_not_old_icon_operation(monkeypatch):
+    from zzz_od.operation.back_to_normal_world import BackToNormalWorld
+    import src.navigation.map as nav
+    op = operation(BackToNormalWorld)
+    expected = op.round_wait('正在传送')
+    quick = Mock(return_value=expected)
+    monkeypatch.setattr(nav, 'quick_nav', quick)
+    assert op.do_transport() is expected
+    assert (op.area_name, op.tp_name) == ('录像店', '房间')
+    quick.assert_called_once_with(op, op.last_screenshot)
+
+
+def test_return_world_does_not_count_post_confirmation_hollow_as_normal():
+    from zzz_od.operation.back_to_normal_world import BackToNormalWorld
+    op = operation(BackToNormalWorld)
+    op.ensure_normal_world = True
+    op.handle_init()
+    op._previous_node = SimpleNamespace(cn='执行传送')
+    op._previous_round_result = op.round_success('已确认传送')
+    op.check_and_update_current_screen = Mock(return_value='大世界-勘域')
+    for _ in range(6):
+        assert op.check_screen_and_run().result == R.WAIT
+    assert op.check_screen_and_run().is_fail
+    op.ctx.controller.btn_press.assert_not_called()
+    op.check_and_update_current_screen.return_value = '大世界-普通'
+    assert op.check_screen_and_run().is_success
+
+
+def test_return_world_counters_are_reset_for_a_new_execution():
+    from zzz_od.operation.back_to_normal_world import BackToNormalWorld
+    op = operation(BackToNormalWorld)
+    op._map_open_requests = 30
+    op._quick_nav_steps = 40
+    op._quick_nav_chosen = '房间'
+    op._normal_arrival_waits = 9
+    op.handle_init()
+    assert op._normal_arrival_waits == 0
+    assert not any(key.startswith(('_map_open_', '_quick_nav_')) for key in op.__dict__)

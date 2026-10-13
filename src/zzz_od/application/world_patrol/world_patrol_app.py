@@ -48,9 +48,17 @@ class WorldPatrolApp(ZApplication):
 
         self.route_list: list[WorldPatrolRoute] = []
         self.route_idx: int = 0
+        self.failed_routes: dict[str, str] = {}
+        self._round_failed: bool = False
+        self._round_summary: str = ''
 
     @operation_node(name='初始化', is_start_node=True)
     def init_world_patrol(self) -> OperationRoundResult:
+        self.route_list = []
+        self.route_idx = 0
+        self.failed_routes = {}
+        self._round_failed = False
+        self._round_summary = ''
         self.ctx.auto_battle_context.init_auto_op(self.config.auto_battle)
 
         self.ctx.world_patrol_service.load_data()
@@ -65,20 +73,23 @@ class WorldPatrolApp(ZApplication):
                     config = route_list_config
                     break
 
-            if config is not None:
-                route_id_list = config.route_items.copy()
-                if config.list_type == RouteListType.BLACKLIST:
-                    self.route_list = [
-                        route
-                        for route in self.route_list
-                        if route.full_id not in route_id_list
-                    ]
-                elif config.list_type == RouteListType.WHITELIST:
-                    self.route_list = [
-                        route
-                        for route in self.route_list
-                        if route.full_id in route_id_list
-                    ]
+            if config is None:
+                return self.round_fail(f'找不到路线清单：{self.config.route_list}')
+            route_id_list = config.route_items.copy()
+            if config.list_type == RouteListType.BLACKLIST:
+                self.route_list = [
+                    route
+                    for route in self.route_list
+                    if route.full_id not in route_id_list
+                ]
+            elif config.list_type == RouteListType.WHITELIST:
+                self.route_list = [
+                    route
+                    for route in self.route_list
+                    if route.full_id in route_id_list
+                ]
+        if not self.route_list:
+            return self.round_fail('所选路线清单中没有可执行路线')
         self.run_record.total_rounds = self.config.daily_loop_count
         self.run_record.set_routes_per_round(len(self.route_list))
         # 基于当日已完成轮数计算起始轮次，使重启任务能从下一轮继续
@@ -167,6 +178,9 @@ class WorldPatrolApp(ZApplication):
             is_restarted = attempt_idx > 0 and self.config.route_retry_action == WorldPatrolConfig.ROUTE_RETRY_ACTION_SKIP
             op = WorldPatrolRunRoute(self.ctx, route, is_restarted=is_restarted)
             result = op.execute()
+            if self.ctx.run_context.is_context_stop:
+                self._stop_route_actions()
+                return self.round_fail('人工结束')
 
             if result.success:
                 route_finished = True
@@ -190,6 +204,7 @@ class WorldPatrolApp(ZApplication):
                     attempt_idx += 1
                     continue
 
+                self.failed_routes[route.full_id] = '界面消失，重开后跳过路线'
                 self.route_idx += 1
                 if action == WorldPatrolConfig.UI_DISAPPEAR_RESTART_RETRY:
                     return self.round_wait(status=f'界面消失重试耗尽，已重开游戏并跳过路线 {route.full_id}')
@@ -212,10 +227,12 @@ class WorldPatrolApp(ZApplication):
             break
 
         if route_finished:
+            self.failed_routes.pop(route.full_id, None)
             self.run_record.add_record(route.full_id)
             self.route_idx += 1
             return self.round_wait(status=f'完成路线 {route.full_id}')
         else:
+            self.failed_routes[route.full_id] = str(fail_status or '未返回失败原因')
             self.route_idx += 1
             return self.round_wait(status=f'路线失败 {fail_status} {route.full_id}')
 
@@ -225,14 +242,27 @@ class WorldPatrolApp(ZApplication):
         """一轮路线跑完后的分流：
 
         - 当日已完成轮数已满 → 直接结束，本次不计入完成数
-        - 本轮是最后一轮 → 计入当日已完成轮数后结束
+        - 本轮有未完成路线 → 保留进度，返回失败，不计入完成轮数
+        - 全部路线完成且本轮是最后一轮 → 计入当日已完成轮数后结束
         - 还有下一轮 → 计入当日已完成轮数后按配置间隔算出还要等多久
         """
         if self.run_record.current_round > self.run_record.total_rounds:
             log.info(f'锄大地当日已完成 {self.run_record.completed_rounds}/{self.run_record.total_rounds} 轮，无需再跑')
             return self.round_success(status='全部完成')
 
-        # 本轮真实跑完，加入当日已完成轮数
+        expected = {route.full_id for route in self.route_list}
+        missing = sorted(expected - set(self.run_record.finished))
+        if missing or not expected:
+            self._round_failed = True
+            self._round_summary = f'本轮路线完成 {len(expected) - len(missing)}/{len(expected)}，未完成 {len(missing)} 条'
+            reasons = [f'{name}：{self.failed_routes.get(name, "未完成")}' for name in missing[:5]]
+            if reasons:
+                self._round_summary += '；' + '；'.join(reasons)
+            log.warning(self._round_summary)
+            # 保留已完成路线；下次仅续跑缺项，不把失败路线计为完成轮次。
+            return self.round_fail(status='路线未全部完成', data=self._round_summary)
+
+        # 全部路线都真正完成后，才加入当日已完成轮数。
         self.run_record.inc_completed_rounds()
 
         if self.run_record.current_round >= self.run_record.total_rounds:
@@ -282,6 +312,18 @@ class WorldPatrolApp(ZApplication):
         self.run_record.reset_finished()
         self.run_record.reset_round_timing()
         return self.round_success(status='进入下一轮')
+
+    @node_from(from_name='轮次结束判定', status='全部完成')
+    @node_from(from_name='轮次结束判定', success=False, status='路线未全部完成')
+    @operation_node(name='完成后返回')
+    def finish(self) -> OperationRoundResult:
+        self._stop_route_actions()
+        result = BackToNormalWorld(self.ctx, ensure_normal_world=True).execute()
+        if not result.success:
+            return self.round_fail(f'{self._round_summary or "巡逻结束"}；返回大世界失败：{result.status}')
+        if self._round_failed:
+            return self.round_fail(self._round_summary)
+        return self.round_success('全部路线完成，已返回大世界')
 
     def _stop_route_actions(self) -> None:
         self.ctx.auto_battle_context.stop_auto_battle()

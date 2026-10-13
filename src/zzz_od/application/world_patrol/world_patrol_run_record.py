@@ -25,6 +25,24 @@ class WorldPatrolRunRecord(AppRunRecord):
         self.round_start_time: float | None = None
         self.round_wait_seconds: float = 0.0
         self.round_wait_start_time: float | None = None
+        self._migrate_completion_record()
+
+    def _migrate_completion_record(self) -> None:
+        """旧版本把遍历结束误记为完成轮次；有明确缺项的最后一轮必须恢复为可续跑。"""
+        if self.get('completion_version', 0) >= 1:
+            return
+        if (not self._should_reset_by_dt() and self.run_status == AppRunRecord.STATUS_SUCCESS
+                and self.completed_rounds > 0 and self.routes_per_round > 0
+                and len(set(self.finished)) < self.routes_per_round):
+            from onedragon.utils.log_utils import log
+            self.completed_rounds -= 1
+            self.run_status = AppRunRecord.STATUS_WAIT
+            self.update('completed_rounds', self.completed_rounds, False)
+            self.update('run_status', self.run_status, False)
+            log.warning('修正巡逻旧完成记录：仅完成 %d/%d 条，保留完成路线并恢复续跑',
+                        len(set(self.finished)), self.routes_per_round)
+        self.update('completion_version', 1, False)
+        self.save()
 
     def reset_record(self):
         AppRunRecord.reset_record(self)
@@ -48,6 +66,8 @@ class WorldPatrolRunRecord(AppRunRecord):
 
     def inc_completed_rounds(self) -> None:
         """当日已完成轮数 +1，下次启动据此决定从第几轮继续。"""
+        if self.routes_per_round <= 0 or len(set(self.finished)) < self.routes_per_round:
+            raise ValueError('路线未全部完成，不能计入完成轮次')
         self.completed_rounds += 1
         self.update('completed_rounds', self.completed_rounds, False)
         self.save()
@@ -59,7 +79,8 @@ class WorldPatrolRunRecord(AppRunRecord):
         self.save()
 
     def add_record(self, route_id: str):
-        self.finished.append(route_id)
+        if route_id not in self.finished:
+            self.finished.append(route_id)
         if route_id not in self.time_cost:
             self.time_cost[route_id] = []
         while len(self.time_cost[route_id]) > 3:

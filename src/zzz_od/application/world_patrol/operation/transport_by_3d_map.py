@@ -91,7 +91,9 @@ class TransportBy3dMap(ZOperation):
     def choose_area(self) -> OperationRoundResult:
         if self._background():
             from src.navigation.map import choose_area
-            return choose_area(self, self.last_screenshot)
+            from src.navigation.patrol import as_wait
+            # 区域搜索自身有45步上限，不再被旧鼠标节点的20次重试提前截断。
+            return as_wait(self, choose_area(self, self.last_screenshot))
         if self.target_area.parent_area is None:
             target_area_name = self.target_area.area_name
         else:
@@ -132,13 +134,17 @@ class TransportBy3dMap(ZOperation):
         if self.target_area.parent_area is None:
             return self.round_success(status='无需选择')
         if self._background():
-            return self.round_fail(f'后台子区域选择尚未适配：{self.target_area.area_name}')
+            from src.navigation.patrol import open_sub_area
+            return open_sub_area(self, self.last_screenshot)
 
         return self.round_by_click_area('3D地图', '按钮-当前子区域')
 
     @node_from(from_name='展开子区域列表')
     @operation_node(name='选择子区域', node_max_retry_times=6)
     def choose_sub_area(self) -> OperationRoundResult:
+        if self._background():
+            from src.navigation.patrol import choose_sub_area
+            return choose_sub_area(self, self.last_screenshot)
         return self.round_by_ocr_and_click(
             self.last_screenshot, self.target_area.area_name,
             self.ctx.screen_loader.get_area('3D地图', '区域-子区域列表'),
@@ -222,7 +228,8 @@ class TransportBy3dMap(ZOperation):
         self.target_icon = target_icon
         self.map_area = self.ctx.screen_loader.get_area('3D地图', '区域-地图')
 
-        for key in ('_patrol_steps', '_patrol_visited', '_patrol_target_rel', '_patrol_nudges', '_patrol_blocked', '_background_map_stalls', '_background_expected_point',
+        for key in ('_patrol_steps', '_patrol_visited', '_patrol_target_rel', '_patrol_nudges', '_patrol_blocked',
+                    '_patrol_known', '_patrol_offset', '_patrol_shift', '_patrol_aim', '_patrol_pans', '_background_map_stalls', '_background_expected_point',
                     '_background_map_motion', '_background_go_requests'):
             self.__dict__.pop(key, None)
         log.info(f'初始化传送点搜索完成，目标：{self.target_tp_name}')
@@ -389,7 +396,7 @@ class TransportBy3dMap(ZOperation):
     def close_area_info_popup(self) -> OperationRoundResult:
         """搜索失败后关闭残留的传送点信息弹窗"""
         if self._background():
-            # Every unlocked fan on the map was read: searching again cannot find another one.
+            # 保留有限搜索的失败原因，不能立即回到同一节点无限重试。
             return self.round_fail(self._previous_round_result.status if self._previous_round_result else '未找到传送点')
         self.round_by_find_and_click_area(self.last_screenshot, '3D地图', '按钮-区域信息-关闭')
         return self.round_success()
@@ -398,7 +405,13 @@ class TransportBy3dMap(ZOperation):
     @operation_node(name='点击前往')
     def click_go(self) -> OperationRoundResult:
         if self._background():
-            from src.navigation.map import confirm_point
+            from src.navigation.map import confirm_point, map_state
+            # 地图尚在时核验子区域；确认后离开地图，由confirm_point核验传送过渡。
+            if self.target_area.parent_area is not None and map_state(self, self.last_screenshot) is not None:
+                from src.navigation.patrol import sub_area_state
+                state = sub_area_state(self, self.last_screenshot)
+                if state is None or state['choices'] or state['current'] != self.target_area.area_name:
+                    return self.round_fail('传送前子区域未通过核验，未操作')
             return confirm_point(self, self.last_screenshot)
         return self.round_by_find_and_click_area(
             self.last_screenshot,
