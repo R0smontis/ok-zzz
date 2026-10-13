@@ -39,6 +39,13 @@ class TransportBy3dMap(ZOperation):
 
         self.target_area: WorldPatrolArea = area
         self.target_tp_name: str = tp_name
+        # ok-zzz: the controller map helpers read the target from these names.
+        self.tp_name: str = tp_name
+        parent = area.parent_area if area.parent_area is not None else area
+        self.area_name: str = gt(parent.area_name, 'game')
+
+    def _background(self) -> bool:
+        return bool(getattr(self.ctx.controller, 'background_mode', False))
 
     @operation_node(name='初始回到大世界', is_start_node=True)
     def back_at_first(self) -> OperationRoundResult:
@@ -51,6 +58,17 @@ class TransportBy3dMap(ZOperation):
     @node_from(from_name='初始回到大世界')
     @operation_node(name='打开3D地图')
     def open_map(self) -> OperationRoundResult:
+        if self._background():
+            from src.navigation.map import map_state
+            if map_state(self, self.last_screenshot) is not None:
+                return self.round_success('地图已打开')
+            requests = getattr(self, '_map_open_requests', 0)
+            if requests >= 4:
+                return self.round_fail('手柄打开地图未生效')
+            self._map_open_requests = requests + 1
+            for key in self.ctx.game_config.get_gamepad_action_keys().get('minimap', []):
+                self.ctx.controller.btn_press(key, press_time=.12)
+            return self.round_wait('手柄打开地图，等待实际地图画面', wait=2)
         current_screen = screen_utils.get_match_screen_name(self.ctx, self.last_screenshot, screen_name_list=['3D地图'])
         if current_screen == '3D地图':
             self.ctx.screen_loader.update_current_screen_name(current_screen)
@@ -71,6 +89,9 @@ class TransportBy3dMap(ZOperation):
     @node_from(from_name='打开3D地图')
     @operation_node(name='选择区域', node_max_retry_times=20)
     def choose_area(self) -> OperationRoundResult:
+        if self._background():
+            from src.navigation.map import choose_area
+            return choose_area(self, self.last_screenshot)
         if self.target_area.parent_area is None:
             target_area_name = self.target_area.area_name
         else:
@@ -110,6 +131,8 @@ class TransportBy3dMap(ZOperation):
     def expand_sub_area(self) -> OperationRoundResult:
         if self.target_area.parent_area is None:
             return self.round_success(status='无需选择')
+        if self._background():
+            return self.round_fail(f'后台子区域选择尚未适配：{self.target_area.area_name}')
 
         return self.round_by_click_area('3D地图', '按钮-当前子区域')
 
@@ -126,6 +149,8 @@ class TransportBy3dMap(ZOperation):
     @node_from(from_name='选择子区域')
     @operation_node(name='打开筛选')
     def open_filter(self) -> OperationRoundResult:
+        if self._background():
+            return self.round_success('后台按名称核验传送点，无需筛选')
         result = self.round_by_find_area(self.last_screenshot, '3D地图', '标题-标识点筛选')
         if result.is_success:
             return self.round_success(status=result.status)
@@ -136,6 +161,8 @@ class TransportBy3dMap(ZOperation):
     @node_from(from_name='打开筛选')
     @operation_node(name='筛选传送点')
     def choose_filter(self) -> OperationRoundResult:
+        if self._background():
+            return self.round_success('后台无需筛选')
         if self.target_area.is_hollow:
             target_word = '裂隙信标'
         else:
@@ -150,6 +177,8 @@ class TransportBy3dMap(ZOperation):
     @node_from(from_name='筛选传送点')
     @operation_node(name='关闭筛选')
     def close_filter(self) -> OperationRoundResult:
+        if self._background():
+            return self.round_success('后台无需筛选')
         current_screen = self.check_and_update_current_screen(self.last_screenshot, screen_name_list=['3D地图'])
         if current_screen == '3D地图':
             return self.round_success(status=current_screen)
@@ -160,6 +189,8 @@ class TransportBy3dMap(ZOperation):
     @node_from(from_name='关闭筛选')
     @operation_node(name='最小缩放', is_start_node=False)
     def click_mini_scale(self) -> OperationRoundResult:
+        if self._background():
+            return self.round_success('后台保持当前缩放')
         area = self.ctx.screen_loader.get_area('3D地图', '按钮-最小缩放')
         start_point = area.center
         end_point = start_point + Point(-300, 0)
@@ -191,6 +222,9 @@ class TransportBy3dMap(ZOperation):
         self.target_icon = target_icon
         self.map_area = self.ctx.screen_loader.get_area('3D地图', '区域-地图')
 
+        for key in ('_patrol_steps', '_patrol_visited', '_patrol_target_rel', '_background_expected_point',
+                    '_background_map_motion', '_background_go_requests'):
+            self.__dict__.pop(key, None)
         log.info(f'初始化传送点搜索完成，目标：{self.target_tp_name}')
         return self.round_success()
 
@@ -206,6 +240,9 @@ class TransportBy3dMap(ZOperation):
         4. 导航计算 - 匹配检查或计算精确拖动方向
         5. 执行与循环 - 执行精确拖动操作并重新开始流程
         """
+        if self._background():
+            from src.navigation.patrol import as_wait, choose_patrol_point
+            return as_wait(self, choose_patrol_point(self, self.last_screenshot))
         # 步骤1: 侦察 - 寻找所有可见的传送点图标
         part = cv2_utils.crop_image_only(self.last_screenshot, self.map_area.rect)
 
@@ -351,12 +388,18 @@ class TransportBy3dMap(ZOperation):
     @operation_node(name='关闭区域信息弹窗')
     def close_area_info_popup(self) -> OperationRoundResult:
         """搜索失败后关闭残留的传送点信息弹窗"""
+        if self._background():
+            # Every unlocked fan on the map was read: searching again cannot find another one.
+            return self.round_fail(self._previous_round_result.status if self._previous_round_result else '未找到传送点')
         self.round_by_find_and_click_area(self.last_screenshot, '3D地图', '按钮-区域信息-关闭')
         return self.round_success()
 
     @node_from(from_name='搜索传送点循环')
     @operation_node(name='点击前往')
     def click_go(self) -> OperationRoundResult:
+        if self._background():
+            from src.navigation.map import confirm_point
+            return confirm_point(self, self.last_screenshot)
         return self.round_by_find_and_click_area(
             self.last_screenshot,
             '3D地图', '按钮-前往',

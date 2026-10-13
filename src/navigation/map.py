@@ -114,7 +114,7 @@ def _template(name):
     return cv2.cvtColor(raw, cv2.COLOR_BGR2RGB), mask
 
 
-def _candidates_for_template(screen, name, point):
+def _candidates_for_template(screen, name, point, many=False):
     loaded = _template(name)
     if loaded is None:
         return []
@@ -128,7 +128,7 @@ def _candidates_for_template(screen, name, point):
         scaled_mask = cv2.resize(mask, (template.shape[1], template.shape[0]), interpolation=cv2.INTER_NEAREST)
         values = cv2.matchTemplate(roi, template, cv2.TM_SQDIFF_NORMED, mask=scaled_mask)
         values = np.nan_to_num(values, nan=10, posinf=10, neginf=10)
-        for _ in range(12 if point in ('柜台', '房间') else 1):
+        for _ in range(12 if many or point in ('柜台', '房间') else 1):
             minimum, _, pos, _ = cv2.minMaxLoc(values)
             if minimum > (.05 if point == '吼吼饼铺' else .1):
                 break
@@ -309,6 +309,11 @@ def choose_point(op, screen):
     else:
         candidate = max(candidates, key=lambda c:c[2])
     x, y, _ = candidate
+    return steer_to(op, state, x, y)
+
+
+def steer_to(op, state, x, y):
+    """Pan the map so the icon at (x, y) moves toward the cursor at (695, 540); one stick press."""
     dx, dy = 695-x, 540-y
     axis = 'x' if abs(dx) >= abs(dy) else 'y'
     velocity = getattr(op, '_background_map_velocity', {'x': 600. if op.area_name=='录像店' else 2800.,

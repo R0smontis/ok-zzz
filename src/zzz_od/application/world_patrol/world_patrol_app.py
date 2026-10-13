@@ -103,6 +103,10 @@ class WorldPatrolApp(ZApplication):
         if result.is_success:
             return self.round_success(status='无任务追踪')
 
+        if getattr(self.ctx.controller, 'background_mode', False):
+            # ok-zzz: the controller 绳网 page differs from the mouse one (live 2026-10-13) and
+            # stopping the user's own quest tracking is not needed to read the mini map.
+            return self.round_success(status='无任务追踪')
         # 有任务追踪
         return self.round_by_goto_screen(screen_name='绳网', retry_wait=1)
 
