@@ -10,7 +10,7 @@ from typing import ClassVar
 from onedragon.base.matcher.match_result import MatchResultList, MatchResult
 from onedragon.base.operation.operation_edge import node_from
 from onedragon.base.operation.operation_node import operation_node
-from onedragon.base.operation.operation_round_result import OperationRoundResult
+from onedragon.base.operation.operation_round_result import OperationRoundResult, OperationRoundResultEnum
 from onedragon.utils import cv2_utils, str_utils
 from onedragon.utils.i18_utils import gt
 from onedragon.utils.log_utils import log
@@ -39,9 +39,7 @@ class BambooMerchant(ZOperation):
     @node_from(from_name='购买后确定')
     @operation_node(name='画面识别', is_start_node=True)
     def check_screen(self) -> OperationRoundResult:
-        if getattr(self.ctx.controller, 'background_mode', False):
-            # 商店购买尚未在实机核验手柄操作：后台暂不进入商店，继续寻路。
-            return self.round_success('后台暂不进入商店')
+        background = getattr(self.ctx.controller, 'background_mode', False)
         area = self.ctx.screen_loader.get_area('零号空洞-商店', '二级标题')
         result = self.round_by_ocr(self.last_screenshot, '交易', area=area, lcs_percent=1)
         if result.is_success:
@@ -59,16 +57,28 @@ class BambooMerchant(ZOperation):
         if result.is_success:
             return self.round_success(status=BambooMerchant.NOT_TO_BUY)
 
-        area = self.ctx.screen_loader.get_area('零号空洞-事件', '底部-选择列表')
-        result = self.round_by_ocr_and_click(self.last_screenshot, '确定', area=area)
-        if result.is_success:
-            return self.round_wait(wait=1)
+        if background:
+            from src.navigation.hollow_events import bottom_button, pad_option
+            result = bottom_button(self, self.last_screenshot, ['确定'])
+            if result.result != OperationRoundResultEnum.RETRY:
+                return result if not result.is_success else self.round_wait(result.status, wait=1)
+            if getattr(self, '_pad_event_pending', None) is not None or any(
+                    '进入商店' in str(r.data) for r in self.ctx.ocr_service.get_ocr_result_list(
+                        image=self.last_screenshot, rect=hollow_event_utils.get_event_text_area(self.ctx).rect)):
+                result = pad_option(self, self.last_screenshot, ['进入商店'], '进入商店')
+                return self.round_wait(result.status, wait=1) if result.is_success else result
+        else:
+            area = self.ctx.screen_loader.get_area('零号空洞-事件', '底部-选择列表')
+            result = self.round_by_ocr_and_click(self.last_screenshot, '确定', area=area)
+            if result.is_success:
+                return self.round_wait(wait=1)
+
+            area = hollow_event_utils.get_event_text_area(self.ctx)
+            result = self.round_by_ocr_and_click(self.last_screenshot, '进入商店', area=area, lcs_percent=0.6)
+            if result.is_success:
+                return self.round_wait(wait=1)
 
         area = hollow_event_utils.get_event_text_area(self.ctx)
-        result = self.round_by_ocr_and_click(self.last_screenshot, '进入商店', area=area, lcs_percent=0.6)
-        if result.is_success:
-            return self.round_wait(wait=1)
-
         result = self.round_by_ocr(self.last_screenshot, '血汗交易', area=area, lcs_percent=0.6)
         if result.is_success:
             return self.round_success(BambooMerchant.NOT_TO_BUY)
@@ -86,6 +96,12 @@ class BambooMerchant(ZOperation):
     @node_from(from_name='画面识别', status=STATUS_LEVEL_1)
     @operation_node(name='鸣徽交易')
     def choose_buy(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from src.navigation.hollow_events import pad_option
+            result = pad_option(self, self.last_screenshot, ['鸣徽交易', '特价折扣'])
+            if result.is_success:
+                return self.round_success(BambooMerchant.STATUS_LEVEL_2_BUY, wait=1)
+            return result
         area = hollow_event_utils.get_event_text_area(self.ctx)
 
         result = self.round_by_ocr_and_click(self.last_screenshot, '鸣徽交易', area=area)
@@ -102,6 +118,13 @@ class BambooMerchant(ZOperation):
     @node_from(from_name='鸣徽交易')
     @operation_node(name='选择鸣徽')
     def choose_item(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from src.navigation.hollow_events import shop_choose
+            config = self.ctx.withered_domain.challenge_config
+            result = shop_choose(self, self.last_screenshot, config.resonium_priority, config.buy_only_priority)
+            if result.is_success and result.status == '不购买':
+                return self.round_success(BambooMerchant.NOT_TO_BUY)
+            return result
         price_ocr_result_map = self._ocr_price_area(self.last_screenshot)
         price_pos_list = [i.center for mrl in price_ocr_result_map.values() for i in mrl]
 
@@ -202,11 +225,21 @@ class BambooMerchant(ZOperation):
     @node_from(from_name='选择鸣徽')
     @operation_node(name='购买')
     def buy(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from src.navigation.hollow_events import shop_buy
+            return shop_buy(self, self.last_screenshot)
         return self.round_by_find_and_click_area(self.last_screenshot, '零号空洞-商店', '商品购买区域')
 
     @node_from(from_name='购买')
     @operation_node(name='购买后确定')
     def confirm(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from onedragon.base.geometry.rectangle import Rect
+            from src.navigation.hollow_events import bottom_button
+            result = bottom_button(self, self.last_screenshot, ['确定'], band=Rect(500, 700, 1500, 900))
+            if result.result == OperationRoundResultEnum.RETRY and not getattr(self, '_pad_button_pending', None):
+                return self.round_success('购买无确认弹窗')  # 列表已变化，回到画面识别
+            return result
         return self.round_by_find_and_click_area(self.last_screenshot, '零号空洞-商店', '购买后确定',
                                                  success_wait=1, retry_wait=1)
 
@@ -221,6 +254,9 @@ class BambooMerchant(ZOperation):
     @node_from(from_name='鸣徽交易', success=False)  # 在第一层找到选项 就退出
     @operation_node(name='返回')
     def back(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from src.navigation.hollow_events import shop_leave
+            return shop_leave(self, self.last_screenshot)
         result1 = self.round_by_find_and_click_area(self.last_screenshot, '零号空洞-商店', '右上角-返回',
                                                     success_wait=1.5, retry_wait=1)
 

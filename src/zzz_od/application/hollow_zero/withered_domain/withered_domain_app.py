@@ -90,6 +90,12 @@ class WitheredDomainApp(ZApplication):
             self.phase = -1
             return self.round_success(WitheredDomainApp.STATUS_IN_HOLLOW)
 
+        if self._background() and self._hollow_popup_visible():
+            # 空洞内弹窗会遮住背包；不能当作未知画面去走快捷手册（那会经菜单放弃本局）。
+            self.level = -1
+            self.phase = -1
+            return self.round_success(WitheredDomainApp.STATUS_IN_HOLLOW)
+
         screen_name, _ = self.check_screen_with_can_go(self.last_screenshot, '零号空洞-入口')
         # 特殊兼容：在入口区域开始，接力运行
         if screen_name == '零号空洞-入口':
@@ -101,6 +107,13 @@ class WitheredDomainApp(ZApplication):
             return self.round_success('可前往快捷手册')
 
         return self.round_success('未识别初始画面', wait=1)
+
+    def _hollow_popup_visible(self) -> bool:
+        from onedragon.base.geometry.rectangle import Rect
+        rows = self.ctx.ocr_service.get_ocr_result_list(image=self.last_screenshot, rect=Rect(300, 100, 1620, 1060))
+        words = [str(r.data).replace(' ', '') for r in rows] if isinstance(rows, (list, tuple)) else []
+        titles = ('受到侵蚀', '获得战利品', '获得')
+        return (any(any(w.startswith(t) for t in titles) for w in words) and any(w in ('确认', '确定') for w in words))             or any(w == '背包' for w in words)
 
     @node_from(from_name='初始画面识别', status='可前往快捷手册')
     @node_from(from_name='初始画面识别', status='未识别初始画面')

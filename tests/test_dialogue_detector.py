@@ -127,3 +127,21 @@ def test_commission_settings_use_the_commission_file(tmp_path, monkeypatch):
     monkeypatch.setattr(os_utils, 'get_path_under_work_dir', lambda *args: str(tmp_path))
     config = CommissionAssistantConfig(0, 'one_dragon')
     assert Path(config.file_path).name == 'commission_assistant.yml'
+
+
+@pytest.mark.parametrize('name', ['coffee-no-order', 'world-no-dialogue'])
+def test_real_non_dialogue_screens_do_not_generate_actions(dialogue_scene, name):
+    import json
+    import cv2
+    detector, ctx, _, _, _ = dialogue_scene
+    base = Path(__file__).parent / 'fixtures/dialogue'
+    image = cv2.cvtColor(cv2.imread(str(base / f'{name}.png')), cv2.COLOR_BGR2RGB)
+    rows = [SimpleNamespace(data=r['text'], center=Point(r['rect'][0]+r['rect'][2]//2,
+                                                      r['rect'][1]+r['rect'][3]//2))
+            for r in json.loads((base / f'{name}.json').read_text(encoding='utf-8'))['result']['ocr']]
+    ctx.ocr_service = SimpleNamespace(get_ocr_result_list=lambda image, rect, **_: [
+        r for r in rows if rect.x1 <= r.center.x < rect.x2 and rect.y1 <= r.center.y < rect.y2])
+    ctx.controller.background_mode = True
+    for mode in ('自动点击', '跳过剧情', '等待剧情自动播放'):
+        assert detector.detect(image, mode=mode) is None
+    ctx.controller.click.assert_not_called()

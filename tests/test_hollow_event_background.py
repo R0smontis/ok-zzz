@@ -159,8 +159,8 @@ def test_bottom_button_ignored_confirm_fails_without_repeating():
     from src.navigation.hollow_events import bottom_button
     op, image, _ = frame('hollow-swift-supply')
     bottom_button(op, image, ['回复生命值'])
-    results = [bottom_button(op, image, ['回复生命值']) for _ in range(6)]
-    assert results[-1].is_fail and pressed(op) == ['xbox_a']
+    results = [bottom_button(op, image, ['回复生命值']) for _ in range(8)]
+    assert results[-1].is_fail and pressed(op) == ['xbox_a', 'xbox_a']
 
 
 def test_swift_supply_handler_uses_pad_in_background():
@@ -285,3 +285,87 @@ def test_grey_disabled_option_is_not_a_candidate():
     assert option_enabled(image, by['强行闯入通道'])
     assert option_enabled(image, by['暂时离开'])  # focused
     assert option_enabled(image, by['异化检疫门'])
+
+
+def test_top_focused_option_of_four_is_found_and_greyed_ones_skipped():
+    from src.navigation.hollow_events import _event_focus, option_enabled
+    _, image, rows = frame('hollow-four-options')
+    focus = _event_focus(image)
+    assert focus is not None and focus.y1 < 440 < focus.y2
+    by = {r.data: r.rect for r in rows}
+    first = next(rect for text, rect in by.items() if '1号' in text)
+    second = next(rect for text, rect in by.items() if '2号' in text)
+    assert option_enabled(image, first) and not option_enabled(image, second)
+
+
+def test_shop_menu_trade_option_is_focused_and_confirmed_with_a():
+    from src.navigation.hollow_events import pad_option
+    op, image, _ = frame('hollow-shop-menu')
+    assert pad_option(op, image, ['鸣徽交易', '特价折扣']).result == R.WAIT
+    assert pressed(op) == ['xbox_a']
+
+
+def test_shop_list_reads_items_prices_coins_and_focus():
+    from src.navigation.hollow_events import shop_coins, shop_focus_y, shop_items
+    op, image, _ = frame('hollow-shop-list')
+    items = shop_items(op, image)
+    names = [(item.category, item.name) if item else None for _, item, _ in items]
+    assert ('能量', '白仔益生菌') in names and all(n is not None for n in names)  # 急救箱 is 求救箱 in the game data
+    assert [price for _, _, price in items] == [600, 1000, 2000]
+    assert shop_coins(op, image) == 2403
+    assert abs(shop_focus_y(op, image) - 277) < 20
+
+
+def test_shop_moves_to_the_priority_item_without_buying():
+    from src.navigation.hollow_events import shop_choose
+    op, image, _ = frame('hollow-shop-list')
+    assert shop_choose(op, image, ['顽强'], True).result == R.WAIT
+    assert pressed(op) == ['xbox_dpad_down']
+    op2, image, _ = frame('hollow-shop-list')
+    assert shop_choose(op2, image, ['能量'], True).is_success and pressed(op2) == []
+
+
+def test_shop_skips_unwanted_items():
+    from src.navigation.hollow_events import shop_choose
+    op, image, _ = frame('hollow-shop-list')
+    assert shop_choose(op, image, ['冻结'], True).status == '不购买' and pressed(op) == []
+
+
+def test_shop_buy_presses_a_once_and_needs_a_visible_change():
+    from src.navigation.hollow_events import shop_buy
+    op, image, _ = frame('hollow-shop-list')
+    assert shop_buy(op, image).result == R.WAIT
+    results = [shop_buy(op, image) for _ in range(6)]
+    assert results[-1].is_fail and pressed(op) == ['xbox_a']
+
+
+def test_shop_leave_backs_out_until_the_board():
+    from src.navigation.hollow_events import shop_leave
+    op, image, _ = frame('hollow-shop-list')
+    assert shop_leave(op, image).result == R.WAIT and pressed(op) == ['xbox_b']
+    _, image, _ = frame('hollow-shop-menu', op)
+    assert shop_leave(op, image).result == R.WAIT and pressed(op) == ['xbox_b', 'xbox_b']
+    _, image, _ = frame('hollow-resumed-board', op)
+    assert shop_leave(op, image).is_success
+
+
+def test_shop_focus_comes_from_the_card_outline_without_the_a_glyph():
+    from src.navigation.hollow_events import shop_focus_y
+    op, image, rows = frame('hollow-shop-list-2')
+    kept = [r for r in rows if r.data not in ('A', 'Ａ')]
+    op.ctx.ocr_service = SimpleNamespace(get_ocr_result_list=lambda image, rect: [
+        r for r in kept if rect.x1 <= r.center.x < rect.x2 and rect.y1 <= r.center.y < rect.y2])
+    assert abs(shop_focus_y(op, image) - 277) < 20
+
+
+@pytest.mark.parametrize('missing', ['coins', 'price'])
+def test_shop_never_buys_with_an_unverified_budget(missing):
+    from src.navigation.hollow_events import shop_buy, shop_choose
+    op, image, rows = frame('hollow-shop-list')
+    kept = [r for r in rows if not (r.data == '2403' if missing == 'coins' else r.data == '600')]
+    op.ctx.ocr_service = SimpleNamespace(get_ocr_result_list=lambda image, rect: [
+        r for r in kept if rect.x1 <= r.center.x < rect.x2 and rect.y1 <= r.center.y < rect.y2])
+    assert shop_buy(op, image).result == R.RETRY
+    assert pressed(op) == []
+    if missing == 'coins':
+        assert shop_choose(op, image, ['能量'], True).result == R.RETRY

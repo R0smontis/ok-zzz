@@ -47,6 +47,10 @@ class BackToNormalWorld(ZOperation):
             if key.startswith(('_map_open_', '_quick_nav_')):
                 self.__dict__.pop(key, None)
         self._exit_confirm_sent = False
+        self._escaping = False
+        for key in ('_pad_escape_menu', '_pad_escape_sent', '_pad_grid_steps', '_pad_grid_reveal',
+                    '_pad_menu_steps', '_pad_menu_confirms'):
+            self.__dict__.pop(key, None)
 
     @node_from(from_name='执行传送')
     @node_from(from_name='执行传送', success=False)
@@ -77,6 +81,10 @@ class BackToNormalWorld(ZOperation):
 
         # 退出菜单/确认和战斗 HUD 必须先于通用返回、路径导航和小地图兜底。
         # 否则 B 会取消退出确认，小地图也会把仍在特殊模式的角色误当作已返回。
+        if getattr(self, '_escaping', False) and getattr(self.ctx.controller, 'background_mode', False):
+            from src.navigation.menus import escape_stuck
+            return escape_stuck(self, self.last_screenshot)
+
         battle_result = self._handle_battle_exit()
         if battle_result is not None:
             return battle_result
@@ -276,6 +284,11 @@ class BackToNormalWorld(ZOperation):
         if result.is_success:
             if getattr(self, 'allow_battle', False):
                 return self.round_success(status='大世界-战斗')
+            if background:
+                # 菜单图标不接受窗口消息；手柄经主菜单「更多 → 脱离卡死」离开战斗。
+                from src.navigation.menus import escape_stuck
+                self._escaping = True
+                return escape_stuck(self, screen)
             self.round_by_click_area('战斗画面', '菜单')
             return self.round_retry(result.status, wait=.5)
         return None

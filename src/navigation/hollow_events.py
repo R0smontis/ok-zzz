@@ -54,9 +54,10 @@ def _a_positions(screen, rect):
 
 
 def _event_focus(screen):
-    mask = focus_mask(screen[480:950, 1280:1920]).astype(np.uint8)
+    # Options start right under the question; with four options the first sits at y≈410.
+    mask = focus_mask(screen[360:950, 1280:1920]).astype(np.uint8)
     _, _, stats, _ = cv2.connectedComponentsWithStats(mask)
-    boxes = [Rect(x + 1280, y + 480, x + w + 1280, y + h + 480)
+    boxes = [Rect(x + 1280, y + 360, x + w + 1280, y + h + 360)
              for x, y, w, h, area in stats[1:] if w > 300 and h > 35 and area > w * h * .5]
     return boxes[0] if len(boxes) == 1 else None
 
@@ -246,8 +247,12 @@ def bottom_button(op, screen, labels, band=Rect(240, 730, 1750, 900)):
         if pending['gone'] >= 2:
             op._pad_button_pending = None
             return op.round_success(pending['label'])
-        if pending['waits'] >= 6:
+        if pending['waits'] >= 8:
             return op.round_fail(f'手柄确认{pending["label"]}未生效，不重复确认')
+        if pending['waits'] == 4 and not gone:
+            # Popups ignore presses while they animate in (live 2026-10-14 「受到侵蚀」): one spaced retry.
+            pad(op.ctx, 'a')
+            return op.round_wait(f'{pending["label"]}未变化，间隔后重按一次', wait=.6)
         return op.round_wait(f'等待{pending["label"]}生效，未重复确认', wait=.5)
     wanted = [_text(w) for w in labels]
     target = next((r for w in wanted for r in buttons if _text(r.data) == w), None)
@@ -417,3 +422,119 @@ def option_enabled(screen, rect):
         return True
     part = screen[max(0, rect.y1):rect.y2, max(0, rect.x1):rect.x2]
     return bool(part.size) and float(np.mean(np.min(part, axis=2) >= 215)) > .02
+
+
+SHOP_LIST = Rect(1160, 220, 1920, 820)
+
+
+def shop_items(op, screen):
+    """Rows of the 鸣徽交易 list: (title row, resonium or None, price or None).
+
+    The price sits under the icon, left of the title (live 2026-10-14)."""
+    rows = _rows(op, screen, SHOP_LIST)
+    titles = [r for r in rows if _text(r.data).startswith('[') and r.center.x > 1300]
+    items = []
+    for title in sorted(titles, key=lambda r: r.center.y):
+        item = op.ctx.withered_domain.data_service.match_resonium_by_ocr_full(_text(title.data))
+        price = next((int(_text(r.data)) for r in rows if _text(r.data).isdigit()
+                      and 1180 < r.center.x < 1400 and 50 < r.center.y - title.center.y < 160), None)
+        items.append((title, item, price))
+    return items
+
+
+def shop_focus_y(op, screen):
+    """The focused card is outlined in lime (live 2026-10-14; the small A glyph at its right end
+    is often lost when the list is cropped for OCR). Its top and bottom borders bracket the title."""
+    part = screen[SHOP_LIST.y1:SHOP_LIST.y2, 1400:1800]
+    lit = np.mean(focus_mask(part), axis=1) > .4
+    runs, start = [], None
+    for y, on in enumerate(lit):
+        if on and start is None:
+            start = y
+        elif not on and start is not None:
+            runs.append((start + SHOP_LIST.y1, y - 1 + SHOP_LIST.y1))
+            start = None
+    if start is not None:
+        runs.append((start + SHOP_LIST.y1, len(lit) - 1 + SHOP_LIST.y1))
+    if not runs:
+        return None
+    top = runs[0][1]
+    bottom = runs[1][0] if len(runs) > 1 else top + 200
+    inside = [t for t, _, _ in shop_items(op, screen) if top < t.rect.y1 < bottom]
+    return inside[0].center.y if len(inside) == 1 else None
+
+
+def shop_coins(op, screen):
+    rows = _rows(op, screen, Rect(1200, 970, 1300, 1030))
+    value = next((_text(r.data) for r in rows if _text(r.data).isdigit()), None)
+    return int(value) if value is not None else None
+
+
+def shop_choose(op, screen, priority, only_priority):
+    """Move the focus to the wanted, affordable resonium.
+
+    SUCCESS once it is focused; status '不购买' when nothing is wanted or affordable."""
+    from zzz_od.hollow_zero.event.resonium_utils import choose_resonium_by_priority
+    items = shop_items(op, screen)
+    coins = shop_coins(op, screen)
+    focus_y = shop_focus_y(op, screen)
+    if not items or focus_y is None or coins is None:
+        return op.round_retry('商店列表、余额及焦点未核验，未操作', wait=.6)
+    candidates = [(title, item, price) for title, item, price in items
+                  if item is not None and price is not None and price <= coins]
+    order = choose_resonium_by_priority([item for _, item, _ in candidates], priority, only_priority=only_priority)
+    if not order:
+        return op.round_success('不购买')
+    title = candidates[order[0]][0]
+    focused = min(items, key=lambda i: abs(i[0].center.y - focus_y))[0]
+    if abs(focused.center.y - title.center.y) < 40:
+        return op.round_success(f'已选中 {_text(title.data)}')
+    moves = getattr(op, '_pad_shop_moves', 0)
+    if moves >= 8:
+        return op.round_fail('手柄定位商品未生效')
+    op._pad_shop_moves = moves + 1
+    pad(op.ctx, 'dpad_down' if title.center.y > focused.center.y else 'dpad_up')
+    return op.round_wait(f'手柄定位商品：{_text(title.data)}', wait=.6)
+
+
+def shop_buy(op, screen):
+    """A buys the focused row; success once a confirmation, a changed list or fewer coins show."""
+    pending = getattr(op, '_pad_shop_buy', None)
+    signature = tuple(_text(t.data) for t, _, _ in shop_items(op, screen))
+    coins = shop_coins(op, screen)
+    if pending is None:
+        focus = shop_focus_y(op, screen)
+        items = shop_items(op, screen)
+        focused = min(items, key=lambda item: abs(item[0].center.y - focus), default=None) if focus is not None else None
+        if focused is None or coins is None or focused[2] is None or focused[2] > coins:
+            return op.round_retry('商品焦点、价格或余额未核验，未购买', wait=.6)
+        pad(op.ctx, 'a')
+        op._pad_shop_buy = dict(signature=signature, coins=coins, waits=0)
+        return op.round_wait('手柄购买当前商品，等待实际结果', wait=1)
+    pending['waits'] += 1
+    words = {_text(r.data) for r in _rows(op, screen, Rect(500, 600, 1500, 900))}
+    if '确定' in words or signature != pending['signature'] or (
+            coins is not None and pending['coins'] is not None and coins < pending['coins']):
+        op._pad_shop_buy = None
+        return op.round_success('已购买')
+    if pending['waits'] >= 6:
+        return op.round_fail('购买后画面未变化，不重复购买')
+    return op.round_wait('等待购买结果，未重复按键', wait=.6)
+
+
+def shop_leave(op, screen):
+    """B backs out of the list and the shop menu; success once the board's 背包 shows again."""
+    words = [_text(r.data) for r in _rows(op, screen, Rect(0, 0, 1920, 1080))]
+    in_shop = any(w.startswith('鸣徽交易[') or w.startswith('鸣徽催化[') or '欢迎光临' in w for w in words) \
+        or ('鸣徽交易' in words and '鸣徽催化' in words)
+    if not in_shop:
+        if '背包' in words:
+            op._pad_shop_backs = 0
+            return op.round_success('已离开商店')
+        return op.round_retry('等待离开商店后的棋盘', wait=.6)
+    backs = getattr(op, '_pad_shop_backs', 0)
+    if backs >= 5:
+        return op.round_fail('手柄离开商店未生效')
+    op._pad_shop_backs = backs + 1
+    pad(op.ctx, 'b')
+    return op.round_wait('手柄返回，离开商店', wait=1)

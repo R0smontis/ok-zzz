@@ -43,6 +43,7 @@ def route_results(monkeypatch, *results):
     old = module.WorldPatrolRunRoute
     factory = Mock(side_effect=[SimpleNamespace(execute=Mock(return_value=r)) for r in results])
     factory.STATUS_UI_DISAPPEARED = old.STATUS_UI_DISAPPEARED
+    factory.STATUS_STUCK_IN_BATTLE = old.STATUS_STUCK_IN_BATTLE
     monkeypatch.setattr(module, 'WorldPatrolRunRoute', factory)
     return factory
 
@@ -190,3 +191,66 @@ def test_legacy_completion_repair_keeps_routes_and_prior_rounds(
     assert migrated.completed_rounds == expected_rounds and migrated.run_status == expected_status
     assert migrated.finished == finished and migrated.get('completion_version') == 1
     assert WorldPatrolRunRecord(instance_idx=1).completed_rounds == expected_rounds
+
+
+def test_route_start_in_battle_fights_first_then_teleports(monkeypatch):
+    from zzz_od.application.world_patrol.operation import world_patrol_run_route as module
+    op = operation(module.WorldPatrolRunRoute)
+    op.ctx.controller.background_mode = True
+    op.config = SimpleNamespace(auto_battle='全配队通用')
+    op.in_battle = False
+    op.last_check_battle_time = 0
+    op.last_screenshot, op.last_screenshot_time = None, 10.
+    battle = Mock(auto_op=None, last_check_in_battle=True)
+    op.ctx.auto_battle_context = battle
+    op.ctx.battle_assistant_config = SimpleNamespace(screenshot_interval=.02)
+    op.ctx.world_patrol_service = SimpleNamespace(cut_mini_map=Mock(return_value=SimpleNamespace(play_mask_found=True)))
+    monkeypatch.setattr(module.time, 'sleep', lambda _: None)
+    assert op.battle_before_start().result == R.WAIT
+    battle.start_auto_battle.assert_called_once()
+    battle.last_check_in_battle = False
+    op.last_screenshot_time = 12.
+    result = op.battle_before_start()
+    assert result.is_success and not op.in_battle
+    battle.stop_auto_battle.assert_called_once()
+
+
+def test_endless_pre_start_battle_stops_the_round_without_losing_progress(record, monkeypatch):
+    from zzz_od.application.world_patrol import world_patrol_app as module
+    op = app(record)
+    record.add_record('a')
+    op.route_idx = 1
+    status = module.WorldPatrolRunRoute.STATUS_STUCK_IN_BATTLE
+    route_results(monkeypatch, OperationResult(False, status))
+    result = op.run_route()
+    assert result.is_fail and status in result.status
+    assert record.finished == ['a'] and op.failed_routes == {'b': status}
+    op.ctx.auto_battle_context.stop_auto_battle.assert_called()
+
+
+def test_pre_start_battle_is_time_bounded(monkeypatch):
+    from zzz_od.application.world_patrol.operation import world_patrol_run_route as module
+    op = operation(module.WorldPatrolRunRoute)
+    op.config = SimpleNamespace(auto_battle='全配队通用')
+    op.in_battle = False
+    op.last_check_battle_time = 0
+    op.last_screenshot, op.last_screenshot_time = None, 0.
+    battle = Mock(auto_op=object(), last_check_in_battle=True)
+    op.ctx.auto_battle_context = battle
+    op.ctx.battle_assistant_config = SimpleNamespace(screenshot_interval=.02)
+    monkeypatch.setattr(module.time, 'sleep', lambda _: None)
+    escape = Mock(return_value=SimpleNamespace(execute=Mock(return_value=OperationResult(True, '大世界-勘域'))))
+    monkeypatch.setattr(module, 'BackToNormalWorld', escape)
+    assert op.battle_before_start().result == R.WAIT
+    op.last_screenshot_time = module.WorldPatrolRunRoute.PRE_BATTLE_SECONDS + 1
+    result = op.battle_before_start()
+    assert result.is_success and result.status == '脱离卡死后出发'
+    battle.stop_auto_battle.assert_called_once()
+    escape.assert_called_once_with(op.ctx)
+    op.in_battle = False
+    escape.return_value.execute.return_value = OperationResult(False, '手柄打开菜单脱离卡死未生效')
+    op.last_screenshot_time = 0.
+    op.battle_before_start()
+    op.last_screenshot_time = module.WorldPatrolRunRoute.PRE_BATTLE_SECONDS + 1
+    result = op.battle_before_start()
+    assert result.is_fail and result.status.startswith(module.WorldPatrolRunRoute.STATUS_STUCK_IN_BATTLE)

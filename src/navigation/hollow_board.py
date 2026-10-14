@@ -45,6 +45,7 @@ def _confirm_pending(op, screen, screen_time, pending):
         return op.round_wait('等待新棋盘当前位置，未重复移动', wait=.5)
     if _same_position(pending['node'].pos, current):
         entry_name = pending['node'].entry.entry_name
+        op._board_unexpected = 0
         blank = pending['node'].entry.need_step == 0
         op._board_blank_moves = getattr(op, '_board_blank_moves', 0) + 1 if blank else 0
         # As upstream: entry cells (商人, 守门人, 门扉) only offer an option on arrival.
@@ -62,7 +63,16 @@ def _confirm_pending(op, screen, screen_time, pending):
             op._handled_events.update(getattr(op, '_entry_events', {}).get(entry_name, []))
         return op.round_wait(f'已核验移动至 {entry_name}', wait=.3)
     if not _same_position(pending['origin'], current):
-        return op.round_fail('棋盘位置变化与请求的相邻格不一致，未更新移动记录')
+        # The camera follows the player on large boards, and some cells relocate it: the
+        # marker then sits elsewhere on screen. Do not credit the requested cell; re-plan from
+        # the fresh board, and stop if this keeps happening.
+        op._board_pending = None
+        op._board_stable = None
+        jumps = getattr(op, '_board_unexpected', 0) + 1
+        op._board_unexpected = jumps
+        if jumps > 3:
+            return op.round_fail('棋盘位置连续与请求的相邻格不一致，未更新移动记录')
+        return op.round_wait('当前位置与请求的相邻格不一致，按新棋盘重新规划', wait=.5)
     # A freshly connected pad can be ignored for a few seconds; space the retries out.
     if pending['waits'] < 3:
         return op.round_wait('等待棋盘移动完成', wait=.5)
@@ -78,7 +88,20 @@ def _confirm_pending(op, screen, screen_time, pending):
             return op.round_retry(f'{entry_name} 入口处理失败：{result.status}', wait=.5)
         return op.round_wait(f'已处理 {entry_name} 入口选项', wait=.5)
     if pending['requests'] >= 4:
-        return op.round_fail('手柄棋盘移动未生效，未计入移动')
+        # The marker never moved: the cell is not really passable from here (e.g. a decorative
+        # screen the model mistook for a cell, live 2026-10-14). As upstream does for doors it
+        # cannot pass, mark it visited so the next plan avoids it; stop after a few such cells.
+        skipped = getattr(op, '_board_unreachable', 0) + 1
+        op._board_unreachable = skipped
+        if skipped > 3:
+            return op.round_fail('手柄棋盘移动未生效，未计入移动')
+        if pending['node'].entry.is_tp:
+            # No position proof: do not advance the level/phase or clear the map cache.
+            return op.round_fail('传送格移动未核验，不更新楼层或移动记录')
+        op.ctx.withered_domain.update_context_after_move(pending['map'], pending['node'], update_current=False)
+        op._board_pending = None
+        op._board_stable = None
+        return op.round_wait(f'{pending["node"].entry.entry_name} 无法到达，标记后重新规划', wait=.5)
     pending.update(requests=pending['requests'] + 1, waits=0, sent_at=screen_time)
     pad(op.ctx, 'ls_' + pending['direction'], .12)
     return op.round_wait('当前位置未变化，重试同一相邻格', wait=.8)

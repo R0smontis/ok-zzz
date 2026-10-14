@@ -1,7 +1,7 @@
 ﻿; ok-zzz NSIS 安装脚本（生成 dist/ok-zzz-v<ver>-setup.exe）
 ;
 ; 构建（先打包 PyInstaller 产物 dist/ok-zzz）：
-;   makensis.exe /DAPP_VERSION=0.1.0 /DBUILD_TAG=v0.1.0-20261013 deploy/ok-zzz.nsi
+;   makensis.exe /DAPP_VERSION=0.1.1 /DBUILD_TAG=v0.1.1-20261014 deploy/ok-zzz.nsi
 ;
 ; 说明：
 ; - 安装到 %ProgramFiles%\ok-zzz，需要管理员权限（游戏以管理员运行，程序需同级权限）。
@@ -23,10 +23,10 @@ Unicode true
 !define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\ok-zzz"
 
 !ifndef APP_VERSION
-  !define APP_VERSION "0.1.0"
+  !define APP_VERSION "0.1.1"
 !endif
 !ifndef BUILD_TAG
-  !define BUILD_TAG "v0.1.0-20261013"
+  !define BUILD_TAG "v0.1.1-20261014"
 !endif
 !ifndef ROOT
   !define ROOT "${__FILEDIR__}\.."

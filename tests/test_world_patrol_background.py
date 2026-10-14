@@ -267,3 +267,34 @@ def test_without_large_map_visits_visible_fans_nearest_first(monkeypatch):
     fans = {'A': (700, 545), 'B': (900, 500), 'C': (300, 800), '目标': (1200, 300)}
     _, result = simulate(monkeypatch, PatrolMap(fans), '目标')
     assert result.is_success, result.status
+
+
+def test_a_fan_that_never_opens_its_panel_is_dropped_with_its_duplicates(monkeypatch):
+    # Live: a template match near the cursor never opened a panel; the search circled it 30 times.
+    class Ghost(PatrolMap):
+        def state(self, op, screen):
+            result = super().state(op, screen)
+            if result['point'] == '幽灵':
+                result.update(detail=False, point='')
+            return result
+
+    fans = {'幽灵': (720, 560), '目标': (1100, 300)}
+    _, result = simulate(monkeypatch, Ghost(fans), '目标')
+    assert result.is_success, result.status
+
+
+def test_visible_fan_measurement_wins_over_drifting_prediction(monkeypatch):
+    from unittest.mock import Mock
+    from src.navigation import patrol
+    op, screen = frame('wp-map-emp')
+    aim = dict(rel=(730., 580.), name=None, tries=0)
+    op._patrol_aim = aim
+    measured = (750., 550.)
+    monkeypatch.setattr(patrol, 'map_state', lambda *_: dict(
+        info=False, detail=False, title=op.area_name, point='', can_go=False, selected=None))
+    monkeypatch.setattr(patrol, 'teleport_icons', lambda _: [measured])
+    monkeypatch.setattr(patrol, '_track', lambda *_: ((0., 0.), [aim]))
+    steer = Mock(return_value=op.round_retry('steering'))
+    monkeypatch.setattr(patrol, '_steer', steer)
+    choose_patrol_point(op, screen)
+    assert steer.call_args.args[2:] == measured

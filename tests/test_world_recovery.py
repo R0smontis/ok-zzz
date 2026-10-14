@@ -47,7 +47,13 @@ def test_battle_hud_precedes_minimap_and_generic_navigation(background):
     op.round_by_find_area.return_value = op.round_success('普通攻击')
     result = op.check_screen_and_run()
     assert not result.is_success
-    op.round_by_click_area.assert_called_once_with('战斗画面', '菜单')
+    if background:
+        # The menu icon ignores window messages: START opens the main menu for 更多 → 脱离卡死.
+        op.round_by_click_area.assert_not_called()
+        assert op.ctx.controller.btn_press.call_args.args[0] == 'xbox_start' and op._escaping
+        op._escaping = False
+    else:
+        op.round_by_click_area.assert_called_once_with('战斗画面', '菜单')
     op.round_by_goto_screen.assert_not_called()
     op.allow_battle = True
     assert op.check_screen_and_run().status == '大世界-战斗'
@@ -92,3 +98,28 @@ def test_main_menu_returns_to_observe_world_before_deciding_transport(monkeypatc
     op.check_and_update_current_screen.return_value = '大世界-普通'
     assert op.check_screen_and_run().status == '大世界-普通'
     assert op.ctx.controller.btn_press.call_count == 1
+
+
+def _frame(name):
+    import json
+    from pathlib import Path
+    import cv2
+    from onedragon.base.matcher.match_result import MatchResult
+    base = Path(__file__).parent / 'fixtures/withered'
+    image = cv2.cvtColor(cv2.imread(str(base / f'{name}.png')), cv2.COLOR_BGR2RGB)
+    rows = [MatchResult(1, *r['rect'], data=r['text'])
+            for r in json.loads((base / f'{name}.json').read_text(encoding='utf-8'))['result']['ocr']]
+    return image, rows
+
+
+@pytest.mark.parametrize('name,button', [('menu-more-focus', 'xbox_a'), ('more-escape-focus', 'xbox_a')])
+def test_escape_path_opens_more_then_presses_escape_stuck(name, button):
+    from src.navigation.menus import escape_stuck
+    op = recovery()
+    image, rows = _frame(name)
+    op.last_screenshot = image
+    op.ctx.ocr_service = SimpleNamespace(get_ocr_result_list=lambda image, rect, **_: [
+        r for r in rows if rect.x1 <= r.center.x < rect.x2 and rect.y1 <= r.center.y < rect.y2])
+    result = escape_stuck(op, image)
+    assert result.result == R.WAIT
+    assert op.ctx.controller.btn_press.call_args.args[0] == button

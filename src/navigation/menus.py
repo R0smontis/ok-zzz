@@ -516,3 +516,28 @@ def compendium_tab(op, screen, target):
     pad(op.ctx, direction)
     op._compendium_tab_requests=(signature,count+1)
     return op.round_wait(f'手柄切换快捷手册页签：{current} → {targets[target]}，等待实际画面',wait=.8)
+
+
+def escape_stuck(op, screen):
+    """Leave a battle that will not end (e.g. 勘域「喧闹」): menu → 更多 → 脱离卡死.
+
+    Verified live 2026-10-14: in the battle HUD START opens the main menu (View does not),
+    and 脱离卡死 teleports to a safe spot at once, without a confirmation dialog.
+    """
+    from src.navigation.redemption import GRID_HALF_WIDTH, MORE_GRID, more_panel_open
+    if more_panel_open(op, screen):
+        result = grid_target(op, screen, '脱离卡死', MORE_GRID, half_width=GRID_HALF_WIDTH)
+        if result.is_success:
+            op._pad_escape_sent = True
+            return op.round_wait('手柄脱离卡死，等待实际画面', wait=2)
+        return result
+    rows = op.ctx.ocr_service.get_ocr_result_list(image=screen, rect=Rect(220, 920, 1730, 1070), crop_first=False)
+    rows = rows if isinstance(rows, (list, tuple)) else []
+    if sum(str(r.data).replace(' ', '') in MAIN_MENU_ITEMS for r in rows) >= 8:
+        return main_menu_target(op, '更多')
+    opens = getattr(op, '_pad_escape_menu', 0)
+    if opens >= 3:
+        return op.round_fail('手柄打开菜单脱离卡死未生效')
+    op._pad_escape_menu = opens + 1
+    pad_press(op, 'start')
+    return op.round_wait('手柄打开菜单以脱离卡死', wait=1.2)

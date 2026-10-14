@@ -93,7 +93,9 @@ class DialogueDetector:
             if controls or center_choice:
                 areas.append('中间选项区域')
             for name in areas:
-                choices = [record for record in self._ocr(screen, name, white=True)
+                # A controller-focused option is black on yellow; the white-only mask loses it.
+                background = bool(getattr(self.ctx.controller, 'background_mode', False))
+                choices = [record for record in self._ocr(screen, name, white=not background)
                            if str_utils.with_chinese(self._text(record))]
                 if choices:
                     chosen = (max if option == '最后一个' else min)(choices, key=lambda r: r.center.y)

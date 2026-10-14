@@ -58,6 +58,8 @@ class WorldPatrolRunRoute(ZOperation):
     """
 
     STATUS_UI_DISAPPEARED: str = '疑似界面消失卡死'
+    STATUS_STUCK_IN_BATTLE: str = '出发前战斗未结束'
+    PRE_BATTLE_SECONDS: float = 90  # 勘域「喧闹」时敌人持续出现，战斗可能不会自行结束
 
     def __init__(
         self,
@@ -104,6 +106,8 @@ class WorldPatrolRunRoute(ZOperation):
         self.turn_compensator = AngleTurnCompensator(self.ctx.controller)
         self.last_angle: float | None = None  # 上一次获取到的人物朝向
         self.last_angle_diff_command: float | None = None  # 上一次下发的转向指令
+        self._turning_in_place = False
+        self._turning_started = 0.
 
     # 距离判定阈值（用于到达/回溯成功/卡住判定的统一半径）
     REACH_DISTANCE: int = 10
@@ -114,10 +118,46 @@ class WorldPatrolRunRoute(ZOperation):
         if self.current_idx != 0:
             return self.round_success(status='DEBUG')
 
-        op = BackToNormalWorld(self.ctx)
+        # 后台无法用鼠标点菜单退出战斗；上一条路线若停在战斗中，先打完再出发。
+        background = getattr(self.ctx.controller, 'background_mode', False)
+        op = BackToNormalWorld(self.ctx, allow_battle=background)
         return self.round_by_op_result(op.execute())
 
+    @node_from(from_name='初始回到大世界', status='大世界-战斗')
+    @operation_node(name='出发前战斗')
+    def battle_before_start(self) -> OperationRoundResult:
+        battle = self.ctx.auto_battle_context
+        if not self.in_battle:
+            if battle.auto_op is None:
+                battle.init_auto_op(self.config.auto_battle)
+            self.in_battle = True
+            self.last_check_battle_time = 0
+            self._pre_battle_started = self.last_screenshot_time
+            battle.start_auto_battle()
+        if self.last_screenshot_time - self._pre_battle_started > self.PRE_BATTLE_SECONDS:
+            battle.stop_auto_battle()
+            self.in_battle = False
+            time.sleep(2)  # 等待自动战斗松开按键
+            # 不退出 allow_battle：菜单「脱离卡死」离开持续的战斗，随后照常传送。
+            escape = BackToNormalWorld(self.ctx).execute()
+            if not escape.success:
+                return self.round_fail(f'{self.STATUS_STUCK_IN_BATTLE}：{escape.status}')
+            return self.round_success('脱离卡死后出发')
+        battle.check_battle_state(self.last_screenshot, self.last_screenshot_time,
+                                  check_battle_end_normal_result=True)
+        if self.last_screenshot_time - self.last_check_battle_time > 1:
+            self.last_check_battle_time = self.last_screenshot_time
+            if not battle.last_check_in_battle:
+                mini_map = self.ctx.world_patrol_service.cut_mini_map(self.last_screenshot)
+                if mini_map.play_mask_found:
+                    battle.stop_auto_battle()
+                    self.in_battle = False
+                    time.sleep(2)  # 等待自动战斗松开按键
+                    return self.round_success('出发前战斗结束')
+        return self.round_wait(wait=self.ctx.battle_assistant_config.screenshot_interval)
+
     @node_from(from_name='初始回到大世界')
+    @node_from(from_name='出发前战斗')
     @operation_node(name='传送')
     def transport(self) -> OperationRoundResult:
         """传送到目标点：内部最后一步(等待画面加载)也会调用 BackToNormalWorld 等待传送加载完成"""
@@ -190,8 +230,6 @@ class WorldPatrolRunRoute(ZOperation):
             if (self.backtrack_active and self.backtrack_target is not None)
             else Point(int(op.data[0]), int(op.data[1]))
         )
-        self._turn_and_move(target_pos, mini_map)
-
         # 3. 判断是否到达目标点
         # 到达目标点距离阈值
         if (not self.backtrack_active) and cal_utils.distance_between(self.current_pos, target_pos) < self.REACH_DISTANCE:
@@ -205,8 +243,10 @@ class WorldPatrolRunRoute(ZOperation):
             if self.pos_stuck_attempts > 0:
                 log.info('已到达目标点，重置脱困计数')
                 self.pos_stuck_attempts = 0
+            self._turning_in_place = False
             return self.round_wait(status=f'已到达目标点 {target_pos}')
 
+        self._turn_and_move(target_pos, mini_map)
         return self.round_wait(status=f'当前坐标 {self.current_pos} 角度 {mini_map.view_angle} 目标点 {target_pos}',
                        wait_round_time=0.3,  # 这个时间设置太小的话，会出现转向之后方向判断不准
                        )
@@ -347,6 +387,14 @@ class WorldPatrolRunRoute(ZOperation):
         Returns:
             bool: True 表示达到脱困上限，重启当前路线；False 表示已处理或无需处理
         """
+        if getattr(self, '_turning_in_place', False):
+            # 摇杆尚在原地转向，不要求位移；但朝向长期不变化仍须有界失败。
+            self.stuck_pos = next_pos
+            self.stuck_pos_start_time = 0
+            if self.last_screenshot_time - self._turning_started > 8:
+                log.error('后台原地转向持续8秒未对准目标，停止路线')
+                return True
+            return False
         # 疑似卡住的阈值（若当时移动较慢或转向未完成，过小可能误判，过大转悠太久）
         if cal_utils.distance_between(next_pos, self.stuck_pos) < self.REACH_DISTANCE:
             if self.stuck_pos_start_time == 0:
@@ -383,6 +431,7 @@ class WorldPatrolRunRoute(ZOperation):
         """
         current_angle = mini_map.view_angle
         if current_angle is None:
+            self._turning_in_place = False
             # 重置自适应状态，避免使用过时数据
             self.last_angle = None
             self.last_angle_diff_command = None
@@ -397,7 +446,11 @@ class WorldPatrolRunRoute(ZOperation):
             self.turn_compensator.learn(self.last_angle, self.last_angle_diff_command, current_angle)
 
         effective_angle_diff = angle_diff * self.turn_compensator.scale
-        if abs(effective_angle_diff) > 90:
+        turning = bool(getattr(self.ctx.controller, 'background_mode', False)) and abs(angle_diff) > 30
+        if turning and not getattr(self, '_turning_in_place', False):
+            self._turning_started = self.last_screenshot_time
+        self._turning_in_place = turning
+        if turning or abs(effective_angle_diff) > 90:
             # 大角度先停下，避免移动中急转
             self.ctx.controller.stop_moving_forward()
 
@@ -412,8 +465,9 @@ class WorldPatrolRunRoute(ZOperation):
         self.last_angle = current_angle
         self.last_angle_diff_command = calibrated_angle_diff
 
-        # 开始移动
-        self.ctx.controller.start_moving_forward()
+        # 鼠标转向近乎即时，摇杆转向需要后续画面核验；未对准时不要又恢复前进。
+        if not turning:
+            self.ctx.controller.start_moving_forward()
 
     def _backtrack_step(self, next_pos: Point, emit_log: bool = False) -> str:
         """
@@ -510,6 +564,7 @@ class WorldPatrolRunRoute(ZOperation):
     @node_from(from_name='运行指令', status='进入战斗')
     @operation_node(name='初始化自动战斗')
     def init_auto_battle(self) -> OperationRoundResult:
+        self._turning_in_place = False
         self.ctx.controller.stop_moving_forward()
         if self.ctx.auto_battle_context.auto_op is None:
             # 只是个兜底 正常情况下 WorldPatrolApp 会做这个初始化
@@ -588,6 +643,7 @@ class WorldPatrolRunRoute(ZOperation):
         return self.round_success()
 
     def handle_pause(self) -> None:
+        self._turning_in_place = False  # 暂停时间不计入转向超时
         if self.in_battle:
             self.ctx.auto_battle_context.stop_auto_battle()
         else:
@@ -599,6 +655,9 @@ class WorldPatrolRunRoute(ZOperation):
 
     def after_operation_done(self, result: OperationResult) -> None:
         ZOperation.after_operation_done(self, result)
+        if self.in_battle:
+            self.ctx.auto_battle_context.stop_auto_battle()
+            self.in_battle = False
         self.ctx.controller.stop_moving_forward()
 
 

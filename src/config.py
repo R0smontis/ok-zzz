@@ -6,7 +6,7 @@ from src.controls.hotkey_settings import validate_hotkey
 from src.runtime.inference import recognition_config
 from src.runtime.game_discovery import validate_game_path
 
-version = "0.1.0"
+version = "0.1.1"
 
 gui_config = {
     'type': 'qt',

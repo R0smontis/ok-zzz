@@ -164,3 +164,20 @@ def test_app_resets_level_after_resume_confirmation():
     _, op.last_screenshot = frame('hollow-back-world', op)
     assert op.click_next().status == '继续-确认'
     assert op.level == -1 and op.phase == -1
+
+
+@pytest.mark.parametrize('name', ['hollow-corruption-popup-2', 'hollow-loot-confirm', 'hollow-resumed-board'])
+def test_hollow_popup_at_start_resumes_the_run_instead_of_leaving(name):
+    op, screen = frame(name)
+    op.ctx.controller.background_mode = True
+    op._background = lambda: True
+    op.last_screenshot = screen
+    from unittest.mock import Mock
+    import zzz_od.hollow_zero.event.hollow_event_utils as utils
+    original = utils.check_screen
+    utils.check_screen = Mock(return_value=None)
+    try:
+        result = op.check_first_screen()
+    finally:
+        utils.check_screen = original
+    assert result.status == WitheredDomainApp.STATUS_IN_HOLLOW

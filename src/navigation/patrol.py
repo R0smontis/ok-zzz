@@ -157,11 +157,14 @@ def choose_patrol_point(op, screen):
         if aim is not None and aim is not under and _near(aim['rel'], under['rel'], 60):
             aim['tries'] = 99  # the aimed fan resolved to this one
         op._patrol_aim = aim = None
-    elif aim is not None and _near(aim['rel'], here, 30):
-        # Close to the cursor but no panel: nudge, and give up on it after a few tries.
+    elif aim is not None and (_near(aim['rel'], here, 30) or aim.get('steers', 0) >= 6):
+        # Close to the cursor but no panel (or never reached): nudge, then give up on it, and on
+        # the duplicate entries the offset error left around the same spot (live 2026-10-14).
         aim['tries'] += 1
-        if aim['tries'] > 3:
-            aim['name'] = '（无详情）'
+        if aim['tries'] > 3 or aim.get('steers', 0) >= 6:
+            for k in known:
+                if k['name'] is None and _near(k['rel'], aim['rel'], 60):
+                    k['name'] = '（无详情）'
             op._patrol_aim = aim = None
 
     named = {k['name']: k['rel'] for k in known if k['name'] and k['name'] != '（无详情）'}
@@ -185,7 +188,14 @@ def choose_patrol_point(op, screen):
             names = '、'.join(dict.fromkeys(k['name'] for k in known if k['name']))
             return op.round_fail(f'未找到传送点 {op.tp_name}；已查看：{names or "无"}')
         op._patrol_aim = aim = options[0]
-    return _steer(op, state, aim['rel'][0] + offset[0], aim['rel'][1] + offset[1])
+    aim['steers'] = aim.get('steers', 0) + 1
+    predicted = (aim['rel'][0] + offset[0], aim['rel'][1] + offset[1])
+    # Odometry is only an estimate. If the fan is visible, steer to its measured centre rather
+    # than continuing to press toward a stale coordinate beside it.
+    measured = min(icons, key=lambda i: abs(i[0] - predicted[0]) + abs(i[1] - predicted[1]), default=None)
+    if measured is not None and _near(measured, predicted, 60):
+        return _steer(op, state, *measured)
+    return _steer(op, state, *predicted)
 
 
 def as_wait(op, result):

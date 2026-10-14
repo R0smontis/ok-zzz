@@ -103,7 +103,9 @@ class WorldPatrolApp(ZApplication):
     @node_from(from_name='初始化')
     @operation_node(name='开始前返回大世界')
     def back_at_first(self) -> OperationRoundResult:
-        op = BackToNormalWorld(self.ctx)
+        # 后台不能点菜单退出战斗；停在战斗中时交给第一条路线的「出发前战斗」。
+        background = getattr(self.ctx.controller, 'background_mode', False)
+        op = BackToNormalWorld(self.ctx, allow_battle=background)
         return self.round_by_op_result(op.execute())
 
     @node_from(from_name='开始前返回大世界')
@@ -185,6 +187,12 @@ class WorldPatrolApp(ZApplication):
             if result.success:
                 route_finished = True
                 break
+
+            if str(result.status).startswith(WorldPatrolRunRoute.STATUS_STUCK_IN_BATTLE):
+                # 后台无法离开持续的战斗（地图键在战斗中打开的是菜单），后续路线同样无法出发。
+                self._stop_route_actions()
+                self.failed_routes[route.full_id] = result.status
+                return self.round_fail(status=f'{result.status}，停止本轮：{route.full_id}')
 
             if result.status == WorldPatrolRunRoute.STATUS_UI_DISAPPEARED:
                 action = self.config.ui_disappear_action

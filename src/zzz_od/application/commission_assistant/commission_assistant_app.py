@@ -73,6 +73,9 @@ class CommissionAssistantApp(ZApplication):
         self.dialog_clicked: bool = False  # 仅表示本轮确认有对话，不用于未知画面的补点
 
     def handle_init(self):
+        self._dialogue_pad_pending = None
+        self._dialogue_pad_steps = 0
+        self._dialogue_menu_opened = False
         self._listen_btn()
 
     def _unlisten_btn(self) -> None:
@@ -118,6 +121,9 @@ class CommissionAssistantApp(ZApplication):
         self.screenshot()
         confirmation = DialogueDetector(self.ctx).skip_confirmation(self.last_screenshot)
         if confirmation is not None and self.config.story_mode == StoryMode.SKIP.value.value:
+            if getattr(self.ctx.controller, 'background_mode', False):
+                from src.navigation.dialogue import dialogue_action
+                return dialogue_action(self, self.last_screenshot, confirmation)
             self.ctx.controller.click(confirmation.point, press_time=0.001)
             return self.round_wait(confirmation.text, wait=0.1)
 
@@ -161,8 +167,15 @@ class CommissionAssistantApp(ZApplication):
         # Each click needs evidence from this frame. Never reuse a past option
         # location or infer a dialogue from a black/transition screen.
         action = DialogueDetector(self.ctx).detect(
-            self.last_screenshot, mode=self.config.story_mode, option=self.config.dialog_option)
+            self.last_screenshot, mode=self.config.story_mode, option=self.config.dialog_option,
+            menu_opened=getattr(self, '_dialogue_menu_opened', False))
         self.dialog_clicked = action is not None
+        if getattr(self.ctx.controller, 'background_mode', False):
+            from src.navigation.dialogue import dialogue_action
+            if action is None:
+                self.chosen_opt = None
+                self.chosen_opt_last_time = 0
+            return dialogue_action(self, self.last_screenshot, action)
         if action is None:
             self.chosen_opt = None
             self.chosen_opt_last_time = 0
@@ -399,6 +412,9 @@ class CommissionAssistantApp(ZApplication):
         # 如果按快捷键键切换了别的模式, 跳出循环
         if self.run_mode != 0:
             return self.round_success('切换自动对话模式')
+        if getattr(self.ctx.controller, 'background_mode', False):
+            # The legacy story branches below click window coordinates; never run them in pad mode.
+            return self._do_dialog_click()
         # log.debug('@@@@@@@@@@@@@@循环耗时:%2f', self.last_screenshot_time - self.last_recorded_time)
         # self.last_recorded_time = self.last_screenshot_time
 

@@ -89,10 +89,20 @@ def test_ignored_pulses_are_bounded_and_do_not_complete_cell():
         raw = HollowZeroMap([node(400, 400, '当前', when), node(510, 400, when=when)], 0, {}, when)
         op.ctx.withered_domain.map_service.cal_current_map_by_screen.return_value = raw
         result = board_step(op, op.last_screenshot, when, grid)
+        if result.is_fail or '无法到达' in result.status:
+            break
+    assert result.result == R.WAIT and '无法到达' in result.status
+    assert op.ctx.controller.btn_press.call_count == 4
+    op.ctx.withered_domain.update_context_after_move.assert_called_once()  # marked visited, not moved
+    op._board_unreachable = 3
+    board_step(op, op.last_screenshot, 40, grid)
+    for when in range(41, 70):
+        raw = HollowZeroMap([node(400, 400, '当前', when), node(510, 400, when=when)], 0, {}, when)
+        op.ctx.withered_domain.map_service.cal_current_map_by_screen.return_value = raw
+        result = board_step(op, op.last_screenshot, when, grid)
         if result.is_fail:
             break
-    assert result.is_fail and op.ctx.controller.btn_press.call_count == 4
-    op.ctx.withered_domain.update_context_after_move.assert_not_called()
+    assert result.is_fail
 
 
 @pytest.mark.parametrize('problem', ['no-marker', 'duplicate-marker', 'no-next', 'not-adjacent', 'diagonal'])
@@ -112,7 +122,20 @@ def test_unexpected_position_is_not_attributed_to_the_requested_cell():
     board_step(op, op.last_screenshot, 1, grid)
     op.ctx.withered_domain.map_service.cal_current_map_by_screen.return_value = HollowZeroMap(
         [node(700, 700, '当前', 2)], 0, {}, 2)
-    assert board_step(op, op.last_screenshot, 2, grid).is_fail
+    assert board_step(op, op.last_screenshot, 2, grid).result == R.WAIT
+    op.ctx.withered_domain.update_context_after_move.assert_not_called()
+    assert op._board_pending is None and op._board_unexpected == 1
+
+
+def test_repeated_unexpected_positions_fail_without_crediting_moves():
+    op, grid = board()
+    for when in range(4):
+        op._board_stable = (Rect(400, 400, 500, 500), when * 3)
+        board_step(op, op.last_screenshot, when * 3 + 1, grid)
+        op.ctx.withered_domain.map_service.cal_current_map_by_screen.return_value = HollowZeroMap(
+            [node(700, 700, '当前', when * 3 + 2)], 0, {}, when * 3 + 2)
+        result = board_step(op, op.last_screenshot, when * 3 + 2, grid)
+    assert result.is_fail
     op.ctx.withered_domain.update_context_after_move.assert_not_called()
 
 
@@ -276,3 +299,17 @@ def test_route_to_a_target_behind_two_equal_doors_does_not_alternate():
         cur = payload['board']['nodes'][hop]['rect']
     assert g.nodes[seen[-1]].entry.entry_name == '门扉禁闭-侵蚀'
     assert len(seen) == len(set(seen))
+
+
+def test_ignored_teleport_cell_never_updates_level_or_move_record():
+    op, grid = board()
+    grid.nodes[1].entry.is_tp = True
+    board_step(op, op.last_screenshot, 1, grid)
+    for when in range(2, 30):
+        op.ctx.withered_domain.map_service.cal_current_map_by_screen.return_value = HollowZeroMap(
+            [node(400, 400, '当前', when)], 0, {}, when)
+        result = board_step(op, op.last_screenshot, when, grid)
+        if result.is_fail:
+            break
+    assert result.is_fail and '楼层' in result.status
+    op.ctx.withered_domain.update_context_after_move.assert_not_called()
