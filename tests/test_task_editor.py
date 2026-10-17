@@ -261,7 +261,12 @@ def test_charge_card_refreshes_height_after_empty_plan_add_and_remove(editor):
     assert reset.mapTo(card.view, QPoint(0, reset.height())).y() <= card.view.height()
     while widget.rows:
         widget.remove_plan(0)
-    _APP.processEvents()
+    # The card animates back; a slow runner needs more than one event pass.
+    for _ in range(40):
+        _APP.processEvents()
+        if card.height() < empty_height + 20:
+            break
+        QTest.qWait(50)
     assert card.height() < empty_height + 20
     assert json.loads(task.config['plan_list']) == []
     window.close()
