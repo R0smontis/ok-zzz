@@ -6,7 +6,7 @@ from src.controls.hotkey_settings import validate_hotkey
 from src.runtime.inference import recognition_config
 from src.runtime.game_discovery import validate_game_path
 
-version = "0.1.1"
+version = "0.2.0"
 
 gui_config = {
     'type': 'qt',
@@ -87,9 +87,10 @@ config = {
     },
     'links': {
         'default': {
-            'github': 'https://github.com/OneDragon-Anything/ZenlessZoneZero-OneDragon',
+            'github': 'https://github.com/R0smontis/ok-zzz',
+            'download': 'https://github.com/R0smontis/ok-zzz/releases',
+            'faq': 'https://github.com/R0smontis/ok-zzz/issues',
             'ok-script': 'https://github.com/ok-oldking/ok-script',
-            'faq': 'https://github.com/OneDragon-Anything/ZenlessZoneZero-OneDragon/issues',
         }
     },
     'screenshots_folder': 'screenshots',

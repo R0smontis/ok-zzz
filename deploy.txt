@@ -1,0 +1,13 @@
+src
+config
+assets
+i18n
+icons
+main.py
+main_debug.py
+requirements.txt
+requirements.lock.txt
+pyappify.yml
+README.md
+LICENSE
+THIRD_PARTY_NOTICES.md

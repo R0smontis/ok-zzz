@@ -1,0 +1,188 @@
+# 发布流程，与 ok-ww 相同：推送 vX.Y.Z 标签后
+# 测试 → 同步更新仓库（启动器从这里在线更新）→ 构建启动器与安装包 → 发布 Release。
+# 手动运行（workflow_dispatch）只执行测试。
+name: Windows Release
+run-name: ${{ github.event_name == 'push' && format('Windows release · {0}', github.ref_name) || 'Validate' }}
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+concurrency:
+  group: windows-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  PYTHON_VERSION: '3.12'
+  PYTHONIOENCODING: 'UTF-8'
+  PYTHONLEGACYWINDOWSSTDIO: 'UTF-8'
+  UPDATE_REPO: 'git@github.com:R0smontis/ok-zzz-update.git'
+
+jobs:
+  validate:
+    name: Run tests
+    runs-on: windows-latest
+    steps:
+      - name: Configure runner
+        shell: pwsh
+        run: |
+          [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements.lock.txt
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.lock.txt
+
+      - name: Run offline tests
+        run: python -m pytest -q -p no:cacheprovider
+
+  synchronize:
+    name: Synchronize update repository
+    needs: validate
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    outputs:
+      is_release: ${{ steps.release_version.outputs.is_release }}
+      start_tag: ${{ steps.sync.outputs.start_tag }}
+      end_tag: ${{ steps.sync.outputs.end_tag }}
+      changes: ${{ steps.sync.outputs.changes_with_asterisk }}
+    steps:
+      - name: Configure runner
+        shell: pwsh
+        run: |
+          [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+          git config --global user.email "R0smontis@users.noreply.github.com"
+          git config --global user.name "ok-zzz release"
+
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 生成更新日志需要全部标签
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements.lock.txt
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.lock.txt
+
+      - name: Prepare release requirements
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python -m ok.update.inline_ok_requirements --tag "$env:RELEASE_TAG"
+
+      - name: Check release version
+        id: release_version
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $isRelease = $env:RELEASE_TAG -match '^v?\d+\.\d+\.\d+$'
+          "is_release=$($isRelease.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+      - name: Configure update repository key
+        shell: bash
+        env:
+          UPDATE_REPO_SSH_KEY: ${{ secrets.UPDATE_REPO_SSH_KEY }}
+        run: |
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$UPDATE_REPO_SSH_KEY" > "$HOME/.ssh/update_repo_key"
+          chmod 600 "$HOME/.ssh/update_repo_key"
+          ssh-keyscan -t ed25519 github.com >> "$HOME/.ssh/known_hosts" 2>/dev/null
+          git config --global core.sshCommand "ssh -i '$HOME/.ssh/update_repo_key' -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+
+      - name: Synchronize update repository
+        id: sync
+        uses: ok-oldking/partial-sync-repo@master
+        with:
+          repos: ${{ env.UPDATE_REPO }}
+          sync_list: 'deploy.txt'
+          tag: ${{ github.ref_name }}
+          gitignore_file: '.update_repo_gitignore'
+          show_author: false
+
+      - name: Remove update repository key
+        if: always()
+        shell: bash
+        run: rm -f "$HOME/.ssh/update_repo_key"
+
+  package:
+    name: Build launcher and installers
+    needs: synchronize
+    runs-on: windows-latest
+    steps:
+      - name: Configure runner
+        shell: pwsh
+        run: |
+          [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Build launcher and installers
+        uses: ok-oldking/pyappify-action@master
+
+      - name: Stage release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: 'pyappify_dist/*'
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish GitHub release
+    needs: [synchronize, package]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download release assets
+        uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: pyappify_dist
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          body: |
+            ### 下载
+            - `ok-zzz-win32-Global-setup.exe`：完整安装包（推荐），已包含运行环境。
+            - `ok-zzz-win32-online-setup.exe`：在线安装包，首次启动时下载运行环境。
+            - 后台模式需另行安装 [ViGEmBus](https://github.com/nefarius/ViGEmBus/releases) 驱动。
+            - 安装后由启动器在线更新，无需重新下载。使用说明见 [README](https://github.com/R0smontis/ok-zzz#readme)。
+
+            ### 更新日志 ${{ needs.synchronize.outputs.start_tag }} -> ${{ needs.synchronize.outputs.end_tag }}
+            ${{ needs.synchronize.outputs.changes }}
+          draft: false
+          prerelease: ${{ needs.synchronize.outputs.is_release != 'true' }}
+          files: pyappify_dist/*
