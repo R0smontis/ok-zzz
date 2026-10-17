@@ -328,11 +328,30 @@ class ChargePlanConfig(ApplicationConfig):
 
     @property
     def loop(self) -> bool:
-        return self.get('loop', True)
+        # ok-zzz: 默认每次执行走完整个计划后结束（见 reset_plan_times_each_run），不再循环刷到电量耗尽。
+        return self.get('loop', False)
 
     @loop.setter
     def loop(self, new_value: bool) -> None:
         self.update('loop', new_value)
+
+    @property
+    def reset_plan_times_each_run(self) -> bool:
+        """ok-zzz: 每次执行开始时清零已运行次数，默认每次都走完整个计划。"""
+        return self.get('reset_plan_times_each_run', True)
+
+    @reset_plan_times_each_run.setter
+    def reset_plan_times_each_run(self, new_value: bool) -> None:
+        self.update('reset_plan_times_each_run', new_value)
+
+    def reset_plan_times_for_run(self) -> bool:
+        """清零全部计划的已运行次数；返回是否有计划被清零。"""
+        changed = [plan for plan in self.plan_list if plan.run_times != 0]
+        for plan in changed:
+            plan.run_times = 0
+        if changed:
+            self.save()
+        return bool(changed)
 
     @property
     def daily_reset_plan_times(self) -> bool:

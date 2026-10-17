@@ -40,6 +40,7 @@ class ChargePlanApp(ZApplication):
     STATUS_NO_PLAN: ClassVar[str] = '没有可运行的计划'
     STATUS_ROUND_FINISHED: ClassVar[str] = '已完成一轮计划'
     STATUS_FIND_NEXT_PLAN: ClassVar[str] = '继续查找下一个计划'
+    STATUS_EMPTY_PLAN: ClassVar[str] = '未配置体力计划，请先在体力刷本中添加刷本计划'
 
     def __init__(self, ctx: ZContext):
         ZApplication.__init__(
@@ -64,15 +65,23 @@ class ChargePlanApp(ZApplication):
         self.last_tried_plan: ChargePlanItem | None = None
         self.current_plan: ChargePlanItem | None = None
         self.challenge_failure: str | None = None
+        self.challenge_count: int = 0  # 本次实际完成的挑战（含合成电池）
+        self.idle_reason: str | None = None  # 本次没有挑战时的原因
 
     @operation_node(name='开始体力计划', is_start_node=True)
     def start_charge_plan(self) -> OperationRoundResult:
         self.last_tried_plan = None
         self.challenge_failure = None
+        self.challenge_count = 0
+        self.idle_reason = None
         for plan in self.config.plan_list:
             plan.skipped = False
         current_dt = self.run_record.get_current_dt()
-        if self.config.try_reset_plan_times_by_dt(current_dt):
+        if self.config.reset_plan_times_each_run:
+            # ok-zzz: 每次执行都从头走完整个计划；中途失败的计划下次执行也会重新计数。
+            if self.config.reset_plan_times_for_run():
+                log.info('每次执行重置计划次数：本次从头执行全部计划')
+        elif self.config.try_reset_plan_times_by_dt(current_dt):
             log.info('已按游戏刷新日重置体力计划已运行次数 %s', current_dt)
         return self.round_success()
 
@@ -156,7 +165,8 @@ class ChargePlanApp(ZApplication):
         """
 
         if not self.config.plan_list:
-            return self.round_success(ChargePlanApp.STATUS_NO_PLAN)
+            # ok-zzz: 没有计划时什么都没做，不能报告成功。
+            return self.round_fail(ChargePlanApp.STATUS_EMPTY_PLAN)
 
         # 检查是否所有计划都已完成
         if self.config.all_plan_finished():
@@ -165,6 +175,7 @@ class ChargePlanApp(ZApplication):
                 self.last_tried_plan = None
                 self.config.reset_plans()
             else:
+                self.idle_reason = '计划已全部完成（未开启每次执行重置、每日重置和循环）'
                 return self.round_success(ChargePlanApp.STATUS_ROUND_FINISHED)
 
         candidate_plan = self.config.get_next_plan(self.last_tried_plan)
@@ -189,6 +200,8 @@ class ChargePlanApp(ZApplication):
             return self.round_success()
 
         if not self.config.skip_plan:
+            self.idle_reason = (f'电量不足：{self.current_plan.category_name} {self.current_plan.mission_type_name}'
+                                f'需要 {need_battery_charge}')
             return self.round_success(ChargePlanApp.STATUS_ROUND_FINISHED)
 
         self.current_plan.skipped = True
@@ -281,6 +294,7 @@ class ChargePlanApp(ZApplication):
             )
             log.error(self.challenge_failure)
             return self.round_fail(self.challenge_failure)
+        self.challenge_count = getattr(self, 'challenge_count', 0) + 1
         self.last_tried_plan = None
         return self.round_success()
 
@@ -308,6 +322,9 @@ class ChargePlanApp(ZApplication):
             return self.round_success(ChargePlanApp.STATUS_FIND_NEXT_PLAN)
         else:
             # 不跳过，直接结束本轮计划
+            # ok-zzz: 副本内才发现的原因（如实际消耗高于预估的电量不足）也要写进结果。
+            self.idle_reason = (f'{self.current_plan.category_name} {self.current_plan.mission_type_name}：'
+                                f'{self.previous_node.status or "未知原因"}')
             self.last_tried_plan = None
             return self.round_success(ChargePlanApp.STATUS_ROUND_FINISHED)
 
@@ -329,7 +346,11 @@ class ChargePlanApp(ZApplication):
             if not op_result.success:
                 failure += f'；返回大世界失败：{op_result.status or "未知原因"}'
             return self.round_fail(failure)
-        return self.round_by_op_result(op_result, status=f'剩余电量 {self.battery_charge}')
+        status = f'剩余电量 {self.battery_charge}'
+        if getattr(self, 'challenge_count', 0) == 0:
+            reason = getattr(self, 'idle_reason', None) or '没有符合条件的计划'
+            status = f'{reason}，本次未刷本；{status}'
+        return self.round_by_op_result(op_result, status=status)
 
 
 def __debug():

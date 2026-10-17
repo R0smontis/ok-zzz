@@ -14,6 +14,7 @@ OPTION_LABELS = {
     'extra_task': '额外任务', 'extra_exit': '额外任务退出时机',
     'predefined_team_idx': '预备编队编号', 'loop': '循环执行',
     'weekly_challenge_start_weekday': '每周挑战开始日',
+    'reset_plan_times_each_run': '每次执行重置计划次数',
     'daily_reset_plan_times': '每日重置计划次数',
     'restore_charge': '体力恢复方式', 'transport_point': '传送点',
     'run_charge_plan_afterwards': '完成后执行体力计划',

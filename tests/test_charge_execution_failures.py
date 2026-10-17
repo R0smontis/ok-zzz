@@ -141,3 +141,107 @@ def test_burnout_changes_stop_at_bounded_attempts(monkeypatch):
     op._reward_mode_requests = 4
     assert menus.verified_reward_mode(op, op.last_screenshot, False).is_fail
     pressed.assert_not_called()
+
+
+def world_cleanup(monkeypatch):
+    cleanup = Mock()
+    cleanup.execute.return_value = OperationResult(True, '大世界-普通')
+    monkeypatch.setattr('zzz_od.application.charge_plan.charge_plan_app.BackToNormalWorld', lambda ctx: cleanup)
+
+
+def started(app):
+    app.run_record = SimpleNamespace(get_current_dt=lambda: '20261017')
+    app.start_charge_plan()
+    return app
+
+
+def finish(app, previous):
+    app._init_network()
+    app._current_node = app._node_map['返回大世界']
+    app._previous_round_result = previous
+    return app.back_to_world()
+
+
+def test_finished_plans_without_any_reset_say_nothing_was_run(monkeypatch):
+    world_cleanup(monkeypatch)
+    plan = ChargePlanItem(plan_times=1, run_times=1)
+    app = plan_app([plan], loop=False)
+    app.config.data['reset_plan_times_each_run'] = False
+    app = started(app)
+    app.battery_charge = 320
+    found = app.find_next_plan()
+    assert found.status == app.STATUS_ROUND_FINISHED
+    result = finish(app, found)
+    assert result.is_success
+    assert result.status == '计划已全部完成（未开启每次执行重置、每日重置和循环），本次未刷本；剩余电量 320'
+
+
+def test_by_default_every_run_starts_the_whole_plan_again():
+    # User request 2026-10-17: each execution runs the full plan list once.
+    done = ChargePlanItem(mission_type_name='音擎改装', plan_times=1, run_times=1)
+    half = ChargePlanItem(mission_type_name='基础材料', plan_times=3, run_times=2)
+    app = started(plan_app([done, half], loop=False))
+    assert (done.run_times, half.run_times) == (0, 0)
+    app.config.save.assert_called()
+    found = app.find_next_plan()
+    assert found.is_success and app.current_plan is done
+
+
+def test_default_does_not_loop_after_the_whole_plan():
+    from zzz_od.application.charge_plan.charge_plan_config import ChargePlanConfig
+    config = object.__new__(ChargePlanConfig)
+    config.data = {}
+    assert config.reset_plan_times_each_run and not config.loop and not config.daily_reset_plan_times
+
+
+def test_turning_the_per_run_reset_off_keeps_counts_and_daily_reset_applies():
+    plan = ChargePlanItem(plan_times=2, run_times=1)
+    app = plan_app([plan], loop=False)
+    app.config.data.update(reset_plan_times_each_run=False, daily_reset_plan_times=True,
+                           last_daily_reset_dt='20261017')
+    started(app)
+    assert plan.run_times == 1  # Same game day: nothing to reset.
+    app.config.data['last_daily_reset_dt'] = '20261016'
+    started(app)
+    assert plan.run_times == 0
+
+
+def test_low_charge_names_the_plan_and_requirement(monkeypatch):
+    world_cleanup(monkeypatch)
+    plan = ChargePlanItem(category_name='实战模拟室', mission_type_name='音擎改装', plan_times=1)
+    app = started(plan_app([plan]))
+    app.battery_charge = 10
+    app.current_plan = plan
+    app.config.data['restore_charge'] = '不使用'
+    checked = app.check_before_transport()
+    assert checked.status == app.STATUS_ROUND_FINISHED
+    assert finish(app, checked).status == '电量不足：实战模拟室 音擎改装需要 20，本次未刷本；剩余电量 10'
+
+
+def test_completed_challenge_keeps_plain_charge_status(monkeypatch):
+    world_cleanup(monkeypatch)
+    plan = ChargePlanItem(plan_times=1, run_times=1)
+    app = started(plan_app([plan], loop=False))
+    app.battery_charge = 220
+    app._init_network()
+    app._current_node = app._node_map['挑战完成']
+    app._previous_round_result = app.round_success('战斗结果-完成')
+    assert app.challenge_complete().is_success
+    found = app.find_next_plan()
+    assert finish(app, found).status == '剩余电量 220'
+
+
+def test_charge_found_short_inside_the_mission_is_named(monkeypatch):
+    # The pre-check estimates 20 for 实战模拟室 默认数量, but one run took 100 live (320 → 220).
+    from zzz_od.operation.compendium.combat_simulation import CombatSimulation
+    world_cleanup(monkeypatch)
+    plan = ChargePlanItem(category_name='实战模拟室', mission_type_name='音擎改装', plan_times=1)
+    app = started(plan_app([plan]))
+    app.battery_charge = 60
+    app.current_plan = plan
+    app._init_network()
+    app._current_node = app._node_map['实战模拟室']
+    app._previous_round_result = app.round_success(CombatSimulation.STATUS_CHARGE_NOT_ENOUGH)
+    ended = app.skip_plan_or_finish()
+    assert ended.status == app.STATUS_ROUND_FINISHED
+    assert finish(app, ended).status == '实战模拟室 音擎改装：电量不足，本次未刷本；剩余电量 60'

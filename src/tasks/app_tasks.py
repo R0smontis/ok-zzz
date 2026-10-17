@@ -59,8 +59,9 @@ class App_ChargePlan(AppTaskBase):
         self.description = '运行一条龙应用：体力刷本'
         self.default_config.update({
             'plan_list': '',
+            'reset_plan_times_each_run': True,
             'daily_reset_plan_times': False,
-            'loop': True,
+            'loop': False,
             'restore_charge': '不使用',
             '结束后': '无',
             '关机延迟秒': 60,
@@ -68,7 +69,7 @@ class App_ChargePlan(AppTaskBase):
         self.config_type.update({
             'restore_charge': {'type': 'drop_down', 'options': ['不使用', '使用储蓄电量', '使用以太电池', '同时使用储蓄电量和以太电池']},
         })
-        self._option_keys = ['daily_reset_plan_times', 'loop', 'restore_charge']
+        self._option_keys = ['reset_plan_times_each_run', 'daily_reset_plan_times', 'loop', 'restore_charge']
 
 
 class App_CityFund(AppTaskBase):

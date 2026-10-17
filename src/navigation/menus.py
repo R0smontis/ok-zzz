@@ -70,16 +70,18 @@ def compendium_category(op, screen, target):
         part=screen[max(0,y-22):y+22,195:415]
         if part.size and np.mean((part[:,:,2]>120)&(part[:,:,0]<140)&(part[:,:,2].astype(np.int16)-part[:,:,0]>40))>.35:
             selected.append(row)
-    # A selected category can contain a second status line (e.g. an unset goal).
-    # Count highlighted controls, not OCR lines; the first line names the control.
+    # A selected category can contain a second line (an unset goal, or a 双倍 badge on its corner).
+    # Count highlighted controls, not OCR lines. Rows through the large white title keep only ~35 %
+    # blue, while the gray gap between two separate controls has almost none.
     controls=[]
     for row in sorted(selected,key=lambda item:item.center.y):
         if controls:
-            band=screen[controls[-1].center.y:row.center.y+1,195:415]
+            band=screen[controls[-1][-1].center.y:row.center.y+1,195:415]
             blue=(band[:,:,2]>120)&(band[:,:,0]<140)&(band[:,:,2].astype(np.int16)-band[:,:,0]>40)
-            if band.size and np.all(np.mean(blue,axis=1)>.35):
+            if band.size and np.all(np.mean(blue,axis=1)>.15):
+                controls[-1].append(row)
                 continue
-        controls.append(row)
+        controls.append([row])
     selected=controls
     if target_row is None or len(selected)!=1:
         # Right after a tab switch the category list is still animating; give it a few frames.
@@ -89,8 +91,8 @@ def compendium_category(op, screen, target):
             return op.round_wait('等待分类列表稳定，未操作',wait=.6)
         read=' / '.join(str(r.data) for r in rows)
         return op.round_retry(f'未核验唯一分类焦点或目标（{target}；读到：{read}；选中 {len(selected)} 项），未操作',wait=.6)
-    current=selected[0]
-    if abs(current.center.y-target_row.center.y)<25:
+    top,bottom=selected[0][0].center.y,selected[0][-1].center.y
+    if top-25<target_row.center.y<bottom+25:
         return op.round_success('已核验快捷手册分类：'+target)
     count=getattr(op,'_pad_category_steps',0)
     if count>=12:
@@ -104,7 +106,7 @@ def compendium_category(op, screen, target):
         # Return from any verified card-panel button, not only populated cards.
         pad_press(op,'b');op._pad_category_steps=count+1
         return op.round_wait('返回分类列表，等待实际焦点',wait=.6)
-    pad_press(op,'dpad_up' if target_row.center.y<current.center.y else 'dpad_down')
+    pad_press(op,'dpad_up' if target_row.center.y<top else 'dpad_down')
     op._pad_category_steps=count+1
     return op.round_wait('手柄选择分类：'+target,wait=.6)
 
@@ -129,11 +131,12 @@ def go_focused(screen, y):
 def panel_button_focused(screen):
     """Whether any solid button in the card panel carries the focus (e.g. the 周期挑战 header button).
 
-    Card outlines and progress bars are excluded by requiring a filled, button-sized region.
+    Card outlines and progress bars are excluded by requiring a filled, button-sized region; so is
+    the yellow event banner across the whole panel (e.g. 「数据悬赏」活动, 1165×44).
     """
     mask=focus_mask(screen[220:950,480:1700]).astype(np.uint8)
     _,_,stats,_=cv2.connectedComponentsWithStats(mask)
-    return any(w>150 and h>40 and area>.5*w*h for _,_,w,h,area in stats[1:])
+    return any(150<w<700 and h>40 and area>.5*w*h for _,_,w,h,area in stats[1:])
 
 
 def compendium_card(op, screen, is_target, label):

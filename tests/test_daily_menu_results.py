@@ -176,6 +176,19 @@ def test_two_separate_highlighted_categories_still_block_navigation():
     op.ctx.controller.btn_press.assert_not_called()
 
 
+def test_double_drop_badge_is_part_of_the_selected_category():
+    # Real 3.2 frame: a yellow 双倍 badge is read as its own line on top of the blue 实战模拟室.
+    op=store();fixture(op,'compendium-double-badge')
+    assert compendium_category(op,op.last_screenshot,'实战模拟室').is_success
+    op.ctx.controller.btn_press.assert_not_called()
+    op=store();fixture(op,'compendium-double-badge')
+    assert compendium_category(op,op.last_screenshot,'区域巡防').result==R.WAIT
+    op.ctx.controller.btn_press.assert_called_once_with('xbox_dpad_down',press_time=.12)
+    op=store();fixture(op,'compendium-double-badge')
+    assert compendium_category(op,op.last_screenshot,'特训目标').result==R.WAIT
+    op.ctx.controller.btn_press.assert_called_once_with('xbox_dpad_up',press_time=.12)
+
+
 def is_butcher(text):
     import difflib
     return difflib.get_close_matches(text,['初生死路屠夫'],n=1)==['初生死路屠夫']

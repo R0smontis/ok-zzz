@@ -633,3 +633,6 @@ msgstr "手柄后台操作"
 
 msgid "roxy"
 msgstr "洛克茜"
+
+msgid "reset_plan_times_each_run"
+msgstr "每次执行重置计划次数"

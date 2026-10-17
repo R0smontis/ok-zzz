@@ -130,10 +130,14 @@ def test_only_empty_target_plan_ends_successfully_even_in_loop_mode(loop):
 
 
 @pytest.mark.parametrize('loop', [True, False])
-def test_empty_user_plan_list_is_a_successful_no_plan_result(loop):
+def test_empty_user_plan_list_fails_instead_of_reporting_success(loop):
+    # Live 2026-10-17: an empty plan list read 320 charge, ran nothing and was reported as success.
     app = plan_app([], loop=loop)
     result = app.find_next_plan()
-    assert result.is_success and result.status == app.STATUS_NO_PLAN
+    assert result.is_fail and result.status == app.STATUS_EMPTY_PLAN
+    app._init_network()
+    app._current_node = app._node_map['查找候选计划']
+    assert app._get_next_node(result).cn == '返回大世界'
 
 
 def test_material_transport_does_not_read_agent_targets(agent_picker):
