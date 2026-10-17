@@ -45,6 +45,28 @@ def test_search_starts_with_the_nearest_fan_and_bounds_itself():
     assert choose_patrol_point(op, screen).is_fail
 
 
+def test_other_icon_detail_panel_is_a_map_and_the_search_moves_on():
+    # Live 2026-10-17: the cursor stopped on a 「物资收集点」; its panel shows 已完成, not 前往/追踪.
+    # Treating that as an unknown screen froze the search until the 180 s stall guard.
+    from src.navigation.map import map_state
+    op, screen = frame('wp-collection-detail')
+    op.area_name, op.tp_name = '[空洞]中央制造区', '中央制造区入口'
+    state = map_state(op, screen)
+    assert state is not None and state['detail'] and not state['info'] and not state['can_go']
+    assert state['point'] == '物资收集点' and state['title'] == '[空洞]中央制造区'
+    result = choose_patrol_point(op, screen)
+    assert result.result == R.RETRY and result.status != '未核验地图，暂停传送点搜索'
+    assert op.ctx.controller.btn_press.call_args.args[0].startswith('xbox_ls_')
+    assert any(k['name'] == '物资收集点' for k in op._patrol_known)
+
+
+def test_area_info_panel_is_not_mistaken_for_an_icon_detail():
+    from src.navigation.map import map_state
+    op, screen = frame('central-map')
+    state = map_state(op, screen)
+    assert state['info'] and not state['detail']
+
+
 def with_sub_area(op, name='大楼西侧'):
     names = ('物流仓储区', '顶楼', '大楼西侧', '大楼东侧')
     parent = SimpleNamespace(sub_area_list=[SimpleNamespace(area_name=n) for n in names])
@@ -298,3 +320,27 @@ def test_visible_fan_measurement_wins_over_drifting_prediction(monkeypatch):
     monkeypatch.setattr(patrol, '_steer', steer)
     choose_patrol_point(op, screen)
     assert steer.call_args.args[2:] == measured
+
+
+class StickMap(PatrolMap):
+    """Pans by the real press: distance = press time × stick speed (live: slow ≈ 210 / 180 px/s)."""
+
+    SPEED = {'x': 2800., 'y': 1400., 'x_slow': 210., 'y_slow': 180.}
+    SIGN = {'left': (1, 'x'), 'right': (-1, 'x'), 'up': (1, 'y'), 'down': (-1, 'y')}
+
+    def pan(self, op):
+        call = op.ctx.controller.btn_press.call_args
+        key, seconds = call.args[0], call.kwargs['press_time']
+        sign, axis = self.SIGN[key.rsplit('_', 1)[1]]
+        speed = self.SPEED[axis + ('_slow' if '_slow_' in key else '')]
+        index = 0 if axis == 'x' else 1
+        self.offset[index] += sign * speed * seconds
+
+
+def test_weak_slow_stick_still_brings_a_near_fan_under_the_cursor(monkeypatch):
+    # Live 2026-10-17: fans stalled ~35 px from the cursor because slow presses were sized for a
+    # stick five times faster; each fan was dropped after six steers and no panel ever opened.
+    fans = {'目标': (775, 610)}
+    op, result = simulate(monkeypatch, StickMap(fans), '目标')
+    assert result.is_success, result.status
+    assert op._background_map_velocity['x_slow'] < 260 and op._background_map_velocity['y_slow'] < 220

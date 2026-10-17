@@ -458,6 +458,7 @@ class WorldPatrolService:
             large_map: WorldPatrolLargeMap,
             mini_map: MiniMapWrapper,
             lm_rect: Rect,
+            near: tuple[Point, float] | None = None,
     ) -> Point | None:
         """
         计算当前小地图在大地图上的坐标
@@ -466,21 +467,24 @@ class WorldPatrolService:
             large_map: 大地图
             mini_map: 小地图
             lm_rect: 大地图上考虑的范围
+            near: ok-zzz: (上一坐标, 允许位移)。只在允许位移内取最佳匹配；范围外的匹配反正会被舍弃，
+                不能让它挤掉范围内的真实位置（实机 2026-10-17：重复结构在 140 像素外反复胜出）。
 
         Returns:
             Point: 坐标
         """
-        result = self.cal_pos_by_icon(large_map, mini_map, lm_rect)
+        result = self.cal_pos_by_icon(large_map, mini_map, lm_rect, near)
         if result is not None:
             return result
 
-        return self.cal_pos_by_road(large_map, mini_map, lm_rect)
+        return self.cal_pos_by_road(large_map, mini_map, lm_rect, near)
 
     def cal_pos_by_icon(
             self,
             large_map: WorldPatrolLargeMap,
             mini_map: MiniMapWrapper,
             lm_rect: Rect,
+            near: tuple[Point, float] | None = None,
     ) -> Point | None:
         """
         根据出现的图标 计算当前小地图在大地图上的坐标
@@ -559,6 +563,9 @@ class WorldPatrolService:
                 if not merged:
                     match_list.append(new_mr)
 
+        if near is not None:
+            match_list = [mr for mr in match_list
+                          if cal_utils.distance_between(mr.center, near[0]) <= near[1]]
         if len(match_list) == 0:
             return None
 
@@ -586,6 +593,7 @@ class WorldPatrolService:
             large_map: WorldPatrolLargeMap,
             mini_map: MiniMapWrapper,
             lm_rect: Rect,
+            near: tuple[Point, float] | None = None,
     ) -> Point | None:
         """
         根据道路掩码 计算当前小地图在大地图上的坐标
@@ -598,8 +606,10 @@ class WorldPatrolService:
         Returns:
             Point: 坐标
         """
-        source, rect = cv2_utils.crop_image(large_map.road_mask, lm_rect)
         template = mini_map.road_mask
+        source, rect = cv2_utils.crop_image(large_map.road_mask, lm_rect)
+        if near is not None:
+            return self._road_pos_near(source, rect, template, near)
 
         mrl = cv2_utils.match_template(
             source=source,
@@ -612,3 +622,32 @@ class WorldPatrolService:
             mrl.add_offset(rect.left_top)
 
         return None if mrl.max is None else mrl.max.center
+
+    @staticmethod
+    def _road_pos_near(source, rect: Rect | None, template, near: tuple[Point, float]) -> Point | None:
+        """ok-zzz: best road match within the allowed move, unless a far match is clearly better.
+
+        A repeated structure can beat the real spot by a little; the far match would be discarded
+        as a jump anyway. A near match scoring well below the global best is not trusted: the
+        previous position may itself be wrong, and the far match is kept for the caller to judge.
+        """
+        th, tw = template.shape[:2]
+        if source.shape[0] < th or source.shape[1] < tw:
+            return None
+        scores = cv2.matchTemplate(source, template, cv2.TM_CCOEFF_NORMED)
+        scores[~np.isfinite(scores)] = -1
+        left, top = (rect.x1, rect.y1) if rect is not None else (0, 0)
+        _, best, _, best_loc = cv2.minMaxLoc(scores)
+        if best < 0.1:
+            return None
+        pos, limit = near
+        # Score (row, col) is the template's top-left; its centre is half a template further.
+        x1 = max(0, int(pos.x - limit) - left - tw // 2)
+        x2 = min(scores.shape[1], int(pos.x + limit) - left - tw // 2 + 1)
+        y1 = max(0, int(pos.y - limit) - top - th // 2)
+        y2 = min(scores.shape[0], int(pos.y + limit) - top - th // 2 + 1)
+        if x1 < x2 and y1 < y2:
+            _, near_best, _, near_loc = cv2.minMaxLoc(scores[y1:y2, x1:x2])
+            if near_best >= 0.1 and near_best >= 0.85 * best:
+                return Point(left + x1 + near_loc[0] + tw // 2, top + y1 + near_loc[1] + th // 2)
+        return Point(left + best_loc[0] + tw // 2, top + best_loc[1] + th // 2)

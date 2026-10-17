@@ -36,6 +36,12 @@ def map_state(op, screen):
     info = '区域信息' in words and '区域切换' in words
     detail = '前往' in words or '追踪' in words
     if not info and not detail:
+        # Other icons under the cursor open the same panel with a status button instead, e.g.
+        # 「物资收集点」 with 已完成 (live 2026-10-17). It is a map with a non-teleport detail.
+        header = any(125 < r.center.y < 180 and 1480 < r.center.x < 1800 and _cjk(r) for r in rows)
+        button = any(860 < r.center.y < 940 and 1480 < r.center.x < 1770 and _cjk(r) for r in rows)
+        detail = header and button
+    if not info and not detail:
         return None
     title_rows = _rows(op, screen, Rect(170, 20, 550, 78))
     title = min((r for r in title_rows if any('\u4e00' <= c <= '\u9fff' for c in str(r.data))),
@@ -362,24 +368,30 @@ def steer_to(op, state, x, y):
     axis = 'x' if abs(dx) >= abs(dy) else 'y'
     velocity = getattr(op, '_background_map_velocity', {'x': 600. if op.area_name=='录像店' else 2800.,
                                                        'y': 500. if op.area_name=='录像店' else 1400.})
+    # The slow stick is learned on its own: short pulses moved ~210 px/s in x and ~100-235 px/s
+    # in y (live 2026-10-17), far below 35 % of the full stick, so fans stopped ~35 px short.
+    velocity.setdefault('x_slow', 260.)
+    velocity.setdefault('y_slow', 220.)
     previous = getattr(op, '_background_map_motion', None)
     if previous:
-        old_axis, old_pos, duration, *scales = previous
+        old_axis, old_pos, duration, *kind = previous
+        key = kind[0] if kind and isinstance(kind[0], str) else old_axis
         moved = abs((x, y)[old_axis=='y']-old_pos)
         op._background_map_stalls = (getattr(op, '_background_map_stalls', 0) + 1
                                     if moved < 3 else 0)
-        observed = moved / duration / (scales[0] if scales else 1)
-        if 80 < observed < 6000:
-            velocity[old_axis] = .4*velocity[old_axis]+.6*observed
+        observed = moved / duration
+        if (40 if key.endswith('_slow') else 80) < observed < 6000:
+            velocity[key] = .4*velocity[key]+.6*observed
     op._background_map_velocity = velocity
     delta = dx if axis=='x' else dy
     slow=(abs(delta)<100 and op.area_name!='录像店'
           and getattr(op, '_background_map_stalls', 0) < 2)
-    duration = min(.24, max(.08 if slow else .025, abs(delta)/(velocity[axis]*(.35 if slow else 1))*.75))
+    key = axis + '_slow' if slow else axis
+    duration = min(.24, max(.08 if slow else .025, abs(delta)/velocity[key]*.75))
     if getattr(op, '_background_map_stalls', 0) >= 2:
         duration = max(.10, duration)
     action = ('move_a' if delta>0 else 'move_d') if axis=='x' else ('move_w' if delta>0 else 'move_s')
-    op._background_map_motion = (axis, x if axis=='x' else y, duration, .35 if slow else 1)
+    op._background_map_motion = (axis, x if axis=='x' else y, duration, key)
     # The press is sized to cover about 75% of the distance; where the icon should be on the next frame.
     op._background_expected_point = (x+.75*dx, y) if axis=='x' else (x, y+.75*dy)
     keys = op.ctx.game_config.get_action_keys('ds4' if is_ds4(op.ctx) else 'xbox')

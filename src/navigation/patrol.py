@@ -100,6 +100,19 @@ def _steer(op, state, x, y):
     return result
 
 
+def _steer_limit(aim, here):
+    """Steers allowed for one fan: 6, or up to 12 while each steer still brings it closer.
+
+    Slow final presses move a fan only ~20 px (live 2026-10-17); a fan 60-90 px away used to
+    be abandoned just short of the cursor, and the search moved on to the next one.
+    """
+    gap = abs(aim['rel'][0] - here[0]) + abs(aim['rel'][1] - here[1])
+    if aim.get('gap_steers') != aim.get('steers', 0):
+        aim['progress'] = gap < aim.get('gap', float('inf')) - 6
+        aim['gap'], aim['gap_steers'] = gap, aim.get('steers', 0)
+    return 12 if aim.get('progress') else 6
+
+
 def choose_patrol_point(op, screen):
     """Put fan icons under the cursor one by one until the detail panel names op.tp_name.
 
@@ -157,11 +170,11 @@ def choose_patrol_point(op, screen):
         if aim is not None and aim is not under and _near(aim['rel'], under['rel'], 60):
             aim['tries'] = 99  # the aimed fan resolved to this one
         op._patrol_aim = aim = None
-    elif aim is not None and (_near(aim['rel'], here, 30) or aim.get('steers', 0) >= 6):
+    elif aim is not None and (_near(aim['rel'], here, 30) or aim.get('steers', 0) >= _steer_limit(aim, here)):
         # Close to the cursor but no panel (or never reached): nudge, then give up on it, and on
         # the duplicate entries the offset error left around the same spot (live 2026-10-14).
         aim['tries'] += 1
-        if aim['tries'] > 3 or aim.get('steers', 0) >= 6:
+        if aim['tries'] > 3 or aim.get('steers', 0) >= _steer_limit(aim, here):
             for k in known:
                 if k['name'] is None and _near(k['rel'], aim['rel'], 60):
                     k['name'] = '（无详情）'

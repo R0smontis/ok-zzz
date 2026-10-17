@@ -99,6 +99,8 @@ class WorldPatrolRunRoute(ZOperation):
 
         # 自动战斗状态变量
         self.in_battle: bool = False  # 是否在战斗中
+        self.battle_start_time: float = 0  # ok-zzz: 路线中战斗的开始时间
+        self.after_battle_slack: float = 0  # ok-zzz: 战斗后首次定位额外允许的位移
         self.last_check_battle_time: float = 0  # 上一次检测是否还在战斗的时间
         self.ui_disappear_start_time: float = 0  # 疑似界面消失的开始时间
 
@@ -266,7 +268,7 @@ class WorldPatrolRunRoute(ZOperation):
         else:
             move_seconds = self.last_screenshot_time - self.no_pos_start_time
         move_seconds += 1  # 给出一个保守的前移估计
-        move_distance = move_seconds * 50  # 移动速度估值
+        move_distance = move_seconds * 50 + self.after_battle_slack  # 移动速度估值
         mini_map_d = mini_map.rgb.shape[0]
         possible_rect = Rect(
             int(self.current_pos.x - move_distance - mini_map_d),
@@ -280,6 +282,7 @@ class WorldPatrolRunRoute(ZOperation):
             self.current_large_map,
             mini_map,
             possible_rect,
+            near=(self.current_pos, move_distance),
         )
         if next_pos is not None and not self._is_next_pos_valid(next_pos, move_distance):
             next_pos = None
@@ -308,6 +311,7 @@ class WorldPatrolRunRoute(ZOperation):
             return self.round_wait(status=f'坐标计算失败 持续 {no_pos_seconds:.2f} 秒')
         else:
             self.no_pos_start_time = 0  # 成功获取坐标，重置计时器
+            self.after_battle_slack = 0
 
             if self._process_stuck_with_pos(next_pos):
                 return self.round_fail(status='有坐标但卡住，重启当前路线')
@@ -571,6 +575,7 @@ class WorldPatrolRunRoute(ZOperation):
             self.ctx.auto_battle_context.init_auto_op(self.config.auto_battle)
 
         self.in_battle = True
+        self.battle_start_time = self.last_screenshot_time
         self.ui_disappear_start_time = 0
         self.ctx.auto_battle_context.start_auto_battle()
         return self.round_success()
@@ -639,6 +644,12 @@ class WorldPatrolRunRoute(ZOperation):
         # 战斗会打断路线转向样本，但不影响已学到的转向补偿比例
         self.last_angle = None
         self.last_angle_diff_command = None
+        # ok-zzz: 战斗中闪避、击退会让角色离开原位（实测42秒战斗后约70像素），
+        # 首次定位按战斗时长放宽，避免把真实位置当作跳变舍弃。
+        if self.battle_start_time:
+            battle_seconds = max(0., self.last_screenshot_time - self.battle_start_time)
+            self.after_battle_slack = min(200., 60. + 5. * battle_seconds)
+            self.battle_start_time = 0
 
         return self.round_success()
 
