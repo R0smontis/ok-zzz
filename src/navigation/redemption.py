@@ -97,6 +97,11 @@ def paste_code(ctx, code: str) -> None:
             cb.CloseClipboard()
 
 
+def _cooling(button) -> bool:
+    """The 兑换 label counts down as 兑换(5)…兑换(1) after a submission."""
+    return button is not None and ('(' in button or '（' in button)
+
+
 def _count(op, name, limit) -> bool:
     """Increase a per-code counter; True once it exceeds `limit`."""
     value = op.__dict__.get(name, 0) + 1
@@ -123,7 +128,7 @@ def open_code_panel(op, screen):
 def _next_code(op):
     op.code_idx += 1
     for name in ('_redeem_phase', '_redeem_pastes', '_redeem_clears', '_redeem_moves',
-                 '_redeem_cooldown', '_redeem_submits', '_redeem_results'):
+                 '_redeem_cooldown', '_redeem_submits', '_redeem_results', '_redeem_answer_waits'):
         op.__dict__.pop(name, None)
 
 
@@ -147,6 +152,10 @@ def redeem_round(op, screen, codes, mark_used):
             mark_used(code)
             _next_code(op)
             return op.round_wait(f'兑换码 {code}：{message}', wait=.3)
+        # The game answers late and briefly: the red line appears near the end of the 兑换(5)→(1)
+        # countdown and stays about one second (live 2026-10-17). Poll quickly until it ends.
+        if _cooling(button) and not _count(op, '_redeem_answer_waits', 30):
+            return op.round_wait('等待兑换结果（按钮倒计时）', wait=.2)
         if _count(op, '_redeem_results', 6):
             # The press was verified on a focused, ready button; do not redeem the same code again.
             log.warning('兑换码 %s 已提交，未读到结果提示', code)
@@ -173,7 +182,7 @@ def redeem_round(op, screen, codes, mark_used):
             return op.round_fail('手柄选择兑换按钮未生效')
         pad(op.ctx, 'dpad_down')
         return op.round_wait('手柄选择兑换按钮', wait=.6)
-    if button is None or '(' in button or '（' in button:
+    if button is None or _cooling(button):
         if _count(op, '_redeem_cooldown', 10):
             return op.round_fail('兑换按钮一直不可用')
         return op.round_wait('兑换按钮冷却中', wait=1)

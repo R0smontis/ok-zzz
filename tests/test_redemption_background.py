@@ -108,6 +108,35 @@ def test_cooling_button_is_not_pressed(pasted, monkeypatch):
     assert result.result == R.WAIT and pressed(op) == []
 
 
+def test_late_answer_during_countdown_is_read_not_skipped(pasted):
+    # Live 2026-10-17: after A the button counted 兑换(5)→(1); 「兑换码已被使用」 showed only at (1).
+    op, _ = frame('redeem-code-cooling')
+    op.code_idx = 0
+    op._redeem_phase = 'result'
+    op._redeem_results = 6  # The plain result budget is already spent while the button counts down.
+    for _ in range(5):
+        op, result = redeeming('redeem-code-cooling', op)
+        assert result.result == R.WAIT and op._used == [] and op.code_idx == 0
+    op, result = redeeming('redeem-code-used', op)
+    assert op._used == ['ZZZ888'] and op.code_idx == 1 and '兑换码已被使用' in result.status
+    assert pressed(op) == []
+
+
+def test_countdown_wait_is_bounded_and_a_silent_end_moves_on(pasted):
+    op, _ = frame('redeem-code-cooling')
+    op.code_idx = 0
+    op._redeem_phase = 'result'
+    for _ in range(30):
+        op, result = redeeming('redeem-code-cooling', op)
+        assert op._used == []
+    for _ in range(6):
+        op, result = redeeming('redeem-code-ready-again', op)
+        assert op._used == []
+    op, result = redeeming('redeem-code-ready-again', op)
+    assert op._used == ['ZZZ888'] and op.code_idx == 1 and '未读到结果' in result.status
+    assert pressed(op) == []
+
+
 def test_bounded_paste_attempts(pasted):
     op, _ = frame('redeem-code-panel')
     op.code_idx = 0
