@@ -161,5 +161,7 @@ def test_real_warning_frames_classify_correctly_on_gpu(ctx, name, expected):
     controller.standard_width, controller.standard_height = 1920, 1080
     prediction = model.run(controller.normalize_frame(bgr))
     assert prediction.class_idx == expected and prediction.confidence >= .9
-    if 'DmlExecutionProvider' in inference.ort.get_available_providers():
+    # A hosted CI runner has the DirectML package but no hardware adapter; it falls back to CPU.
+    if ('DmlExecutionProvider' in inference.ort.get_available_providers()
+            and inference.directml_adapter()['video_memory'] > 0):
         assert model.session.get_providers()[0] == 'DmlExecutionProvider'

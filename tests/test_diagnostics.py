@@ -192,7 +192,7 @@ def test_invalid_settings_do_not_start_writer(recorder, tmp_path, settings):
 def test_real_60fps_video_uses_selected_size_and_metadata(recorder, tmp_path, resolution):
     folder = Path(recorder.start(tmp_path, fps=60, resolution=resolution, mode='视频'))
     recorder.observe(np.full((720, 1280, 3), (20, 60, 160), np.uint8))
-    time.sleep(.5)
+    time.sleep(1)  # A slow CI runner needs a moment to open the first encoder.
     recorder.stop(wait=True)
     metadata = json.loads((folder / 'session.json').read_text(encoding='utf-8'))
     assert metadata['resolution'] == resolution
