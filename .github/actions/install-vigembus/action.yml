@@ -1,0 +1,24 @@
+name: Install ViGEmBus
+description: >
+  vgamepad 0.1.0 has no wheel; building it on Windows opens the ViGEmBus installer and waits
+  unless the driver is already present. Install the driver silently from vgamepad's own sdist.
+runs:
+  using: composite
+  steps:
+    - name: Install ViGEmBus silently
+      shell: pwsh
+      run: |
+        $url = 'https://files.pythonhosted.org/packages/8a/54/0eaddc33f84247963af078f364b37153d09fcd6cdc398f243ec3e8842c56/vgamepad-0.1.0.tar.gz'
+        $sha256 = '57f6bd01aec0c172947517fb782d150ef9b285f7f4d524c317374fa5c24a89de'
+        $work = Join-Path $env:RUNNER_TEMP 'vigembus'
+        New-Item -ItemType Directory -Force -Path $work | Out-Null
+        $archive = Join-Path $work 'vgamepad.tar.gz'
+        Invoke-WebRequest -Uri $url -OutFile $archive
+        if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLower() -ne $sha256) { throw 'vgamepad sdist checksum mismatch' }
+        tar -xzf $archive -C $work 'vgamepad-0.1.0/vgamepad/win/vigem/install/x64/ViGEmBusSetup_x64.msi'
+        $msi = Join-Path $work 'vgamepad-0.1.0/vgamepad/win/vigem/install/x64/ViGEmBusSetup_x64.msi'
+        $process = Start-Process msiexec.exe -ArgumentList '/i', "`"$msi`"", '/qn', '/norestart' -Wait -PassThru
+        if ($process.ExitCode -notin 0, 3010) { throw "ViGEmBus install failed: $($process.ExitCode)" }
+        $installed = reg query 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall' /s | Select-String -SimpleMatch 'Nefarius Virtual Gamepad Emulation Bus Driver'
+        if (-not $installed) { throw 'ViGEmBus not registered after install' }
+        Write-Host 'ViGEmBus installed'

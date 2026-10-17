@@ -47,6 +47,9 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.lock.txt
 
+      - name: Install ViGEmBus
+        uses: ./.github/actions/install-vigembus
+
       - name: Install dependencies
         run: python -m pip install -r requirements.lock.txt
 
@@ -85,6 +88,9 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
           cache-dependency-path: requirements.lock.txt
+
+      - name: Install ViGEmBus
+        uses: ./.github/actions/install-vigembus
 
       - name: Install dependencies
         run: python -m pip install -r requirements.lock.txt
@@ -146,6 +152,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+
+      - name: Install ViGEmBus
+        uses: ./.github/actions/install-vigembus
 
       - name: Build launcher and installers
         uses: ok-oldking/pyappify-action@master
