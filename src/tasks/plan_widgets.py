@@ -144,7 +144,7 @@ class ChargePlanWidget(ConfigLabelAndWidget):
                                         category=NOTORIOUS_HUNT if self.hunt else None)
             self.rows = [parsed] if self.single else parsed
             self.error_label.clear()
-        except (ValueError, TypeError, json.JSONDecodeError) as exc:
+        except (ValueError, TypeError) as exc:  # JSONDecodeError 是 ValueError 的子类
             self.rows = []
             self.error_label.setText(f'原配置需要修正：{exc}。点击添加或重建计划后重新填写。')
         self.add_button.setVisible(not self.single or not self.rows)
@@ -228,10 +228,8 @@ class ChargePlanWidget(ConfigLabelAndWidget):
         if key == 'predefined_team_idx':
             return [('沿用当前队伍', -1), *[(f'预备编队 {i+1}', i) for i in range(20)]]
         if key == 'auto_battle_config':
-            from onedragon.utils import os_utils
-            folder = Path(os_utils.get_path_under_work_dir('config', 'auto_battle'))
-            names = {path.name.split('.')[0] for path in folder.glob('*.yml')}
-            return [(name, name) for name in sorted(names)]
+            from src.tasks.auto_combat_task import list_battle_templates
+            return [(name, name) for name in list_battle_templates('auto_battle')]
         if key == 'level':
             # Only deep pursuit exposes a selectable level in the current runner.
             if row['category_name'] == '恶名狩猎':

@@ -31,8 +31,13 @@ class LiveClient:
                 value = response.read()
                 return (value, dict(response.headers)) if binary else json.loads(value)
         except HTTPError as error:
-            value = json.loads(error.read())
-            raise ValueError(value.get('error', str(error))) from error
+            body = error.read()
+            try:
+                value = json.loads(body)
+            except ValueError:
+                value = None
+            detail = value.get('error') if isinstance(value, dict) else None
+            raise ValueError(detail or f'HTTP {error.code}') from error
 
     def command(self, command, timeout=15):
         command = dict(command)

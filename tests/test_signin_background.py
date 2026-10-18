@@ -85,3 +85,16 @@ def test_scratch_waits_for_the_card_before_any_stroke():
     from src.navigation.signin import scratch_step
     op, screen = frame('scratch-stuck')
     assert scratch_step(op, screen).result == R.RETRY and pressed(op) == []
+
+
+def test_back_button_prompt_ends_the_scrape_without_a_second_press(monkeypatch):
+    """手柄提示为「B 返回」（无「刮一刮」）时按已刮开处理，不再无限等待。"""
+    import numpy as np
+    from src.navigation.signin import scratch_step
+    op = operation(ScratchCardApp)
+    screen = np.full((1080, 1920, 3), 255, np.uint8)  # 涂层未刮开：不是黑屏
+    op.round_by_find_area = lambda *args, **kwargs: SimpleNamespace(is_success=True)
+    op.ctx.ocr_service = SimpleNamespace(get_ocr_result_list=lambda image, rect=None, **_: [
+        SimpleNamespace(data='B 返回', center=Rect(940, 745, 940, 745).center)])
+    result = scratch_step(op, screen)
+    assert result.is_success

@@ -1,0 +1,4 @@
+# ok-zzz 开发与测试依赖（普通用户只需 requirements.lock.txt）
+-r requirements.lock.txt
+pytest>=8.0
+polib>=1.2

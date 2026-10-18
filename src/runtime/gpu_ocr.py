@@ -43,6 +43,7 @@ class GpuPaddleOcr(ONNXPaddleOcr):
 
 
 def install_gpu_ocr():
+    """幂等：main.py 在 OCR 初始化前调用一次，Globals 再次调用只重复线程限制。"""
     from src.runtime.performance_policy import limit_loaded_blas
     limit_loaded_blas()
     import cv2

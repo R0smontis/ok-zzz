@@ -31,6 +31,11 @@ class LiveError(ValueError):
     pass
 
 
+LEASE_SECONDS = 60
+COMMANDS = ('acquire', 'release', 'heartbeat', 'analyze', 'click', 'drag', 'scroll',
+            'key', 'action', 'task_start', 'task_pause', 'task_resume', 'task_stop')
+
+
 def number(value, minimum, maximum, label):
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
         raise LiveError(f'{label}必须是有限数字')
@@ -114,6 +119,7 @@ class LiveDebugService:
         for thread in self.threads:
             if thread is not threading.current_thread():
                 thread.join(timeout=1)
+        self.threads.clear()
         logging.getLogger('ok').removeHandler(self.log_handler)
         path = self.folder / 'session.json'
         try:
@@ -187,8 +193,7 @@ class LiveDebugService:
                 'frame': self.frame_metadata(self.frames[-1]) if self.frames else None,
                 'latest_event_seq': self.sequence, 'pending_commands': self.commands.qsize(),
                 'dry_run': {'stop_before': sorted(dry_run.stop_before()), 'hits': dry_run.hits()},
-                'commands': ['acquire', 'release', 'heartbeat', 'analyze', 'click', 'drag', 'scroll',
-                             'key', 'action', 'task_start', 'task_pause', 'task_resume', 'task_stop']}
+                'commands': list(COMMANDS)}
 
     def thread_stacks(self):
         """Read-only stack positions; omit frame locals and command payloads."""
@@ -246,8 +251,9 @@ class LiveDebugService:
             except Exception as error:
                 with self.lock:
                     self.capture_error = str(error)
-            if self.owned and (time.monotonic() > self.lease_until
-                               or not self.adapter.control_target_valid()):
+            with self.lock:
+                expired = self.owned and time.monotonic() > self.lease_until
+            if expired or (self.owned and not self.adapter.control_target_valid()):
                 self.release('连接超时或窗口改变')
             self.stop_event.wait(self.interval)
 
@@ -319,7 +325,7 @@ class LiveDebugService:
 
     def _validate(self, c):
         op = c['op']
-        if op not in self.status()['commands']:
+        if op not in COMMANDS:
             raise LiveError('不支持的指令')
         if op in ('click', 'drag', 'scroll', 'key', 'action'):
             number(c.get('hwnd'), 1, 2**64, 'hwnd')
@@ -387,14 +393,15 @@ class LiveDebugService:
                     self.adapter.release()
                     raise LiveError('接管已取消')
                 self.owned = True
-                self.lease_until = time.monotonic()+60
+                self.lease_until = time.monotonic()+LEASE_SECONDS
             logging.getLogger('ok').info('实时调试接管控制，已停止自动任务；方式：%s', c.get('mode', 'gamepad'))
             return result
         if op == 'heartbeat':
-            if not self.owned:
-                raise LiveError('未接管控制')
-            self.lease_until = time.monotonic()+60
-            return {'lease_seconds': 60}
+            with self.lock:
+                if not self.owned:
+                    raise LiveError('未接管控制')
+                self.lease_until = time.monotonic()+LEASE_SECONDS
+            return {'lease_seconds': LEASE_SECONDS}
         if op == 'analyze':
             item = self.frame(c.get('frame_id'))
             if time.time()-item['captured_at'] > 3 or item['hwnd'] != self.adapter.target()['hwnd']:
@@ -410,7 +417,8 @@ class LiveDebugService:
                 return self.adapter.task(c['task'], op[5:], app=c['app'])
             return self.adapter.task(c['task'], op[5:])
         self._fresh_frame(c)
-        self.lease_until = time.monotonic()+60
+        with self.lock:
+            self.lease_until = time.monotonic()+LEASE_SECONDS
         result = self.adapter.input(c, self.command_cancel)
         return {'delivered': result is not False, 'game_accepted': '需查看后续画面确认',
                 'coordinate_size': [1920, 1080]}
@@ -495,7 +503,7 @@ class LiveDebugService:
                         self.reply(200, data, 'image/jpeg' if url.path.endswith('jpg') else 'image/png', frame_id)
                     else:
                         self.reply(404, {'error': '接口不存在'})
-                except (ValueError, LiveError) as error:
+                except ValueError as error:  # 含 LiveError
                     self.reply(409, {'error': str(error)})
                 except Exception as error:
                     self.reply(500, {'error': str(error)})
@@ -517,7 +525,9 @@ class LiveDebugService:
                         self.reply(200, service.cancel(self.path.split('/')[-1]))
                     else:
                         self.reply(404, {'error': '接口不存在'})
-                except (ValueError, LiveError, TypeError) as error:
+                except (ValueError, TypeError) as error:  # 含 LiveError
                     self.reply(400, {'error': str(error)})
+                except Exception as error:
+                    self.reply(500, {'error': str(error)})
 
         return Handler

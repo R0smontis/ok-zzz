@@ -27,9 +27,7 @@ def test_config_write_back_persists():
     reloaded = ChargePlanConfig(0, 'one_dragon')
     assert reloaded.get('loop') is False
     assert reloaded.get('restore_charge') == '使用以太电池'
-    # 恢复默认，避免污染其它测试
-    reloaded.update('loop', True)
-    reloaded.update('restore_charge', '不使用')
+    # 运行目录已由 conftest 隔离为临时副本，无需恢复默认值。
 
 
 def test_generated_task_module():
@@ -39,7 +37,6 @@ def test_generated_task_module():
                if isinstance(v, type) and v.__module__ == app_tasks.__name__]
     assert len(classes) == 29
     ids = {c.app_id for c in classes}
-    assert {'email', 'coffee', 'charge_plan', 'withered_domain',
-            'world_patrol', 'one_dragon' in ids and 'one_dragon'} <= ids or 'one_dragon' not in ids
+    assert {'email', 'coffee', 'charge_plan', 'withered_domain', 'world_patrol'} <= ids
     # 队列本身不生成任务类（由 OneDragonTask 承担）
     assert 'one_dragon' not in ids

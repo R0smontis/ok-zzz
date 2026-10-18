@@ -31,7 +31,7 @@ uv venv --python 3.12 .venv
 .venv\Scripts\activate
 
 # 2. 安装依赖
-pip install -r requirements.txt
+pip install -r requirements.lock.txt
 
 # 3. 发布包已包含闪避与 OCR 模型；源码模型缺失时可用此命令补齐
 python tools\download_models.py
@@ -184,11 +184,12 @@ Windows 10 2004及以上可使用WGC；关闭捕获边框是另一项系统能�
 ## 开发
 
 ```powershell
-pip install -r requirements.txt
+pip install -r requirements.lock.txt     # 运行依赖（用户安装同一份）
+pip install -r requirements-dev.txt      # 开发与测试依赖（pytest、polib）
 python -m pytest tests/ -q     # 离线测试（无需游戏）
 ```
 
-本地打包（已安装项目依赖与 PyInstaller 的 Python 3.12 环境）：
+发布打包由 CI 的 PyAppify 流程完成（`.github/workflows/build.yml`）。以下为可选的手工打包路径，用于离线环境，需已安装项目依赖与 PyInstaller 的 Python 3.12 环境：
 
 ```powershell
 python -m PyInstaller --noconfirm deploy/ok-zzz.spec  # 旧的独立安装版打包方式
@@ -232,11 +233,11 @@ src/
     operation/         #   传送、快捷手册、返回大世界等通用操作
     controller/        #   控制器（键鼠 + 虚拟手柄）
     context/ config/   #   ZContext 总装配；键位/模型/战斗助手配置
-  onedragon/           # 一条龙框架层子集（画面/模板/CV/条件引擎/Qt 组件）
+  onedragon/           # 一条龙框架层子集（画面/模板/CV/条件引擎）
 assets/  config/       # 画面 YAML、模板图、模型、战斗 DSL 配置（沿一条龙布局）
 tests/                 # 离线回归测试；fixtures/ 为实机截图
 tools/                 # 模型下载、选项生成、实时调试客户端；port/ 为一次性移植脚本
-deploy/                # PyInstaller 打包配置
+deploy/                # 可选：手工 PyInstaller/NSIS 打包（发布走 PyAppify）
 ```
 
 运行期生成、不入库的目录：`config/<两位编号>/`（各账号实例配置与运行记录）、`configs/`、`logs/`、`.log/`、`debug/`、`build/`、`dist/`。
@@ -283,7 +284,7 @@ deploy/                # PyInstaller 打包配置
 
 「调试 → 实时调试与控制」提供实时游戏预览、任务节点、战斗状态、识别结果、执行日志和游戏内用户输入事件。只读监控随程序启动，不需要按 F9。点击「接管控制」会停止自动任务，允许本机客户端发送后台点击、拖拽、按键、移动、战斗动作及任务控制指令；「释放控制」立即松开按键。
 
-接口仅监听本机，认证信息保存在运行目录 `debug/live/session.json`（安装版为 `%LOCALAPPDATA%/ok-zzz/debug/live/session.json`）。输入绑定所选窗口和截图编号，过期画面、窗口改变及分辨率变化会拒绝操作。源码客户端为 `tools/live_debug.py`，打包版可用 `ok-zzz.exe --live-client --output debug/status.json status`。完整说明见 [实时调试文档](live-debug.md)。
+接口仅监听本机，认证信息保存在运行目录 `debug/live/session.json`（安装版为 `%LOCALAPPDATA%/ok-zzz/debug/live/session.json`）。输入绑定所选窗口和截图编号，过期画面、窗口改变及分辨率变化会拒绝操作。源码客户端为 `tools/live_debug.py`；打包版不带 `tools/`，在源码环境用同一客户端把 `--root` 指向其运行目录即可。完整说明见 [实时调试文档](live-debug.md)。
 
 迷失之地使用与截图设备一致的游戏窗口检查，并加载专用上下文。分发包内置 `yolov26n-736-lost-void-det-20260630` 寻路模型，无需首次运行时下载；模型使用已配置的 GPU 推理后端。程序日志区会显示初始化阶段、实际模型、推理后端及具体失败原因。
 寻路前检测敌人血条、方向箭头和战斗事件，遭遇战斗时先停止前进，再切换自动战斗。两人和三人编队均支持扣血事件识别；缺少攻击按钮时跳过敌人及战斗事件检测，进入战斗房间本身不会直接开始攻击。
@@ -300,3 +301,42 @@ deploy/                # PyInstaller 打包配置
 迷失之地常规入口按当前帧的完整标题选择“战线肃清”或“特遣调查”，进入后核验详情标题或完整的专属按钮组合，不把消息投递成功或缓存的画面名当作切换成功。“特遣任务”需要完整文字匹配，其他含“任务”的按钮不会通过。后台点击误入其他模式时，会返回入口并尝试手柄方向键切换，再次核验；重复失败会保存截图并停止，不会继续出战。未开启 UP 角色优先编队时，不要求识别 UP 头像。
 
 迷失之地切换目标或提高计划次数后，下次点击开始即按新设置判断，无需重启或清空悬赏记录。应用与运行记录共用同一份配置，避免界面已切换周计划、完成判定仍沿用旧悬赏目标而立即结束。周计划模式仍同时受每日和每周次数上限约束；需要长时间刷取时，应同时调整这两个上限。
+
+## 2026-10-18 整体代码整理（第 0–1 阶段）
+
+本轮按「正确性 → 结构 → 工程化」的顺序整理，移植层（`src/onedragon`、`src/zzz_od`）只删死代码、不改内部实现。
+
+- **测试隔离运行目录**：`tests/conftest.py` 在导入被测模块前把运行目录指到 `config/`、`assets/` 等文件夹的临时副本，测试不再读写仓库里的真实设置与日志（此前 `test_app_options`、`test_framework` 等会改写 `config/00`、`config/01` 的组配置与刷本计划）。新增仓库卫生测试：项目内导入必须可解析、`i18n/*/ok.mo` 必须能作为 gettext 目录加载、测试必须运行在隔离目录。
+- **移除未启用代码**：删除 `src/onedragon/qt/`（overlay 悬浮窗及其 widgets 共 7288 行，唯一入口 `Globals.ensure_overlay` 无调用者，其中 15 个文件 import 不存在的 `one_dragon_qt`）；删除 `app_runner_task.py`、`activate_game_window`、`ensure_context_for_game` 等无引用代码与未用导入；`tools/port/port_onedragon_code.py` 同步移除 overlay 定向移植段，重新同步不会再拉回。
+- **上下文生命周期**：`Globals.context` 惰性创建加锁（GUI 线程与执行线程并发首次访问只创建一个实例）；新增只读 `context_if_ready()`、`window_hwnd()`、`sync_game_hotkeys()` 公共入口，替换各处对私有属性的窥探；退出清理保证虚拟手柄一定被移除（`after_app_shutdown` 抛错不再跳过），并有时限地等待诊断录制写完 ZIP；每帧不再多余地构造 `FrozenCaptureWatch`。
+- **实时调试手柄租约**：接管控制切到虚拟 Xbox 手柄后会记住账号原本的控制器与按键映射，释放控制时还原——前台模式（键鼠）与 DS4 账号不再被永久留在 Xbox 映射上；任务已自行切换模式时不覆盖。
+- **触发器节流**：对话助手与自动战斗的识别/截图间隔只由框架 `should_trigger` 节流，删除任务层用第二个时钟（`time.monotonic`）做的重复判断——此前两个时钟的抖动会让识别整拍跳过，实际间隔约为配置值的两倍。
+- **后台窗口输入**：取消机制改为代际计数。`reset()`（停止、暂停、窗口切换）会作废进行中的点击/拖拽/长按，且不会被并发调用的 `clear()` 吞掉；reset 之后的新输入照常执行，残留按键不再出现。
+- **诊断录制**：快照与整帧拷贝移出录制锁（系统级键鼠钩子经同一把锁写入，此前会被阻塞）；录制快照不再顺带创建战斗上下文；UID 遮挡几何统一为 `frame_geometry.mask_uid`，`config.py` 少遮最后一列/行的一像素问题一并修掉。
+- **兑换码剪贴板**：粘贴兑换码前后保存并还原全部可复制格式（文本、HTML、DIB 图片等），不再清空用户的非文本剪贴板内容；上游兑换码缓存写失败不再影响返回结果。
+- **导航层小修**：随便观负索引切片回卷导致的误判与重复卡片时的 `StopIteration`；每日签到「B 返回」提示改回子串匹配；闪避配置缺失时回退到本任务默认值（曾错误回退为「全配队通用」）；实时调试服务的指令校验不再构造整个状态、`do_POST` 补兜底、租约时间读写加锁。
+- **i18n**：`i18n/en_US/LC_MESSAGES/ok.mo` 用 polib 正式编译（此前是 `.po` 文本副本，ok-script 加载失败后静默回退原文）。
+- **CI**：push/PR 也运行离线测试（带 job 超时与 `--durations` 输出）；`partial-sync-repo`、`pyappify-action` 固定到 commit SHA；顶层权限收敛为只读、发布 job 单独授权；`PYTHONLEGACYWINDOWSSTDIO` 换成 `PYTHONUTF8=1`。
+
+验证（2026-10-18）：全量离线回归 **1400 项通过**（含本轮新增回归测试），`main.py --check-package` 返回 **ok**。
+
+## 2026-10-18 整体代码整理（第 2–3 阶段）
+
+- **导航层共享模块**：新增 `src/navigation/common.py`，收敛 12 个导航文件的重复实现——OCR 行读取与文本归一（含各模块的错字修正表）、焦点高亮/点亮判定、有界计数器、矩形与切片钳制、整屏与鼠标位置常量；模块公开函数名与签名保持不变，移植调用方零改动。修复 `slice_bounds` 负索引回卷（`0:-100` 此前会整段回卷）与卡片列表空 OCR 时盲目按 A 的问题。
+- **生成器可复现**：`tools/gen_app_tasks.py` 不再读取本机已保存的配置（用未占用的实例编号 99 取属性默认值），`plan_list` 空哨兵与 `结束后/关机延迟秒` 下沉到 `ZzzBaseTask` 均由生成器写出；新增 `--check` 漂移模式与仓库卫生测试，生成文件与生成器必须一致，生成产物不再带多余尾部空行。
+- **战斗触发器状态整理**：`BattleTriggerTask` 的 19 个会话字段收敛为类级默认表 `_SESSION_DEFAULTS` 与 `_reset_session_state()`，`__init__` 与停止引擎共用一份重置逻辑（箭头跟踪时间戳现在也会随会话清空）；`_on_dodge_event` 的预警接受与去重策略拆成 `_warning_rejection()` 与 `_warning_duplicate()` 两个可单独测试的方法，判定顺序、诊断 `reason`/`throttle` 字符串与拆分前完全一致，由现有触发器回归覆盖。
+- **文档对齐**：安装依赖统一指向 `requirements.lock.txt`；PyInstaller/NSIS 打包段标注为可选手工路径（发布走 CI 的 PyAppify 流程）；实时调试文档与技术说明不再描述打包版 EXE 客户端（打包版不带 `tools/`，改用源码客户端指向其运行目录）；目录树移除已删除的 Qt 子树。
+
+验证（2026-10-18）：全量离线回归 **1401 项通过**，`main.py --check-package` 返回 **ok**（含 DML GPU 推理、迷失之地状态机与界面控件实检）。
+## 2026-10-18 整体代码整理（工程化收尾）
+
+- **依赖分层**：新增 `requirements-dev.txt`（引用用户锁文件并补充 pytest、polib）；用户锁文件 `requirements.lock.txt` 移除 pytest 及其传递依赖（pluggy、iniconfig、pygments）与仅供工具链使用的 polib，共 5 项；`requirements.txt` 显式声明代码直接使用的 numpy、pynput、pygetwindow、threadpoolctl。CI 测试任务改为安装锁文件加开发依赖并执行 `pip check`；新增卫生测试防止开发工具回到用户锁文件。
+- **版本单源**：`pyproject.toml` 版本与 `src/config.py` 对齐（发布 v0.2.1）；发布工作流在正式版标签（`vX.Y.Z`）下校验 `src/config.py` 版本与标签一致，不一致直接失败，避免发出版本号不符的包。
+- **忽略规则**：运行期用户数据 `config/redemption_codes.yml` 加入 `.gitignore` 与 `.update_repo_gitignore`，与 `model.yml`、`one_dragon.yml` 同等处理，切换版本时不进入更新仓库。
+
+审查后有意不执行的项目（保留现状并说明原因）：
+
+- **删除无引用测试夹具**：`tests/fixtures` 各目录全部在用，且文件名大量由参数化 f-string 拼接（如 `period_buff_{name}.png`），静态扫描无法证明无引用——按文件全名初查 421 个候选、改按去掉扩展名复核仍会把真实使用的文件列为候选；为约 28 MB 体积承担误删风险不划算，不做。
+- **CI 三处放宽用例的确定性化**（计划卡高度竞态、视频计时、GPU 环境）：涉及界面动画与视频编码计时，需改动测试与录制器内部结构，留给独立的专项改造。
+
+验证（2026-10-18）：全量离线回归 **1402 项通过**（新增依赖卫生测试）；`uv pip check` 全部兼容，`--dry-run` 解析 `requirements-dev.txt` 无变化。`main.py --check-package` 已在同日的运行时变更后返回 ok；本轮为依赖、文档、工作流与忽略规则变更，未改动运行时逻辑。

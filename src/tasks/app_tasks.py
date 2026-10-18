@@ -3,10 +3,6 @@
 # 每个任务的细则选项与一条龙原版配置键一致，运行前写回应用配置。
 # 重新生成: .venv/Scripts/python tools/gen_app_tasks.py
 
-import json
-
-from ok import BaseTask
-
 from src.tasks.app_task_base import AppTaskBase
 
 
@@ -22,8 +18,6 @@ class App_AutoBattle(AppTaskBase):
             'screenshot_interval': 0.02,
             'use_merged_file': True,
             'auto_ultimate_enabled': False,
-            '结束后': '无',
-            '关机延迟秒': 60,
         })
         self.config_type.update({
             'auto_battle_config': {'type': 'drop_down', 'options': ['全配队通用']},
@@ -41,8 +35,6 @@ class App_DodgeAssistant(AppTaskBase):
         self.default_config.update({
             'dodge_assistant_config': '闪避',
             'screenshot_interval': 0.02,
-            '结束后': '无',
-            '关机延迟秒': 60,
         })
         self.config_type.update({
             'dodge_assistant_config': {'type': 'drop_down', 'options': ['闪避', '智能格挡', '本-格挡', '闪A切下一个', '闪A切强攻', '切换角色-下一个']},
@@ -58,18 +50,16 @@ class App_ChargePlan(AppTaskBase):
         self.name = '⚡ 体力刷本'
         self.description = '运行一条龙应用：体力刷本'
         self.default_config.update({
-            'plan_list': '',
-            'reset_plan_times_each_run': True,
             'daily_reset_plan_times': False,
             'loop': False,
+            'reset_plan_times_each_run': True,
             'restore_charge': '不使用',
-            '结束后': '无',
-            '关机延迟秒': 60,
+            'plan_list': '',
         })
         self.config_type.update({
             'restore_charge': {'type': 'drop_down', 'options': ['不使用', '使用储蓄电量', '使用以太电池', '同时使用储蓄电量和以太电池']},
         })
-        self._option_keys = ['reset_plan_times_each_run', 'daily_reset_plan_times', 'loop', 'restore_charge']
+        self._option_keys = ['daily_reset_plan_times', 'loop', 'reset_plan_times_each_run', 'restore_charge']
 
 
 class App_CityFund(AppTaskBase):
@@ -79,7 +69,6 @@ class App_CityFund(AppTaskBase):
         super().__init__(*args, **kwargs)
         self.name = '🏙️ 丽都城募'
         self.description = '运行一条龙应用：丽都城募'
-        self.default_config.update({'结束后': '无', '关机延迟秒': 60})
         self._option_keys = []
 
 
@@ -93,8 +82,6 @@ class App_Coffee(AppTaskBase):
         self.default_config.update({
             'run_charge_plan_afterwards': False,
             'transport_point': '六分街 - 咖啡店',
-            '结束后': '无',
-            '关机延迟秒': 60,
         })
         self.config_type.update({
             'transport_point': {'type': 'drop_down', 'options': ['六分街 - 咖啡店', '澄辉坪 - 汀曼咖啡', '布亚斯特城区 - 片刻闲']},
@@ -118,8 +105,6 @@ class App_CommissionAssistant(AppTaskBase):
             'dodge_switch': '5',
             'sleep_after_empty_screen': 0.5,
             'story_mode': '自动点击',
-            '结束后': '无',
-            '关机延迟秒': 60,
         })
         self.config_type.update({
             'dialog_option': {'type': 'drop_down', 'options': ['第一个', '最后一个']},
@@ -137,8 +122,6 @@ class App_DailySignin(AppTaskBase):
         self.description = '运行一条龙应用：每日签到'
         self.default_config.update({
             'selected_sign': 'hou_hou_bakery',
-            '结束后': '无',
-            '关机延迟秒': 60,
         })
         self._option_keys = ['selected_sign']
 
@@ -153,8 +136,6 @@ class App_OperationDebug(AppTaskBase):
         self.default_config.update({
             'operation_template': '安比-3A特殊攻击',
             'repeat_enabled': True,
-            '结束后': '无',
-            '关机延迟秒': 60,
         })
         self._option_keys = ['operation_template', 'repeat_enabled']
 
@@ -173,8 +154,6 @@ class App_ScreenshotHelper(AppTaskBase):
             'length_second': 1,
             'mini_map_angle_detect': False,
             'screenshot_before_key': True,
-            '结束后': '无',
-            '关机延迟秒': 60,
         })
         self._option_keys = ['dodge_detect', 'frequency_second', 'key_save', 'length_second', 'mini_map_angle_detect', 'screenshot_before_key']
 
@@ -189,8 +168,6 @@ class App_DriveDiscDismantle(AppTaskBase):
         self.default_config.update({
             'dismantle_abandon': False,
             'dismantle_level': 'A及以下',
-            '结束后': '无',
-            '关机延迟秒': 60,
         })
         self.config_type.update({
             'dismantle_level': {'type': 'drop_down', 'options': ['B', 'A及以下', 'S及以下']},
@@ -205,7 +182,6 @@ class App_Email(AppTaskBase):
         super().__init__(*args, **kwargs)
         self.name = '📧 邮件'
         self.description = '运行一条龙应用：邮件'
-        self.default_config.update({'结束后': '无', '关机延迟秒': 60})
         self._option_keys = []
 
 
@@ -216,7 +192,6 @@ class App_EngagementReward(AppTaskBase):
         super().__init__(*args, **kwargs)
         self.name = '🎁 活跃度奖励'
         self.description = '运行一条龙应用：活跃度奖励'
-        self.default_config.update({'结束后': '无', '关机延迟秒': 60})
         self._option_keys = []
 
 
@@ -227,7 +202,6 @@ class App_MouseSensitivityChecker(AppTaskBase):
         super().__init__(*args, **kwargs)
         self.name = '▶️ 鼠标灵敏度检测'
         self.description = '运行一条龙应用：鼠标灵敏度检测'
-        self.default_config.update({'结束后': '无', '关机延迟秒': 60})
         self._option_keys = []
 
 
@@ -238,7 +212,6 @@ class App_PredefinedTeamChecker(AppTaskBase):
         super().__init__(*args, **kwargs)
         self.name = '▶️ 预备编队角色识别'
         self.description = '运行一条龙应用：预备编队角色识别'
-        self.default_config.update({'结束后': '无', '关机延迟秒': 60})
         self._option_keys = []
 
 
@@ -253,20 +226,18 @@ class App_LostVoid(AppTaskBase):
             'challenge_config': '默认-成就模式',
             'daily_plan_times': 5,
             'extra_task': '完成悬赏委托',
-            'mission_name': '战线肃清',
-            'weekly_plan_times': 2,
-            'matrix_team_mode': '沿用挑战配置',
             'matrix_agent_1': 'unknown',
             'matrix_agent_2': 'unknown',
             'matrix_agent_3': 'unknown',
-            '结束后': '无',
-            '关机延迟秒': 60,
+            'matrix_team_mode': '沿用挑战配置',
+            'mission_name': '战线肃清',
+            'weekly_plan_times': 2,
         })
         self.config_type.update({
             'extra_task': {'type': 'drop_down', 'options': ['完成悬赏委托', '刷满业绩点', '刷满周期奖励', '完成周计划次数']},
             'matrix_team_mode': {'type': 'drop_down', 'options': ['沿用挑战配置', '自定义编队']},
         })
-        self._option_keys = ['challenge_config', 'daily_plan_times', 'extra_task', 'mission_name', 'weekly_plan_times', 'matrix_team_mode', 'matrix_agent_1', 'matrix_agent_2', 'matrix_agent_3']
+        self._option_keys = ['challenge_config', 'daily_plan_times', 'extra_task', 'matrix_agent_1', 'matrix_agent_2', 'matrix_agent_3', 'matrix_team_mode', 'mission_name', 'weekly_plan_times']
 
 
 class App_WitheredDomain(AppTaskBase):
@@ -283,8 +254,6 @@ class App_WitheredDomain(AppTaskBase):
             'extra_task': '刷满周期奖励',
             'mission_name': '旧都列车-内部',
             'weekly_plan_times': 2,
-            '结束后': '无',
-            '关机延迟秒': 60,
         })
         self.config_type.update({
             'extra_exit': {'type': 'drop_down', 'options': ['通关', '2层业绩后退出', '3层业绩后退出']},
@@ -300,7 +269,6 @@ class App_HouHouBakery(AppTaskBase):
         super().__init__(*args, **kwargs)
         self.name = '🍞 吼吼饼铺'
         self.description = '运行一条龙应用：吼吼饼铺'
-        self.default_config.update({'结束后': '无', '关机延迟秒': 60})
         self._option_keys = []
 
 
@@ -315,8 +283,6 @@ class App_IntelBoard(AppTaskBase):
             'auto_battle_config': '全配队通用',
             'exp_grind_mode': False,
             'predefined_team_idx': -1,
-            '结束后': '无',
-            '关机延迟秒': 60,
         })
         self._option_keys = ['auto_battle_config', 'exp_grind_mode', 'predefined_team_idx']
 
@@ -331,8 +297,6 @@ class App_LifeOnLine(AppTaskBase):
         self.default_config.update({
             'daily_plan_times': 20,
             'predefined_team_idx': -1,
-            '结束后': '无',
-            '关机延迟秒': 60,
         })
         self._option_keys = ['daily_plan_times', 'predefined_team_idx']
 
@@ -344,7 +308,6 @@ class App_Notify(AppTaskBase):
         super().__init__(*args, **kwargs)
         self.name = '📢 通知'
         self.description = '运行一条龙应用：通知'
-        self.default_config.update({'结束后': '无', '关机延迟秒': 60})
         self._option_keys = []
 
 
@@ -356,11 +319,9 @@ class App_NotoriousHunt(AppTaskBase):
         self.name = '🐲 恶名狩猎'
         self.description = '运行一条龙应用：恶名狩猎'
         self.default_config.update({
-            'plan_list': '',
             'loop': True,
             'weekly_challenge_start_weekday': 1,
-            '结束后': '无',
-            '关机延迟秒': 60,
+            'plan_list': '',
         })
         self._option_keys = ['loop', 'weekly_challenge_start_weekday']
 
@@ -376,8 +337,6 @@ class App_RandomPlay(AppTaskBase):
             'agent_name_1': '随机',
             'agent_name_2': '随机',
             'transport_point': '录像店 - 柜台',
-            '结束后': '无',
-            '关机延迟秒': 60,
         })
         self.config_type.update({
             'transport_point': {'type': 'drop_down', 'options': ['录像店 - 柜台', '澄辉坪 - 录像店营业点', '布亚斯特城区 - 录像店营业点']},
@@ -392,7 +351,6 @@ class App_RedemptionCode(AppTaskBase):
         super().__init__(*args, **kwargs)
         self.name = '🎫 兑换码'
         self.description = '运行一条龙应用：兑换码'
-        self.default_config.update({'结束后': '无', '关机延迟秒': 60})
         self._option_keys = []
 
 
@@ -403,7 +361,6 @@ class App_RiduWeekly(AppTaskBase):
         super().__init__(*args, **kwargs)
         self.name = '📈 丽都周纪 (领奖励)'
         self.description = '运行一条龙应用：丽都周纪 (领奖励)'
-        self.default_config.update({'结束后': '无', '关机延迟秒': 60})
         self._option_keys = []
 
 
@@ -414,7 +371,6 @@ class App_ScratchCard(AppTaskBase):
         super().__init__(*args, **kwargs)
         self.name = '🎟️ 刮刮卡'
         self.description = '运行一条龙应用：刮刮卡'
-        self.default_config.update({'结束后': '无', '关机延迟秒': 60})
         self._option_keys = []
 
 
@@ -427,8 +383,6 @@ class App_ShiyuDefense(AppTaskBase):
         self.description = '运行一条龙应用：式舆防卫战'
         self.default_config.update({
             'critical_max_node_idx': 7,
-            '结束后': '无',
-            '关机延迟秒': 60,
         })
         self._option_keys = ['critical_max_node_idx']
 
@@ -460,10 +414,16 @@ class App_SuibianTemple(AppTaskBase):
             'pawnshop_omnicoin_priority': '[\n "HIFI_MASTER_COPY",\n "SENIOR_INVESTIGATOR_LOG",\n "W_ENGINE_ENERGY_MODULE",\n "ETHER_PLATING_AGENT",\n "PREPAID_POWER_CARD"\n]',
             'yum_cha_sin': True,
             'yum_cha_sin_period_refresh': True,
-            '结束后': '无',
-            '关机延迟秒': 60,
         })
         self.config_type.update({
+            'adventure_duration': {'type': 'drop_down', 'options': ['MIN_3', 'MIN_15', 'HOUR_1', 'HOUR_2', 'HOUR_6', 'HOUR_12', 'HOUR_20']},
+            'adventure_mission_1': {'type': 'drop_down', 'options': ['CRAFT_1_1', 'CRAFT_1_2', 'CRAFT_1_3', 'CRAFT_1_4', 'CRAFT_2_1', 'CRAFT_2_2', 'CRAFT_2_3', 'CRAFT_2_4', 'CRAFT_3_1', 'CRAFT_3_2', 'CRAFT_3_3', 'CRAFT_3_4', 'COMMUNITY_1_1', 'COMMUNITY_1_2', 'COMMUNITY_1_3', 'COMMUNITY_1_4', 'COMMUNITY_2_1', 'COMMUNITY_2_2', 'COMMUNITY_2_3', 'COMMUNITY_2_4', 'COMMUNITY_3_1', 'COMMUNITY_3_2', 'COMMUNITY_3_3', 'COMMUNITY_3_4', 'RESEARCH_1_1', 'RESEARCH_1_2', 'RESEARCH_1_3', 'RESEARCH_1_4', 'RESEARCH_2_1', 'RESEARCH_2_2', 'RESEARCH_2_3', 'RESEARCH_2_4', 'RESEARCH_3_1', 'RESEARCH_3_2', 'RESEARCH_3_3', 'RESEARCH_3_4']},
+            'adventure_mission_2': {'type': 'drop_down', 'options': ['CRAFT_1_1', 'CRAFT_1_2', 'CRAFT_1_3', 'CRAFT_1_4', 'CRAFT_2_1', 'CRAFT_2_2', 'CRAFT_2_3', 'CRAFT_2_4', 'CRAFT_3_1', 'CRAFT_3_2', 'CRAFT_3_3', 'CRAFT_3_4', 'COMMUNITY_1_1', 'COMMUNITY_1_2', 'COMMUNITY_1_3', 'COMMUNITY_1_4', 'COMMUNITY_2_1', 'COMMUNITY_2_2', 'COMMUNITY_2_3', 'COMMUNITY_2_4', 'COMMUNITY_3_1', 'COMMUNITY_3_2', 'COMMUNITY_3_3', 'COMMUNITY_3_4', 'RESEARCH_1_1', 'RESEARCH_1_2', 'RESEARCH_1_3', 'RESEARCH_1_4', 'RESEARCH_2_1', 'RESEARCH_2_2', 'RESEARCH_2_3', 'RESEARCH_2_4', 'RESEARCH_3_1', 'RESEARCH_3_2', 'RESEARCH_3_3', 'RESEARCH_3_4']},
+            'adventure_mission_3': {'type': 'drop_down', 'options': ['CRAFT_1_1', 'CRAFT_1_2', 'CRAFT_1_3', 'CRAFT_1_4', 'CRAFT_2_1', 'CRAFT_2_2', 'CRAFT_2_3', 'CRAFT_2_4', 'CRAFT_3_1', 'CRAFT_3_2', 'CRAFT_3_3', 'CRAFT_3_4', 'COMMUNITY_1_1', 'COMMUNITY_1_2', 'COMMUNITY_1_3', 'COMMUNITY_1_4', 'COMMUNITY_2_1', 'COMMUNITY_2_2', 'COMMUNITY_2_3', 'COMMUNITY_2_4', 'COMMUNITY_3_1', 'COMMUNITY_3_2', 'COMMUNITY_3_3', 'COMMUNITY_3_4', 'RESEARCH_1_1', 'RESEARCH_1_2', 'RESEARCH_1_3', 'RESEARCH_1_4', 'RESEARCH_2_1', 'RESEARCH_2_2', 'RESEARCH_2_3', 'RESEARCH_2_4', 'RESEARCH_3_1', 'RESEARCH_3_2', 'RESEARCH_3_3', 'RESEARCH_3_4']},
+            'adventure_mission_4': {'type': 'drop_down', 'options': ['CRAFT_1_1', 'CRAFT_1_2', 'CRAFT_1_3', 'CRAFT_1_4', 'CRAFT_2_1', 'CRAFT_2_2', 'CRAFT_2_3', 'CRAFT_2_4', 'CRAFT_3_1', 'CRAFT_3_2', 'CRAFT_3_3', 'CRAFT_3_4', 'COMMUNITY_1_1', 'COMMUNITY_1_2', 'COMMUNITY_1_3', 'COMMUNITY_1_4', 'COMMUNITY_2_1', 'COMMUNITY_2_2', 'COMMUNITY_2_3', 'COMMUNITY_2_4', 'COMMUNITY_3_1', 'COMMUNITY_3_2', 'COMMUNITY_3_3', 'COMMUNITY_3_4', 'RESEARCH_1_1', 'RESEARCH_1_2', 'RESEARCH_1_3', 'RESEARCH_1_4', 'RESEARCH_2_1', 'RESEARCH_2_2', 'RESEARCH_2_3', 'RESEARCH_2_4', 'RESEARCH_3_1', 'RESEARCH_3_2', 'RESEARCH_3_3', 'RESEARCH_3_4']},
+            'boo_box_adventure_price': {'type': 'drop_down', 'options': ['S1', 'S2', 'S3', 'S4', 'NONE']},
+            'boo_box_craft_price': {'type': 'drop_down', 'options': ['S1', 'S2', 'S3', 'S4', 'NONE']},
+            'boo_box_sell_price': {'type': 'drop_down', 'options': ['S1', 'S2', 'S3', 'S4', 'NONE']},
             'pawnshop_crest_priority': {'type': 'text_edit'},
             'pawnshop_omnicoin_priority': {'type': 'text_edit'},
         })
@@ -477,7 +437,6 @@ class App_TrigramsCollection(AppTaskBase):
         super().__init__(*args, **kwargs)
         self.name = '🔮 卦象集录'
         self.description = '运行一条龙应用：卦象集录'
-        self.default_config.update({'结束后': '无', '关机延迟秒': 60})
         self._option_keys = []
 
 
@@ -497,7 +456,5 @@ class App_WorldPatrol(AppTaskBase):
             'route_retry_times': 1,
             'ui_disappear_action': 'silent_fail',
             'ui_disappear_seconds': 10,
-            '结束后': '无',
-            '关机延迟秒': 60,
         })
         self._option_keys = ['auto_battle', 'daily_loop_count', 'loop_interval_seconds', 'route_list', 'route_retry_action', 'route_retry_times', 'ui_disappear_action', 'ui_disappear_seconds']

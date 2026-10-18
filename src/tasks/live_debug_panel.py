@@ -53,7 +53,7 @@ class LiveDebugPanel(QWidget):
         self.timer.timeout.connect(self.refresh)
         self.timer.start()
         # A read-only endpoint is available after normal software startup.
-        if callable(getattr(getattr(og, 'my_app', None), '_window_provider', None)):
+        if callable(getattr(getattr(og, 'my_app', None), 'window_hwnd', None)):
             self.start()
 
     def start(self):

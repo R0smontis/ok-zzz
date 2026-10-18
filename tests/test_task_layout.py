@@ -37,7 +37,7 @@ def test_daily_task_app_names_align():
 def test_battle_template_scan():
     """战斗/闪避配置下拉应扫描到模板文件。"""
     from src.tasks.auto_combat_task import list_battle_templates
-    battle = list_battle_templates('auto_battle', '.merged.yml')
+    battle = list_battle_templates('auto_battle')
     assert '全配队通用' in battle
-    dodge = list_battle_templates('dodge', '.merged.yml')
+    dodge = list_battle_templates('dodge')
     assert '闪避' in dodge

@@ -2,8 +2,6 @@
 """ok-zzz 任务基类。"""
 from ok import BaseTask, TriggerTask, og
 
-from onedragon.utils.log_utils import log
-
 
 AFTER_DONE_OPTIONS = ('无', '关闭游戏', '关机', '休眠', '睡眠')
 
@@ -25,6 +23,8 @@ class ZzzBaseTask(BaseTask):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # 每个任务都有的收尾选项由基类提供；生成器不再逐个应用重复这两项。
+        self.default_config.update({'结束后': '无', '关机延迟秒': 60})
         self.config_type['结束后'] = {
             'type': 'drop_down', 'options': list(AFTER_DONE_OPTIONS),
             'sub_configs': {'关机': ['关机延迟秒']},
@@ -100,18 +100,3 @@ class ZzzBaseTask(BaseTask):
     def ctx(self):
         """ZzzContext（惰性创建，首次访问时完成 ok-script 设备桥接）。"""
         return og.my_app.context
-
-    def activate_game_window(self):
-        """把游戏窗口带到前台（委托给当前 interaction，如可用）。"""
-        device_manager = getattr(og.executor, 'device_manager', None)
-        interaction = getattr(device_manager, 'interaction', None)
-        if interaction is None:
-            return
-        for method_name in ('try_activate', 'activate'):
-            method = getattr(interaction, method_name, None)
-            if callable(method):
-                try:
-                    method()
-                    return
-                except Exception as e:
-                    log.warning(f'激活游戏窗口失败({method_name}): {e}')

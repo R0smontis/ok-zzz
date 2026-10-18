@@ -8,7 +8,6 @@
 与原版差异：应用启用状态从"组配置文件编辑"变为任务下拉多选，
 底层仍是同一份 config/{实例}/one_dragon/_group.yml，互通。
 """
-from onedragon.utils.log_utils import log
 from src.tasks.zzz_base_task import ZzzBaseTask
 from ok import BaseTask
 from src.controls.application_input import application_inputs

@@ -60,8 +60,11 @@ def refresh(timeout: float = 5) -> dict[str, int]:
             continue
         if not codes:
             continue
-        with open(path, 'w', encoding='utf-8') as fp:
-            fp.write(text)
+        try:
+            with open(path, 'w', encoding='utf-8') as fp:
+                fp.write(text)
+        except OSError as error:
+            log.info('兑换码缓存写入失败：%s', error)
         log.info('已获取最新兑换码 %d 个', len(codes))
         return codes
     return cached_codes()

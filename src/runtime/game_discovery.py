@@ -138,7 +138,9 @@ def apply_selected_game_path(path):
     """Explicit user selection takes effect immediately for closed-game startup."""
     from ok import og
     _set_manager_path(getattr(og, 'device_manager', None), path)
-    context = getattr(getattr(og, 'my_app', None), '_context', None)
+    my_app = getattr(og, 'my_app', None)
+    ready = getattr(my_app, 'context_if_ready', None)
+    context = ready() if callable(ready) else None
     if context is not None:
         context.game_account_config.game_path = path
 
@@ -188,7 +190,9 @@ def install_game_discovery():
                 _set_manager_path(manager, path)
             timer.stop()
             return
-        context = getattr(getattr(og, 'my_app', None), '_context', None)
+        my_app = getattr(og, 'my_app', None)
+        ready = getattr(my_app, 'context_if_ready', None)
+        context = ready() if callable(ready) else None
         account = getattr(context, 'game_account_config', None)
         if account is not None and account.game_path:
             timer.stop()

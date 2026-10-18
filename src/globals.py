@@ -6,7 +6,6 @@
 - 截图: og.executor.next_frame / frame
 - 应用注册: discover_factories(ctx)
 """
-import time
 import threading
 
 from ok import Logger
@@ -37,6 +36,7 @@ class Globals:
         self._game_discovery_timer = install_game_discovery()
         self.exit_event = exit_event
         self._context = None
+        self._context_lock = threading.Lock()
         self._shutdown_lock = threading.Lock()
         self._stopped = False
         if hasattr(exit_event, 'bind_stop'):
@@ -64,7 +64,7 @@ class Globals:
         if live_debug is not None:
             live_debug.stop()
         from src.diagnostics.recorder import recorder
-        recorder.stop('程序退出')
+        recorder.stop('程序退出', wait=True)
         executor = getattr(og, 'executor', None)
         for task in getattr(executor, 'trigger_tasks', ()):
             stop_engine = getattr(task, '_stop_engine', None)
@@ -79,18 +79,16 @@ class Globals:
                 context.run_context.stop_running()
             except Exception as error:
                 logger.warning(f'退出时停止任务失败: {error}')
-            context.after_app_shutdown()
+            try:
+                context.after_app_shutdown()
+            except Exception as error:
+                # Keep going: removing the virtual pad must not be skipped.
+                logger.warning(f'退出时清理上下文失败: {error}')
             if context.controller is not None:
                 try:
                     context.controller.disconnect_virtual_gamepad_bus()
                 except Exception as error:
                     logger.warning(f'退出时移除虚拟手柄失败: {error}')
-        overlay = getattr(self, '_overlay_manager', None)
-        if overlay is not None:
-            try:
-                overlay.shutdown()
-            except Exception as error:
-                logger.warning(f'退出时停止悬浮窗失败: {error}')
         logger.info('程序退出清理完成：战斗输入、声音监听、调试录制与虚拟手柄已停止')
 
     # ------------------------------------------------------------------ #
@@ -113,7 +111,9 @@ class Globals:
                     context.controller.cancel_inputs()
             raise RuntimeError('连续12秒无法取得游戏画面，已停止输入；请检查截图方式和游戏窗口')
         from src.runtime.frozen_capture import FrozenCaptureWatch, handle_frozen_capture
-        watch = self.__dict__.setdefault('_capture_watch', FrozenCaptureWatch())
+        watch = self.__dict__.get('_capture_watch')
+        if watch is None:
+            watch = self.__dict__['_capture_watch'] = FrozenCaptureWatch()
         handle_frozen_capture(watch, frame, getattr(executor, 'method', None))
         return executor._last_frame_time, frame
 
@@ -136,26 +136,45 @@ class Globals:
         from src.controls.interaction import background_mode_selected
         game_config._framework_background_mode = background_mode_selected()
 
+    def window_hwnd(self):
+        """当前截图层选中的游戏窗口句柄（0 表示未选择）。"""
+        return self._window_provider()
+
+    def sync_game_hotkeys(self, game_config):
+        """把界面上的键位设置同步到账号配置（任务启动时调用）。"""
+        self._sync_game_hotkeys(game_config)
+
+    def context_if_ready(self):
+        """已初始化的 ZzzContext；未创建时返回 None，且不会触发创建。"""
+        return self._context
+
     @property
     def context(self):
-        """ZzzContext 惰性创建（需要 ok-script 完成设备初始化后调用）。"""
-        if self._context is None:
-            if self._stopped:
-                raise RuntimeError('程序正在退出，无法创建游戏上下文')
-            from zzz_od.application.app_registry import discover_factories
-            from zzz_od.context.zzz_context import ZContext
-            context = ZContext(
-                get_ocr_lib=self._get_ocr_lib if og.executor is not None else None,
-                frame_provider=self._frame_provider,
-                window_provider=self._window_provider,
-                game_config_sync=self._sync_game_hotkeys,
-            )
-            discover_factories(context)
-            context.init()
-            self._adopt_game_path(context)
-            self._context = context
-            logger.info('ZzzContext 已创建并完成应用注册')
-        return self._context
+        """ZzzContext 惰性创建（需要 ok-script 完成设备初始化后调用）。
+
+        GUI 线程与执行线程可能同时首次访问，双检加锁保证只创建一个实例。
+        """
+        context = self._context
+        if context is not None:
+            return context
+        with self._context_lock:
+            if self._context is None:
+                if self._stopped:
+                    raise RuntimeError('程序正在退出，无法创建游戏上下文')
+                from zzz_od.application.app_registry import discover_factories
+                from zzz_od.context.zzz_context import ZContext
+                context = ZContext(
+                    get_ocr_lib=self._get_ocr_lib if og.executor is not None else None,
+                    frame_provider=self._frame_provider,
+                    window_provider=self._window_provider,
+                    game_config_sync=self._sync_game_hotkeys,
+                )
+                discover_factories(context)
+                context.init()
+                self._adopt_game_path(context)
+                self._context = context
+                logger.info('ZzzContext 已创建并完成应用注册')
+            return self._context
 
     @staticmethod
     def _adopt_game_path(context):
@@ -167,25 +186,3 @@ class Globals:
             context.game_account_config, selected_path=settings.get(PATH_KEY, ''))
         if path:
             logger.info(f'已使用游戏路径：{path}')
-
-    def ensure_context_for_game(self):
-        """游戏启动后的完整初始化（画面区域等）。"""
-        self.context.init_for_application()
-        return self.context
-
-    def ensure_overlay(self):
-        """游戏内悬浮窗（识别框/HUD/日志面板，热键 o 开关）；失败静默。"""
-        if self._context is None:
-            return None
-        if getattr(self, '_overlay_manager', None) is not None:
-            return self._overlay_manager
-        try:
-            from onedragon.qt.overlay.overlay_manager import OverlayManager
-            self._overlay_manager = OverlayManager(self._context)
-            self._overlay_manager.start()
-            logger.info('Overlay 已启动（热键 o 开关）')
-            return self._overlay_manager
-        except Exception as e:
-            logger.warning(f'Overlay 启动失败（不影响核心功能）: {e}')
-            self._overlay_manager = None
-            return None

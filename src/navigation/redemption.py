@@ -13,6 +13,7 @@ import numpy as np
 from onedragon.base.geometry.rectangle import Rect
 from onedragon.utils.log_utils import log
 from src.controls.gamepad import press as pad
+from src.navigation.common import bump, norm_text, ocr_rows
 from src.navigation.menus import focus_mask, grid_target, main_menu_target
 
 MORE_TITLE = Rect(480, 180, 800, 250)
@@ -26,12 +27,7 @@ GRID_HALF_WIDTH = 79
 
 
 def _text(value) -> str:
-    return str(value).replace(' ', '').replace('兌', '兑').replace('換', '换')
-
-
-def _rows(op, screen, rect):
-    rows = op.ctx.ocr_service.get_ocr_result_list(image=screen, rect=rect)
-    return rows if isinstance(rows, (list, tuple)) else []
+    return norm_text(value, 'redemption')
 
 
 def same_code(read: str, code: str) -> bool:
@@ -41,12 +37,12 @@ def same_code(read: str, code: str) -> bool:
 
 
 def more_panel_open(op, screen) -> bool:
-    return any(_text(r.data) == '更多功能' for r in _rows(op, screen, MORE_TITLE))
+    return any(_text(r.data) == '更多功能' for r in ocr_rows(op, screen,MORE_TITLE))
 
 
 def code_panel(op, screen):
     """(field text, result message, button label) on the 兑换码 panel, or None when it is not open."""
-    rows = _rows(op, screen, PANEL)
+    rows = ocr_rows(op, screen,PANEL)
     if not any(_text(r.data) == '兑换码' and r.center.y < 400 for r in rows):
         return None
     inside = lambda r, rect: rect.x1 <= r.center.x < rect.x2 and rect.y1 <= r.center.y < rect.y2
@@ -62,8 +58,41 @@ def button_focused(screen) -> bool:
     return bool(part.size) and np.mean(focus_mask(part)) > .35
 
 
+# 剪贴板里除文本外还可能有图片、文件等；粘贴前全部取出，粘贴后原样放回。
+# 位图/图元等 GDI 句柄格式无法安全复制，跳过（图片通常同时带 DIB 数据格式）。
+_CLIPBOARD_SKIP = ('CF_BITMAP', 'CF_PALETTE', 'CF_METAFILEPICT', 'CF_ENHMETAFILE',
+                   'CF_OWNERDISPLAY', 'CF_DSPBITMAP', 'CF_DSPMETAFILEPICT', 'CF_DSPENHMETAFILE',
+                   'CF_DSPTEXT')
+
+
+def snapshot_clipboard(cb, win32con):
+    """[(format, data)] of everything that can be put back later."""
+    skipped = {getattr(win32con, name) for name in _CLIPBOARD_SKIP if hasattr(win32con, name)}
+    formats, current = [], 0
+    while True:
+        current = cb.EnumClipboardFormats(current)
+        if not current:
+            break
+        if current in skipped:
+            continue
+        try:
+            formats.append((current, cb.GetClipboardData(current)))
+        except Exception:
+            continue  # 该格式不可读：宁可少恢复一种，也不让粘贴失败
+    return formats
+
+
+def restore_clipboard(cb, formats):
+    cb.EmptyClipboard()
+    for fmt, data in formats:
+        try:
+            cb.SetClipboardData(fmt, data)
+        except Exception:
+            continue
+
+
 def paste_code(ctx, code: str) -> None:
-    """Press Y with the code on the clipboard, then put the user's own text back."""
+    """Press Y with the code on the clipboard, then put the user's own clipboard back."""
     import win32clipboard as cb
     import win32con
 
@@ -76,10 +105,10 @@ def paste_code(ctx, code: str) -> None:
                 time.sleep(.05)
         cb.OpenClipboard()  # Raise the real error after retrying a busy clipboard.
 
+    previous = []
     open_clipboard()
     try:
-        previous = cb.GetClipboardData(win32con.CF_UNICODETEXT) \
-            if cb.IsClipboardFormatAvailable(win32con.CF_UNICODETEXT) else None
+        previous = snapshot_clipboard(cb, win32con)
         cb.EmptyClipboard()
         cb.SetClipboardText(code, win32con.CF_UNICODETEXT)
     finally:
@@ -90,9 +119,7 @@ def paste_code(ctx, code: str) -> None:
     finally:
         open_clipboard()
         try:
-            cb.EmptyClipboard()
-            if previous is not None:
-                cb.SetClipboardText(previous, win32con.CF_UNICODETEXT)
+            restore_clipboard(cb, previous)
         finally:
             cb.CloseClipboard()
 
@@ -100,13 +127,6 @@ def paste_code(ctx, code: str) -> None:
 def _cooling(button) -> bool:
     """The 兑换 label counts down as 兑换(5)…兑换(1) after a submission."""
     return button is not None and ('(' in button or '（' in button)
-
-
-def _count(op, name, limit) -> bool:
-    """Increase a per-code counter; True once it exceeds `limit`."""
-    value = op.__dict__.get(name, 0) + 1
-    op.__dict__[name] = value
-    return value > limit
 
 
 def open_more(op, screen):
@@ -120,7 +140,7 @@ def open_code_panel(op, screen):
         return op.round_success('兑换码已打开')
     if more_panel_open(op, screen):
         return grid_target(op, screen, '兑换码', MORE_GRID, half_width=GRID_HALF_WIDTH)
-    if _count(op, '_redeem_panel_waits', 6):
+    if bump(op,'_redeem_panel_waits', 6):
         return op.round_fail('未打开兑换码面板')
     return op.round_wait('等待兑换码面板', wait=.6)
 
@@ -138,7 +158,7 @@ def redeem_round(op, screen, codes, mark_used):
         return op.round_success('全部兑换完毕')
     state = code_panel(op, screen)
     if state is None:
-        if _count(op, '_redeem_panel_waits', 6):
+        if bump(op,'_redeem_panel_waits', 6):
             return op.round_fail('兑换码面板未打开')
         return op.round_wait('等待兑换码面板', wait=.6)
     op._redeem_panel_waits = 0
@@ -154,9 +174,9 @@ def redeem_round(op, screen, codes, mark_used):
             return op.round_wait(f'兑换码 {code}：{message}', wait=.3)
         # The game answers late and briefly: the red line appears near the end of the 兑换(5)→(1)
         # countdown and stays about one second (live 2026-10-17). Poll quickly until it ends.
-        if _cooling(button) and not _count(op, '_redeem_answer_waits', 30):
+        if _cooling(button) and not bump(op,'_redeem_answer_waits', 30):
             return op.round_wait('等待兑换结果（按钮倒计时）', wait=.2)
-        if _count(op, '_redeem_results', 6):
+        if bump(op,'_redeem_results', 6):
             # The press was verified on a focused, ready button; do not redeem the same code again.
             log.warning('兑换码 %s 已提交，未读到结果提示', code)
             mark_used(code)
@@ -167,26 +187,26 @@ def redeem_round(op, screen, codes, mark_used):
     if not same_code(field, code):
         op._redeem_phase = 'paste'
         if field:
-            if _count(op, '_redeem_clears', 3):
+            if bump(op,'_redeem_clears', 3):
                 return op.round_fail('手柄清除兑换码输入框未生效')
             pad(op.ctx, 'y')
             return op.round_wait('手柄清除输入框', wait=.8)
-        if _count(op, '_redeem_pastes', 3):
+        if bump(op,'_redeem_pastes', 3):
             return op.round_fail('手柄粘贴兑换码未生效')
         paste_code(op.ctx, code)
         return op.round_wait(f'手柄粘贴兑换码 {code}', wait=.6)
 
     op._redeem_phase = 'submit'
     if not button_focused(screen):
-        if _count(op, '_redeem_moves', 4):
+        if bump(op,'_redeem_moves', 4):
             return op.round_fail('手柄选择兑换按钮未生效')
         pad(op.ctx, 'dpad_down')
         return op.round_wait('手柄选择兑换按钮', wait=.6)
     if button is None or _cooling(button):
-        if _count(op, '_redeem_cooldown', 10):
+        if bump(op,'_redeem_cooldown', 10):
             return op.round_fail('兑换按钮一直不可用')
         return op.round_wait('兑换按钮冷却中', wait=1)
-    if _count(op, '_redeem_submits', 2):
+    if bump(op,'_redeem_submits', 2):
         return op.round_fail('兑换按钮未响应')
     pad(op.ctx, 'a')
     op._redeem_phase = 'result'

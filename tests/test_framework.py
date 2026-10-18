@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
 """应用框架层验证：节点图语义 / 注册表 / 运行记录 / 一条龙队列。"""
-import time
-
 import pytest
 
 
@@ -34,7 +32,7 @@ def test_run_record_daily_reset(ctx):
     assert not record.is_done
 
 
-def test_operation_node_graph(tmp_path, ctx):
+def test_operation_node_graph(ctx):
     """节点图：RETRY 重试 → 成功跳转 → 结束。"""
     from onedragon.base.operation.operation import Operation
     from onedragon.base.operation.operation_node import operation_node
@@ -65,7 +63,7 @@ def test_operation_node_graph(tmp_path, ctx):
     assert calls['b'] == 1
 
 
-def test_operation_fail_after_max_retry(tmp_path, ctx):
+def test_operation_fail_after_max_retry(ctx):
     """超过节点最大重试次数应判定失败。"""
     from onedragon.base.operation.operation import Operation
     from onedragon.base.operation.operation_node import operation_node
@@ -86,8 +84,8 @@ def test_operation_fail_after_max_retry(tmp_path, ctx):
     assert calls['n'] == 3  # 1 次执行 + 2 次重试
 
 
-def test_run_context_group_and_queue(tmp_path, ctx):
-    """组配置合并 + 一条龙队列按顺序执行并跳过已完成应用。"""
+def test_run_context_group_and_queue(ctx):
+    """组配置启用项落库并被队列读取；一条龙应用可构建。"""
     from zzz_od.application.app_registry import discover_factories
     discover_factories(ctx)
     run_context = ctx.run_context

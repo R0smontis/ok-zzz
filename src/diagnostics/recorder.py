@@ -29,10 +29,8 @@ def timestamp(wall_time):
 
 def private_frame(frame):
     """Mask UID on a copy; preserve the frame used by the game recognizers."""
-    copy = frame.copy()
-    h, w = copy.shape[:2]
-    copy[int(h * 1059 / 1080):h, int(w * 1814 / 1920):w] = 0
-    return copy
+    from src.runtime.frame_geometry import mask_uid
+    return mask_uid(frame.copy())
 
 
 def visual_evidence(frame):
@@ -65,7 +63,9 @@ def runtime_snapshot(executor):
                         'evidence': str(task.info.get('触发原因', '')),
                         'burst_remaining': round(max(0, getattr(task, '_input_until', 0) - time.monotonic()), 3)}
                        for task in tasks if task.enabled or task.running]
-    context = getattr(getattr(og, 'my_app', None), '_context', None)
+    my_app = getattr(og, 'my_app', None)
+    ready = getattr(my_app, 'context_if_ready', None)
+    context = ready() if callable(ready) else None
     if context is not None:
         result['frame_geometry'] = getattr(getattr(context, 'controller', None), 'frame_geometry', None)
         run = context.run_context
@@ -73,7 +73,10 @@ def runtime_snapshot(executor):
         app = run.current_application
         result['node'] = getattr(getattr(app, '_current_node', None), 'cn', None)
         controller = context.controller
-        battle = context.auto_battle_context
+        # Read-only: never create the battle context from the recorder.
+        battle = context.__dict__.get('_auto_battle_context')
+        if battle is None:
+            return result
         op = battle.auto_op
         team = getattr(getattr(battle, 'agent_context', None), 'team_info', None)
         result['battle'] = {
@@ -203,17 +206,22 @@ class DiagnosticRecorder:
             if s['pending_frames'] >= 3:
                 s['dropped'] += 1
                 return
-            captured_at = time.time() if captured_at is None else captured_at
+            elapsed, start = self._elapsed(s, now), s['start']
+        # The snapshot and the frame copy stay outside the lock: the user-input hook
+        # records through it and must not wait behind a full-frame copy.
+        captured_at = time.time() if captured_at is None else captured_at
+        try:
+            snapshot = s['snapshot']() if s['snapshot'] else {}
+        except Exception as exc:
+            snapshot = {'snapshot_error': str(exc)}
+        item = {'time': timestamp(captured_at), 'captured_at': captured_at,
+                'elapsed': round(elapsed, 4), 'wall_elapsed': round(now - start, 4),
+                'source': source,
+                'shape': list(frame.shape), 'runtime': snapshot}
+        private = private_frame(frame)
+        with self._lock:
             try:
-                snapshot = s['snapshot']() if s['snapshot'] else {}
-            except Exception as exc:
-                snapshot = {'snapshot_error': str(exc)}
-            item = {'time': timestamp(captured_at), 'captured_at': captured_at,
-                    'elapsed': round(self._elapsed(s, now), 4), 'wall_elapsed': round(now-s['start'], 4),
-                    'source': source,
-                    'shape': list(frame.shape), 'runtime': snapshot}
-            try:
-                s['queue'].put_nowait(('frame', (private_frame(frame), item, now)))
+                s['queue'].put_nowait(('frame', (private, item, now)))
                 s['pending_frames'] += 1
             except queue.Full:
                 s['dropped'] += 1

@@ -138,8 +138,8 @@ def test_diagnostic_snapshot_contains_actual_gpu_backend_and_cached_team(monkeyp
     battle = SimpleNamespace(auto_op=None, last_check_in_battle=True,
                              agent_context=SimpleNamespace(team_info=party))
     context = SimpleNamespace(run_context=SimpleNamespace(current_app_id=None, current_application=None),
-                              controller=SimpleNamespace(background_mode=True), auto_battle_context=battle)
-    monkeypatch.setattr(og, 'my_app', SimpleNamespace(_context=context))
+                              controller=SimpleNamespace(background_mode=True), _auto_battle_context=battle)
+    monkeypatch.setattr(og, 'my_app', SimpleNamespace(context_if_ready=lambda: context))
     monkeypatch.setattr(inference, '_status', {'OCR-det': {'providers': ['DmlExecutionProvider'], 'last_inference_ms': 10}})
     executor = SimpleNamespace(paused=False, get_all_tasks=lambda: [], _last_frame_time=time.time())
     snapshot = runtime_snapshot(executor)

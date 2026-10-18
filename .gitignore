@@ -23,3 +23,4 @@ config/model.yml
 
 # 账号实例列表由应用首次启动时创建，属于用户数据，不随版本更新覆盖
 /config/one_dragon.yml
+/config/redemption_codes.yml

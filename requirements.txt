@@ -28,9 +28,11 @@ shapely>=2.0
 pyclipper>=1.3
 psutil>=5.9
 
-# i18n 编译与测试
-polib>=1.2
-pytest>=8.0
+# 代码直接使用的库（也经 ok-script/pyautogui 传递安装，显式声明避免上游变动）
+numpy>=1.26
+pynput>=1.8
+pygetwindow>=0.0.9
+threadpoolctl>=3.0
 
 # P11 推送渠道依赖
 requests>=2.31

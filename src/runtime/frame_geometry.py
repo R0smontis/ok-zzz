@@ -46,6 +46,15 @@ def bgra_view(frame):
     return np.lib.stride_tricks.as_strided(frame, (*frame.shape[:2], 4), frame.strides, writeable=False)
 
 
+def mask_uid(frame):
+    """Black out the in-game UID area in place (1920×1080 reference: x 1814–1920, y 1059–1080)."""
+    if frame is None or frame.ndim < 2:
+        return frame
+    height, width = frame.shape[:2]
+    frame[int(height * 1059 / 1080):height, int(width * 1814 / 1920):width] = 0
+    return frame
+
+
 def resize_for_recognition(frame, width=1920, height=1080):
     if frame is None or frame.size == 0 or frame.ndim not in (2, 3):
         return None

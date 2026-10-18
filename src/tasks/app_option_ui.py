@@ -199,7 +199,15 @@ def configure_app_options(task):
         # '' 表示尚未从引擎读取；已保存的计划文本优先，重启后不丢失界面中的修改。
         if task.config.get('plan_list') in ('', None):
             from ok import og
-            if getattr(og, 'my_app', None) is not None and hasattr(og.my_app, 'context'):
+            my_app = getattr(og, 'my_app', None)
+            ready = None
+            if my_app is not None:
+                # 显式访问（而非 hasattr）触发上下文创建：界面首次打开时读取引擎里已有的计划。
+                try:
+                    ready = my_app.context
+                except RuntimeError:
+                    ready = None  # 程序正在退出：保留空计划，不阻塞界面构建
+            if ready is not None:
                 app = task.ctx.run_context.get_config(task.app_id, instance_idx=task.ctx.current_instance_idx)
                 import json
                 task.config['plan_list'] = json.dumps([item.to_dict() for item in app.plan_list], ensure_ascii=False)

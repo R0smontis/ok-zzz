@@ -852,3 +852,30 @@ def test_user_stop_result_is_preserved(monkeypatch, raise_after_stop):
     app = SimpleNamespace(op_name='test', execute=execute)
     monkeypatch.setattr(run, 'get_application', lambda *args: app)
     assert run.run_application('test').finish_reason == RunFinishReason.STOPPED
+
+
+def test_dialogue_interval_is_left_to_the_framework_trigger(dialogue_task, monkeypatch):
+    """识别间隔由框架 should_trigger 统一节流；run() 不再用第二个时钟吞掉整拍。"""
+    import time as time_module
+    task, _, _, action = dialogue_task
+    task._detector.detect.return_value = action
+    clock = [1000.0]
+    monkeypatch.setattr(time_module, 'monotonic', lambda: clock[0])
+    task.run()
+    assert task._detector.detect.call_count == 1
+    task._last_click = None  # 只关掉点击去抖；时钟未前进
+    task.run()
+    assert task._detector.detect.call_count == 2
+
+
+def test_missing_config_name_falls_back_to_the_task_default(task_factory, monkeypatch):
+    """闪避配置缺失时回退到本任务的默认值（曾经错误地回退成「全配队通用」）。"""
+    from src.tasks.auto_combat_task import DodgeAssistantTriggerTask
+    task = task_factory(DodgeAssistantTriggerTask)
+    task.config.pop('闪避配置', None)
+    started = []
+    monkeypatch.setattr(task, '_start_engine', lambda name: started.append(name) or True)
+    monkeypatch.setattr(task, '_window_input_allowed', lambda: False)
+    task._enabled = True
+    task.run()
+    assert started == ['闪避']

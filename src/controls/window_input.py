@@ -1,5 +1,6 @@
 """只向选中窗口发送输入消息，不操作前台窗口或系统光标。"""
 import threading
+import time
 
 import win32api
 import win32con
@@ -52,14 +53,26 @@ class WindowMessageInput(PcButtonController):
         self.position = Point(960, 540)
         self._lock = threading.RLock()
         self._held = {}
-        self._cancel = threading.Event()
+        # reset()（停止、暂停、窗口切换）递增代际；进行中的调用在下一个检查点退出，
+        # 之后的新调用照常执行。不用单个取消 Event：下一次调用 clear() 会吞掉
+        # 另一线程刚发出的 reset()，让已释放的按键残留。
+        self._epoch = 0
 
     def target(self):
         hwnd = self.window.get_hwnd()
         return hwnd if hwnd and self.window.is_win_valid else None
 
-    def _valid(self, hwnd):
-        return bool(hwnd and not self._cancel.is_set() and self.target() == hwnd)
+    def _valid(self, hwnd, epoch):
+        return bool(hwnd and epoch == self._epoch and self.target() == hwnd)
+
+    def _pause(self, seconds, epoch):
+        """可被 reset() 提前打断的等待（20 ms 粒度）。"""
+        deadline = time.monotonic() + max(0, float(seconds))
+        while epoch == self._epoch:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return
+            time.sleep(min(.02, remaining))
 
     def _post(self, hwnd, message, wparam=0, lparam=0):
         win32gui.PostMessage(hwnd, message, wparam, lparam)
@@ -80,9 +93,9 @@ class WindowMessageInput(PcButtonController):
         return (int(x) & 0xffff) | ((int(y) & 0xffff) << 16)
 
     def move(self, pos):
-        self._cancel.clear()
+        epoch = self._epoch
         hwnd, point = self.target(), self._point(pos)
-        if point is None or not self._valid(hwnd):
+        if point is None or not self._valid(hwnd, epoch):
             return False
         try:
             self._post(hwnd, win32con.WM_MOUSEMOVE, 0, self.pack(*point))
@@ -92,9 +105,9 @@ class WindowMessageInput(PcButtonController):
             return False
 
     def click(self, pos=None, duration=.02, alt=False, button='left'):
-        self._cancel.clear()
+        epoch = self._epoch
         hwnd, point = self.target(), self._point(pos)
-        if point is None or not self._valid(hwnd):
+        if point is None or not self._valid(hwnd, epoch):
             return False
         down, up, flag, release_flag = self._mouse_messages(button)
         coordinates = self.pack(*point)
@@ -105,14 +118,13 @@ class WindowMessageInput(PcButtonController):
                 self.press('alt')
             self._post(hwnd, win32con.WM_MOUSEMOVE, 0, coordinates)
             # 让游戏先处理悬停位置，避免点击继续使用上一帧的指针位置。
-            if self._cancel.wait(.04):
-                return False
-            if not self._valid(hwnd):
+            self._pause(.04, epoch)
+            if not self._valid(hwnd, epoch):
                 return False
             self._post(hwnd, down, flag, coordinates)
             pressed = True
-            self._cancel.wait(max(.001, duration))
-            return self._valid(hwnd)
+            self._pause(max(.001, duration), epoch)
+            return self._valid(hwnd, epoch)
         except Exception:
             log.warning('后台点击消息发送失败', exc_info=True)
             return False
@@ -132,30 +144,30 @@ class WindowMessageInput(PcButtonController):
                 'x2': (WM_XBUTTONDOWN, WM_XBUTTONUP, (2 << 16) | MK_XBUTTON2, 2 << 16)}[button]
 
     def drag(self, start, end, duration=.5):
-        self._cancel.clear()
+        epoch = self._epoch
         hwnd = self.target()
         first, last = self._point(start), self._point(end)
-        if first is None or last is None or not self._valid(hwnd):
+        if first is None or last is None or not self._valid(hwnd, epoch):
             return False
         pressed = False
         coordinates = self.pack(*first)
         try:
             self.activate(hwnd)
             self._post(hwnd, win32con.WM_MOUSEMOVE, 0, coordinates)
-            if self._cancel.wait(.04) or not self._valid(hwnd):
+            self._pause(.04, epoch)
+            if not self._valid(hwnd, epoch):
                 return False
             self._post(hwnd, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, coordinates)
             pressed = True
             steps = max(1, int(max(0, duration) / .02))
             for index in range(1, steps + 1):
-                if not self._valid(hwnd):
+                if not self._valid(hwnd, epoch):
                     return False
                 ratio = index / steps
                 coordinates = self.pack(first[0] + (last[0] - first[0]) * ratio,
                                         first[1] + (last[1] - first[1]) * ratio)
                 self._post(hwnd, win32con.WM_MOUSEMOVE, win32con.MK_LBUTTON, coordinates)
-                if self._cancel.wait(max(0, duration) / steps):
-                    return False
+                self._pause(max(0, duration) / steps, epoch)
             return True
         except Exception:
             log.warning('后台拖拽消息发送失败', exc_info=True)
@@ -166,9 +178,9 @@ class WindowMessageInput(PcButtonController):
             record_event('window_input', action='drag', hwnd=hwnd)
 
     def scroll(self, down, pos=None):
-        self._cancel.clear()
+        epoch = self._epoch
         hwnd, point = self.target(), self._point(pos)
-        if point is None or not self._valid(hwnd):
+        if point is None or not self._valid(hwnd, epoch):
             return False
         try:
             self.activate(hwnd)
@@ -182,19 +194,18 @@ class WindowMessageInput(PcButtonController):
             return False
 
     def input_text(self, text, interval=.01):
-        self._cancel.clear()
+        epoch = self._epoch
         hwnd = self.target()
-        if not self._valid(hwnd):
+        if not self._valid(hwnd, epoch):
             return False
         try:
             self.activate(hwnd)
             encoded = str(text).encode('utf-16-le')
             for index in range(0, len(encoded), 2):
-                if not self._valid(hwnd):
+                if not self._valid(hwnd, epoch):
                     return False
                 self._post(hwnd, win32con.WM_CHAR, int.from_bytes(encoded[index:index+2], 'little'))
-                if self._cancel.wait(max(0, interval)):
-                    return False
+                self._pause(max(0, interval), epoch)
             # 文本可能是账号、密码；诊断仅记录长度。
             record_event('window_input', action='text', hwnd=hwnd, length=len(text))
             return True
@@ -208,9 +219,9 @@ class WindowMessageInput(PcButtonController):
     def press(self, key, press_time=None):
         if press_time is not None and press_time < 0:
             raise ValueError('press_time must be non-negative')
-        self._cancel.clear()
+        epoch = self._epoch
         hwnd = self.target()
-        if not self._valid(hwnd):
+        if not self._valid(hwnd, epoch):
             return False
         if key.startswith('mouse_'):
             point = self._point(None)
@@ -238,7 +249,7 @@ class WindowMessageInput(PcButtonController):
                 if previous:
                     self._release_held(previous)
                 self.activate(hwnd)
-                if not self._valid(hwnd):
+                if not self._valid(hwnd, epoch):
                     return False
                 self._post(hwnd, down, vk, flags)
                 self._held[key] = (hwnd, up, release_vk, release_flags, released)
@@ -271,8 +282,8 @@ class WindowMessageInput(PcButtonController):
                 self._release_held(held)
 
     def reset(self):
-        self._cancel.set()
         with self._lock:
+            self._epoch += 1
             for held in self._held.values():
                 self._release_held(held)
             self._held.clear()

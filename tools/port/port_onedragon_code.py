@@ -37,7 +37,7 @@ EXCLUDE_PREFIXES = (
     'one_dragon/envs/update_service.py',
     'one_dragon/envs/ghproxy_service.py',
     'one_dragon/launcher/',
-    'one_dragon_qt/',   # P11 单独移植 overlay
+    'one_dragon_qt/',   # GUI 由 ok-script 承载；overlay 悬浮窗未启用，已从 ok-zzz 移除
     'onnxocr/',         # OCR 走 ok-script[ocr]
     'one_dragon/base/operation/application/application_run_context.py',  # 自建精简版
     'one_dragon/base/operation/application/application_group_manager.py',  # 并入自建 RunContext
@@ -128,16 +128,6 @@ def collect_files():
         'one_dragon.base.web.common_downloader',
         'one_dragon.base.web.zip_downloader',
     ]
-    # 定向移植：overlay 悬浮窗包及其专用 widgets（one_dragon_qt 下自包含子集）
-    overlay_deps = ['one_dragon_qt/widgets/overlay_text_widget.py']
-    for rel in overlay_deps:
-        queue.append(rel[:-3].replace('/', '.'))
-    overlay_root = os.path.join(SRC, 'one_dragon_qt', 'overlay')
-    for dirpath, _dirs, files in os.walk(overlay_root):
-        for f in files:
-            if f.endswith('.py'):
-                rel = os.path.relpath(os.path.join(dirpath, f), SRC).replace(os.sep, '/')
-                queue.append(rel[:-3].replace('/', '.'))
     while queue:
         mod = queue.pop()
         if mod in visited:
@@ -156,18 +146,12 @@ def collect_files():
 
 
 def to_dst_rel(rel):
-    if rel.startswith('one_dragon_qt/widgets/'):
-        return 'onedragon/qt/widgets/' + rel[len('one_dragon_qt/widgets/'):]
-    if rel.startswith('one_dragon_qt/overlay/'):
-        return 'onedragon/qt/overlay/' + rel[len('one_dragon_qt/overlay/'):]
     if rel.startswith('one_dragon/'):
         return 'onedragon/' + rel[len('one_dragon/'):]
     return rel
 
 
 def excluded(rel):
-    if rel.startswith('one_dragon_qt/overlay/') or rel.startswith('one_dragon_qt/widgets/'):
-        return False  # 定向移植豁免
     if any(rel.startswith(p) or rel == p.rstrip('/') for p in EXCLUDE_PREFIXES):
         return True
     if os.path.basename(rel).endswith(APP_SETTING_SUFFIX):
@@ -250,11 +234,6 @@ if _TC:
 
 
 def apply_patches(rel, content):
-    if rel.startswith('one_dragon_qt/overlay/'):
-        content = content.replace('from one_dragon_qt.overlay.',
-                                  'from onedragon.qt.overlay.')
-        content = content.replace('from one_dragon_qt.',
-                                  'from onedragon.qt.')
     for old, new in PATCHES.get(rel, []):
         if old in content:
             content = content.replace(old, new)

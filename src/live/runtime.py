@@ -2,7 +2,6 @@
 import threading
 import time
 
-import cv2
 import win32gui
 from PySide6.QtCore import QObject, Signal, Slot
 from ok import og
@@ -76,6 +75,7 @@ class GameRuntime:
         self.keys = {}
         self.last_capture = 0
         self.input_trace = None
+        self.pad_restore = None
 
     def start_observing(self):
         from src.controls.user_input_trace import GameInputTrace
@@ -91,7 +91,7 @@ class GameRuntime:
             self.input_trace = None
 
     def target(self):
-        hwnd = int(self.app._window_provider() or 0)
+        hwnd = int(self.app.window_hwnd() or 0)
         try:
             if not hwnd or not win32gui.IsWindow(hwnd) or win32gui.IsIconic(hwnd):
                 return {'hwnd': 0, 'geometry': None}
@@ -122,7 +122,10 @@ class GameRuntime:
         if image is None or self.target()['hwnd'] != target['hwnd']:
             return None
         from src.runtime.frozen_capture import FrozenCaptureWatch, handle_frozen_capture
-        handle_frozen_capture(self.__dict__.setdefault('_capture_watch', FrozenCaptureWatch()), image, method)
+        watch = self.__dict__.get('_capture_watch')
+        if watch is None:
+            watch = self.__dict__['_capture_watch'] = FrozenCaptureWatch()
+        handle_frozen_capture(watch, image, method)
         if self.target()['geometry'] != target['geometry']:
             return None
         now = time.time()
@@ -132,7 +135,8 @@ class GameRuntime:
 
     def snapshot(self):
         executor = og.executor
-        context = getattr(self.app, '_context', None)
+        ready = getattr(self.app, 'context_if_ready', None)
+        context = ready() if callable(ready) else None
         current = getattr(executor, 'current_task', None)
         from src.runtime.inference import runtime_status
         result = {'executor_paused': bool(executor.paused), 'window': self.target(),
@@ -175,7 +179,8 @@ class GameRuntime:
         for task in executor.get_all_tasks():
             if task.enabled and not getattr(task, 'recording_controls', False):
                 task.disable()
-        context = getattr(self.app, '_context', None)
+        ready = getattr(self.app, 'context_if_ready', None)
+        context = ready() if callable(ready) else None
         if context is not None:
             context.run_context.stop_running()
             # 停止运行状态不会停止战斗指令线程；接管时必须同时停止，否则周期转向会持续输入。
@@ -206,10 +211,10 @@ class GameRuntime:
                 # Reuse the application's device. Recreating a ViGEm device on
                 # each lease leaves multiple XInput slots until cyclic bindings
                 # are collected; the game can keep listening to an older slot.
-                pad = self.gui.call(lambda: runtime_xbox_pad(context))
+                pad = self.gui.call(lambda: self._acquire_gamepad(context))
                 if pad.pad is None:
                     raise LiveError('虚拟手柄不可用，请安装ViGEmBus或选择窗口消息')
-            self.app._sync_game_hotkeys(context.game_config)
+            self.app.sync_game_hotkeys(context.game_config)
             with self.lock:
                 self.control_target = target
                 self.window_input, self.pad, self.mode = backend, pad, mode
@@ -232,8 +237,42 @@ class GameRuntime:
                         self.pad.reset()
                 finally:
                     self.window_input = self.pad = None
+                    self._restore_controller()
         finally:
             debug_control_owned.clear()
+
+    def _acquire_gamepad(self, context):
+        """Take the virtual Xbox pad, remembering the account's own controller mode.
+
+        runtime_xbox_pad() switches the application controller to the Xbox pad (live-debug
+        key maps are Xbox-only). Remember what it replaced, so 释放控制 gives 前台模式
+        keyboard / DS4 accounts their own device back instead of leaving them on Xbox.
+        """
+        if context.controller is None:
+            context.init_controller(activate=False)
+        controller = context.controller
+        if getattr(getattr(controller, 'xbox_controller', None), 'pad', None) is not None:
+            return controller.xbox_controller  # Already connected: reuse without switching
+        previous = (controller.btn_controller,
+                    getattr(controller, 'action_keys', None),
+                    getattr(controller, 'gamepad_action_keys', None))
+        pad_controller = runtime_xbox_pad(context)
+        if getattr(getattr(controller, 'xbox_controller', None), 'pad', None) is not None:
+            self.pad_restore = (controller, controller.xbox_controller, previous)
+        return pad_controller
+
+    def _restore_controller(self):
+        """Put back the controller mode the lease switched away from."""
+        restore = self.pad_restore
+        self.pad_restore = None
+        if restore is None:
+            return
+        controller, pad_controller, (btn_controller, action_keys, gamepad_keys) = restore
+        if controller.btn_controller is not pad_controller:
+            return  # 任务已自行切换模式：保持现状
+        controller.btn_controller = btn_controller
+        controller.action_keys = action_keys
+        controller.gamepad_action_keys = gamepad_keys
 
     def control_target_valid(self):
         with self.lock:

@@ -158,9 +158,10 @@ def test_clipboard_text_is_restored(monkeypatch):
     store = {'text': '用户的剪贴板'}
     monkeypatch.setattr(cb, 'OpenClipboard', lambda *_: None)
     monkeypatch.setattr(cb, 'CloseClipboard', lambda: None)
-    monkeypatch.setattr(cb, 'IsClipboardFormatAvailable', lambda fmt: store['text'] is not None)
+    monkeypatch.setattr(cb, 'EnumClipboardFormats', lambda current: 13 if not current else 0)
     monkeypatch.setattr(cb, 'GetClipboardData', lambda fmt: store['text'])
     monkeypatch.setattr(cb, 'EmptyClipboard', lambda: store.update(text=None))
+    monkeypatch.setattr(cb, 'SetClipboardData', lambda fmt, data: store.update(text=data))
     monkeypatch.setattr(cb, 'SetClipboardText', lambda text, fmt: store.update(text=text))
     monkeypatch.setattr(redemption.time, 'sleep', lambda *_: None)
     seen = []
@@ -203,3 +204,59 @@ def test_unreachable_feed_keeps_the_last_copy(tmp_path, monkeypatch):
     monkeypatch.setattr(feed, '_cache_path', lambda: str(cache))
     monkeypatch.setattr(feed.urllib.request, 'urlopen', Mock(side_effect=OSError('offline')))
     assert feed.refresh() == {'OLD': 20991231}
+
+
+class _FakeClipboard:
+    def __init__(self, formats):
+        self.formats = dict(formats)
+
+    def OpenClipboard(self, *args):
+        pass
+
+    def CloseClipboard(self):
+        pass
+
+    def EnumClipboardFormats(self, current):
+        following = [k for k in sorted(self.formats) if k > current]
+        return following[0] if following else 0
+
+    def GetClipboardData(self, fmt):
+        return self.formats[fmt]
+
+    def EmptyClipboard(self):
+        self.formats.clear()
+
+    def SetClipboardData(self, fmt, data):
+        self.formats[fmt] = data
+
+    def SetClipboardText(self, text, fmt):
+        self.formats[fmt] = text
+
+
+def test_clipboard_snapshot_lifts_every_copyable_format_and_restore_puts_them_back():
+    """粘贴兑换码只临时占用剪贴板；文本、图片（DIB）等内容要原样放回。"""
+    from src.navigation.redemption import restore_clipboard, snapshot_clipboard
+    constants = SimpleNamespace(CF_BITMAP=2, CF_PALETTE=14, CF_METAFILEPICT=3,
+                                CF_ENHMETAFILE=9, CF_OWNERDISPLAY=0x80)
+    clip = _FakeClipboard({13: '用户的文本', 49161: '<li>列表</li>'.encode('utf-8'), 8: b'DIB bytes', 2: object()})
+    saved = snapshot_clipboard(clip, constants)
+    assert [fmt for fmt, _ in saved] == [8, 13, 49161]  # 位图句柄格式跳过，其余全收
+    clip.EmptyClipboard()
+    clip.formats[13] = 'ZZZ888'  # 兑换码短暂占用
+    restore_clipboard(clip, saved)
+    assert clip.formats == {8: b'DIB bytes', 49161: '<li>列表</li>'.encode('utf-8'), 13: '用户的文本'}
+
+
+def test_paste_code_only_borrows_the_clipboard_for_the_paste(monkeypatch):
+    import win32clipboard as real
+    from src.navigation import redemption
+    seen = _FakeClipboard({13: '原本的剪贴板文本', 8: b'DIB bytes'})
+    for name in ('OpenClipboard', 'CloseClipboard', 'EmptyClipboard',
+                 'EnumClipboardFormats', 'GetClipboardData', 'SetClipboardData', 'SetClipboardText'):
+        monkeypatch.setattr(real, name, getattr(seen, name))
+    pressed = []
+    monkeypatch.setattr(redemption, 'pad', lambda ctx, button, duration=.12: pressed.append(button))
+    monkeypatch.setattr(redemption.time, 'sleep', lambda _seconds: None)
+    redemption.paste_code(SimpleNamespace(), 'ZZZ888')
+    assert pressed == ['y']
+    assert seen.formats == {13: '原本的剪贴板文本', 8: b'DIB bytes'}

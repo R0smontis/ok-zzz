@@ -1,6 +1,7 @@
 """Controller input for dialogue detected on the current frame; never click unknown screens."""
 from onedragon.base.geometry.rectangle import Rect
 from src.controls.gamepad import press as pad
+from src.navigation.common import norm_text, ocr_rows
 from src.navigation.menus import label_focused, press_labelled
 
 
@@ -8,12 +9,7 @@ SENSITIVE_OPTIONS = ('购买', '支付', '消耗', '充值', '解锁', '拆解',
 
 
 def _text(value):
-    return str(value).replace(' ', '').strip()
-
-
-def _rows(op, screen, rect):
-    rows = op.ctx.ocr_service.get_ocr_result_list(image=screen, rect=rect)
-    return rows if isinstance(rows, (list, tuple)) else []
+    return norm_text(value).strip()
 
 
 def dialogue_action(op, screen, action):
@@ -30,7 +26,7 @@ def dialogue_action(op, screen, action):
     text = _text(action.text)
     if action.kind == 'option' and any(word in text for word in SENSITIVE_OPTIONS):
         return op.round_retry('对话选项涉及购买、消耗或解锁，等待人工确认', wait=1)
-    body = tuple(_text(r.data) for r in _rows(op, screen, Rect(418, 831, 1500, 980))) if action.kind == 'advance' else ()
+    body = tuple(_text(r.data) for r in ocr_rows(op, screen, Rect(418, 831, 1500, 980))) if action.kind == 'advance' else ()
     signature = (action.kind, text, action.point.x, action.point.y, body)
     pending = getattr(op, '_dialogue_pad_pending', None)
     if pending is not None and pending['signature'] == signature:
@@ -49,7 +45,7 @@ def dialogue_action(op, screen, action):
 
     if action.kind == 'option':
         # The detector chooses first/last; input still needs the current option's focus.
-        rows = _rows(op, screen, Rect(500, 220, 1920, 850))
+        rows = ocr_rows(op, screen, Rect(500, 220, 1920, 850))
         labels = [r for r in rows if abs(r.center.x - action.point.x) < 180
                   and 220 < r.center.y < 850 and len(_text(r.data)) > 1]
         target = next((r for r in labels if _text(r.data) == text

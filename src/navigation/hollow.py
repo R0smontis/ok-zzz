@@ -9,23 +9,12 @@ import numpy as np
 
 from onedragon.base.geometry.rectangle import Rect
 from src.controls.gamepad import press as pad
+from src.navigation.common import bump, norm_text, ocr_rows
 from src.navigation.menus import focus_mask
 
 
 def _text(value) -> str:
-    return (str(value).replace(' ', '').replace('枯菱', '枯萎').replace('廈', '厦')
-            .replace('・', '-').replace('·', '-'))
-
-
-def _rows(op, screen):
-    rows = op.ctx.ocr_service.get_ocr_result_list(image=screen, rect=Rect(0, 0, 1920, 1080))
-    return rows if isinstance(rows, (list, tuple)) else []
-
-
-def _bump(op, name, limit) -> bool:
-    value = op.__dict__.get(name, 0) + 1
-    op.__dict__[name] = value
-    return value > limit
+    return norm_text(value, 'hollow')
 
 
 def zone_map(rows) -> bool:
@@ -40,21 +29,21 @@ def mission_list(rows) -> bool:
 
 def entrance_step(op, screen):
     """零号空洞 entrance → 枯萎之都 zone map."""
-    rows = _rows(op, screen)
+    rows = ocr_rows(op, screen)
     if zone_map(rows) or mission_list(rows):
         return op.round_success('已进入枯萎之都-入口')
     target = next((r for r in rows if _text(r.data) == '枯萎之都' and r.center.y > 700), None)
     prompt = next((r for r in rows if _text(r.data) == 'A' and 880 < r.center.y < 960), None)
     if target is None or prompt is None:
-        if _bump(op, '_hollow_entry_waits', 8):
+        if bump(op,'_hollow_entry_waits', 8):
             return op.round_fail('未核验零号空洞入口画面')
         return op.round_wait('等待零号空洞入口画面', wait=.8)
     if abs(prompt.center.x - target.center.x) < 250:
-        if _bump(op, '_hollow_entry_opens', 3):
+        if bump(op,'_hollow_entry_opens', 3):
             return op.round_fail('手柄进入枯萎之都未生效')
         pad(op.ctx, 'a')
         return op.round_wait('手柄进入枯萎之都', wait=1.5)
-    if _bump(op, '_hollow_entry_moves', 4):
+    if bump(op,'_hollow_entry_moves', 4):
         return op.round_fail('手柄选择枯萎之都未生效')
     pad(op.ctx, 'dpad_right' if target.center.x > prompt.center.x else 'dpad_left')
     return op.round_wait('手柄选择枯萎之都', wait=.8)
@@ -74,11 +63,11 @@ def zone_focused(screen, label) -> bool:
 
 def zone_step(op, screen, zone):
     """Zone map → the mission list of `zone` (e.g. 旧都列车)."""
-    rows = _rows(op, screen)
+    rows = ocr_rows(op, screen)
     if mission_list(rows):
         return op.round_success('已打开副本列表')
     if not zone_map(rows):
-        if _bump(op, '_hollow_zone_waits', 8):
+        if bump(op,'_hollow_zone_waits', 8):
             return op.round_fail('未核验枯萎之都区域图')
         return op.round_wait('等待枯萎之都区域图', wait=.8)
     labels = [r for r in rows if 150 < r.center.y < 900 and len(_text(r.data)) == 4
@@ -90,11 +79,11 @@ def zone_step(op, screen, zone):
     if len(focused) != 1:
         return op.round_retry('区域焦点未唯一核验，未操作', wait=.6)
     if focused[0] is target:
-        if _bump(op, '_hollow_zone_opens', 3):
+        if bump(op,'_hollow_zone_opens', 3):
             return op.round_fail(f'手柄打开{zone}未生效')
         pad(op.ctx, 'a')
         return op.round_wait(f'手柄打开{zone}', wait=1.5)
-    if _bump(op, '_hollow_zone_moves', 10):
+    if bump(op,'_hollow_zone_moves', 10):
         return op.round_fail(f'手柄选择{zone}未生效')
     dx, dy = target.center.x - focused[0].center.x, target.center.y - focused[0].center.y
     if abs(dx) >= abs(dy):
@@ -115,9 +104,9 @@ def row_selected(screen, y) -> bool:
 
 def mission_step(op, screen, mission):
     """Mission list → select `mission` (旧都列车-内部); 下一步 is pressed by the next node."""
-    rows = _rows(op, screen)
+    rows = ocr_rows(op, screen)
     if not mission_list(rows):
-        if _bump(op, '_hollow_list_waits', 8):
+        if bump(op,'_hollow_list_waits', 8):
             return op.round_fail('未核验枯萎之都副本列表')
         return op.round_wait('等待枯萎之都副本列表', wait=.8)
     lines = [(r, r.center.y + 13) for r in rows if '-' in _text(r.data) and 1100 < r.center.x < 1500]
@@ -129,7 +118,7 @@ def mission_step(op, screen, mission):
         return op.round_retry('副本选择未唯一核验，未操作', wait=.6)
     if selected[0] is target:
         return op.round_success(f'已选中 {mission}')
-    if _bump(op, '_hollow_list_moves', 10):
+    if bump(op,'_hollow_list_moves', 10):
         return op.round_fail(f'手柄选择{mission}未生效')
     pad(op.ctx, 'dpad_down' if target[1] > selected[0][1] else 'dpad_up')
     return op.round_wait(f'手柄选择副本：{_text(selected[0][0].data)} → {mission}', wait=.6)
@@ -141,14 +130,14 @@ def next_step(op, screen):
     A suspended run answers 下一步 with 「当前正在处理：…是否继续？」; 确认 resumes it.
     """
     from src.navigation.menus import label_focused
-    rows = _rows(op, screen)
+    rows = ocr_rows(op, screen)
     words = {_text(r.data) for r in rows}
     if '出战' in words and '战斗设置' in words:
         return op.round_success('出战')
     resume = any('是否继续' in _text(r.data) for r in rows)
     if getattr(op, '_hollow_resume_pending', False):
         if resume:
-            if _bump(op, '_hollow_resume_waits', 6):
+            if bump(op,'_hollow_resume_waits', 6):
                 return op.round_fail('确认继续后对话框未关闭，未重复确认')
             return op.round_wait('等待继续探索生效，未重复确认', wait=.6)
         op._hollow_resume_pending = False
@@ -157,17 +146,17 @@ def next_step(op, screen):
         confirm = next((r for r in rows if _text(r.data) == '确认' and 560 < r.center.y < 660), None)
         if confirm is None or not label_focused(screen, confirm.center, 120):
             return op.round_retry('继续探索的确认焦点未核验，未操作', wait=.6)
-        if _bump(op, '_hollow_resume_presses', 2):
+        if bump(op,'_hollow_resume_presses', 2):
             return op.round_fail('手柄确认继续探索未生效')
         op._hollow_resume_pending = True
         pad(op.ctx, 'a')
         return op.round_wait('手柄确认继续已暂离的探索', wait=1.2)
     if mission_list(rows):
-        if _bump(op, '_hollow_next_presses', 3):
+        if bump(op,'_hollow_next_presses', 3):
             return op.round_fail('手柄下一步未生效')
         pad(op.ctx, 'start')
         return op.round_wait('手柄下一步，等待出战画面', wait=1.5)
-    if _bump(op, '_hollow_next_waits', 8):
+    if bump(op,'_hollow_next_waits', 8):
         return op.round_fail('下一步后未出现出战画面')
     return op.round_wait('等待出战画面', wait=.8)
 
@@ -188,7 +177,7 @@ def squad_step(op, screen, targets):
     A/X delivery never counts as success: the deployment page must show the chosen name.
     """
     from zzz_od.game_data.agent import AgentEnum, AgentTypeEnum
-    rows = _rows(op, screen)
+    rows = ocr_rows(op, screen)
     words = {_text(row.data) for row in rows}
     pending = getattr(op, '_leader_pending', None)
     if '领队' in words and '战斗设置' in words and '出战' in words:
@@ -212,7 +201,7 @@ def squad_step(op, screen, targets):
         focus = screen[242:312, 450:660]
         if not focus.size or float(np.mean(focus_mask(focus))) <= .35:
             return op.round_retry('空领队槽焦点未核验，未操作', wait=.6)
-        if _bump(op, '_leader_opens', 3):
+        if bump(op,'_leader_opens', 3):
             return op.round_fail('手柄打开领队列表未生效')
         op._leader_target = target
         pad(op.ctx, 'a')
@@ -221,7 +210,7 @@ def squad_step(op, screen, targets):
         if not getattr(op, '_leader_opens', 0):
             return op.round_fail('未由本流程打开角色列表，不改变已选队伍')
         if pending is not None:
-            if _bump(op, '_leader_confirms', 3):
+            if bump(op,'_leader_confirms', 3):
                 return op.round_fail('手柄确认阵容未生效')
             pad(op.ctx, 'x')
             return op.round_wait('手柄确认领队阵容，等待实际编队页', wait=1.2)
@@ -241,6 +230,6 @@ def squad_step(op, screen, targets):
         op._leader_scan = step + 1
         pad(op.ctx, 'dpad_' + direction)
         return op.round_wait(f'手柄浏览角色：{current.agent_name} → {target}', wait=.6)
-    if _bump(op, '_leader_waits', 8):
+    if bump(op,'_leader_waits', 8):
         return op.round_fail('未核验枯萎之都编队画面')
     return op.round_wait('等待枯萎之都编队画面', wait=.6)

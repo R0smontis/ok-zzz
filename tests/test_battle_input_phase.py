@@ -140,3 +140,17 @@ def test_no_hud_skips_all_combat_models_and_clears_ready_skills(ctx, monkeypatch
     for check in checks:check.assert_not_called()
     for state in ('普通攻击','特殊攻击','终结技'):
         assert battle.state_record_service.get_state_recorder('按键可用-'+state).last_record_time==0
+
+
+def test_frame_interval_is_left_to_the_framework_trigger(initialized_assistant, monkeypatch):
+    """截图间隔由框架 should_trigger 统一节流；run() 不再用第二个时钟整拍跳过。"""
+    task, _, _, presence = initialized_assistant()
+    task._watchdog_stop.set()
+    presence.reset_mock()
+    presence.return_value = None
+    clock = [time.monotonic()]
+    monkeypatch.setattr(time, 'monotonic', lambda: clock[0])
+    task.run()
+    assert presence.call_count == 1
+    task.run()  # 时钟未前进：旧实现会在这里整拍跳过
+    assert presence.call_count == 2

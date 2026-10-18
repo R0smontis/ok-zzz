@@ -21,11 +21,10 @@ python tools/live_debug.py --root D:\okzzz events
 python tools/live_debug.py --root D:\okzzz bundle D:\okzzz\debug\live-bundle
 ```
 
-无需额外 Python 的打包版：使用安装目录中的 EXE，客户端自动切到上述用户运行目录读取会话。无控制台 EXE 请指定 `--output`，相对输出路径位于用户运行目录，客户端不会开启程序主窗口。
+打包版不带源码树中的 `tools\`：在源码环境运行同一客户端，把 `--root` 指向打包版的运行目录即可读取其会话（会话文件与会话 token 都保存在运行目录）。
 
 ```powershell
-Start-Process .\ok-zzz.exe -ArgumentList '--live-client --output debug\status.json status' -Wait
-Start-Process .\ok-zzz.exe -ArgumentList '--live-client --output debug\frame-result.json frame debug\frame.png' -Wait
+python tools\live_debug.py --root "$env:LOCALAPPDATA\ok-zzz" status
 ```
 
 向 `command` 传 JSON，建议保存为文件后传 `@文件路径`，避免 PowerShell 引号问题：

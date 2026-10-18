@@ -55,10 +55,14 @@ def find_config_class(factory_module_name: str):
 
 
 def instantiate_config(cls):
-    """按常见构造签名尝试实例化配置类。"""
+    """按常见构造签名尝试实例化配置类。
+
+    使用未占用的实例编号：读 0 号实例会把本机已保存的配置当成默认值，
+    生成结果随本地 config/ 状态漂移，`--check` 也就失去意义。
+    """
     attempts = [
-        dict(instance_idx=0, group_id='one_dragon'),
-        dict(instance_idx=0),
+        dict(instance_idx=99, group_id='one_dragon'),
+        dict(instance_idx=99),
         dict(),
     ]
     for kwargs in attempts:
@@ -238,20 +242,17 @@ ICONS = {
     'one_dragon': '🐉',
 }
 
-UI_ONLY_KEYS = ('结束后', '关机延迟秒')
+PLAN_LIST_APPS = ('charge_plan', 'notorious_hunt')
+"""计划清单键：运行时由 app_option_ui 首次打开时从引擎读取（空串表示尚未读取），生成器写出该默认值。"""
 
 
-def emit_tasks(apps):
-    """生成 src/tasks/app_tasks.py：每个应用一个 ok-script 任务类。"""
+def build_tasks_text(apps):
+    """生成 src/tasks/app_tasks.py 的文本：每个应用一个 ok-script 任务类。"""
     lines = [
         '# -*- coding: utf-8 -*-',
         '# 由 tools/gen_app_tasks.py 生成：一条龙各应用的 ok-script 运行任务。',
         '# 每个任务的细则选项与一条龙原版配置键一致，运行前写回应用配置。',
         '# 重新生成: .venv/Scripts/python tools/gen_app_tasks.py',
-        '',
-        'import json',
-        '',
-        'from ok import BaseTask',
         '',
         'from src.tasks.app_task_base import AppTaskBase',
         '',
@@ -276,8 +277,8 @@ def emit_tasks(apps):
             lines.append('        self.default_config.update({')
             for o in app['options']:
                 lines.append(f"            {o['key']!r}: {o['default']!r},")
-            lines.append("            '结束后': '无',")
-            lines.append("            '关机延迟秒': 60,")
+            if app_id in PLAN_LIST_APPS:
+                lines.append("            'plan_list': '',")
             lines.append('        })')
             type_lines = []
             for o in app['options']:
@@ -295,34 +296,58 @@ def emit_tasks(apps):
             lines.append('        self._option_keys = ['
                          + ', '.join(repr(o['key']) for o in app['options']) + ']')
         else:
-            lines.append("        self.default_config.update({'结束后': '无', '关机延迟秒': 60})")
             lines.append("        self._option_keys = []")
         lines.append('')
         lines.append('')
         n += 1
-    out = os.path.join(ROOT, 'src', 'tasks', 'app_tasks.py')
-    with open(out, 'w', encoding='utf-8', newline='\n') as fp:
-        fp.write('\n'.join(lines))
-    return n
+    return '\n'.join(lines).rstrip('\n') + '\n'
 
 
-if __name__ == '__main__':
+def build_options_text(apps):
+    """生成 src/zzz_od/application/app_options_data.py 的文本。"""
     import textwrap
-    apps = collect_apps()
-    out = os.path.join(ROOT, 'src', 'zzz_od', 'application', 'app_options_data.py')
     payload = json.dumps(apps, ensure_ascii=False, indent=1)
-    with open(out, 'w', encoding='utf-8', newline='\n') as fp:
-        fp.write('# -*- coding: utf-8 -*-\n')
-        fp.write('# 由 tools/gen_app_tasks.py 生成：各应用的细则选项元数据。\n')
-        fp.write('# 重新生成: .venv/Scripts/python tools/gen_app_tasks.py\n\n')
-        fp.write('import json\n\n')
-        fp.write('APP_OPTIONS = json.loads(\n')
-        fp.write(textwrap.indent(repr(payload) + '\n', ' ' * 4))
-        fp.write(')\n')
-    n_tasks = emit_tasks(apps)
+    return ('# -*- coding: utf-8 -*-\n'
+            '# 由 tools/gen_app_tasks.py 生成：各应用的细则选项元数据。\n'
+            '# 重新生成: .venv/Scripts/python tools/gen_app_tasks.py\n\n'
+            'import json\n\n'
+            'APP_OPTIONS = json.loads(\n'
+            + textwrap.indent(repr(payload) + '\n', ' ' * 4)
+            + ')\n')
+
+
+TARGETS = (('src/zzz_od/application/app_options_data.py', build_options_text),
+           ('src/tasks/app_tasks.py', build_tasks_text))
+
+
+def main(check=False):
+    apps = collect_apps()
+    drift = []
+    for relative, build in TARGETS:
+        text = build(apps)
+        path = os.path.join(ROOT, *relative.split('/'))
+        current = open(path, encoding='utf-8').read() if os.path.exists(path) else None
+        if check:
+            if current is None or current.replace('\r\n', '\n') != text:
+                drift.append(relative)
+            continue
+        with open(path, 'w', encoding='utf-8', newline='\n') as fp:
+            fp.write(text)
+    if check:
+        if drift:
+            print('生成文件与生成器不一致：' + '、'.join(drift))
+            return 1
+        print('生成文件与生成器一致')
+        return 0
+    n_tasks = sum(1 for a in apps if 'error' not in a and a.get('app_id') != 'one_dragon')
     ok = [a for a in apps if a.get('options')]
     print(f'共 {len(apps)} 个应用，{len(ok)} 个提取到选项，生成 {n_tasks} 个任务类')
     for a in apps:
         n = len(a.get('options') or [])
         print(f"  {a['app_id']:<28} {a.get('app_name',''):<10} 选项数={n}"
               + (f"  [{a['options_error']}]" if a.get('options_error') and n == 0 else ''))
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main(check='--check' in sys.argv))

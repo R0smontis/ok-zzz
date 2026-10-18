@@ -37,7 +37,6 @@ class AutoDialogueTriggerTask(ZzzBaseTask, TriggerTask):
         self._ready = False
         self._detector = None
         self._detector_ctx = None
-        self._last_check = None
         self._last_click = None
         self._menu_until = 0.0
 
@@ -58,7 +57,6 @@ class AutoDialogueTriggerTask(ZzzBaseTask, TriggerTask):
     def _reset(self):
         self._generation += 1
         self._ready = False
-        self._last_check = None
         self._last_click = None
         self._menu_until = 0.0
         self.info['助手状态'] = '等待对话'
@@ -143,10 +141,8 @@ class AutoDialogueTriggerTask(ZzzBaseTask, TriggerTask):
         if self._blocked(ctx):
             self._menu_until = 0.0
             return
-        now = time.monotonic()
-        if self._last_check is not None and now-self._last_check < float(self.config['识别间隔秒']):
-            return
-        self._last_check = now
+        # 识别间隔由框架的 should_trigger（trigger_interval=识别间隔秒）统一节流；
+        # 这里不再二次计时，避免两个时钟的抖动吞掉整拍。
         controller = ctx.controller
         hwnd = controller.game_win.get_hwnd()
         captured_at = time.monotonic()
@@ -161,8 +157,9 @@ class AutoDialogueTriggerTask(ZzzBaseTask, TriggerTask):
         with self._lock:
             generation = self._generation
             settings = self._settings()
+            menu_opened = captured_at < self._menu_until
         action = self._detector.detect(frame, mode=settings[0], option=settings[1],
-                                       menu_opened=captured_at < self._menu_until)
+                                       menu_opened=menu_opened)
         record_event('dialogue_detection', action=None if action is None else action.kind,
                      text=None if action is None else action.text, hwnd=hwnd)
         with self._lock:

@@ -281,3 +281,25 @@ def test_context_provides_every_upstream_application_context():
     from zzz_od.context.zzz_context import ZContext
     for name in ('lost_void', 'withered_domain', 'world_patrol_service', 'auto_battle_context'):
         assert isinstance(getattr(ZContext, name, None), property), name
+
+
+def test_reset_aborts_in_flight_drag_and_later_input_cannot_revive_it(backend, monkeypatch):
+    """reset() 后，进行中的拖拽必须终止；后续输入调用不应复活它（旧实现会被下一次调用 clear 取消标志）。"""
+    import src.controls.window_input as source
+    device, posts, _ = backend
+    moves, reset_at = [], []
+
+    def post(hwnd, message, *args):
+        posts.append((hwnd, message) + args)
+        if message == win32con.WM_MOUSEMOVE:
+            moves.append(1)
+            if len(moves) == 3 and not reset_at:
+                reset_at.append(len(posts))
+                device.reset()  # 另一线程停止/暂停
+            elif len(moves) == 4 and reset_at:
+                device.click(Point(1, 1), duration=0)  # 旧实现：这一次 clear() 会复活取消标志
+
+    monkeypatch.setattr(source.win32gui, 'PostMessage', post)
+    assert not device.drag(Point(20, 30), Point(500, 600), duration=.5)
+    assert len(posts) - reset_at[0] <= 8  # 拖拽在 reset 后的下一个检查点停止
+    assert device.click(Point(2, 2), duration=0)  # reset 之后的新输入照常执行

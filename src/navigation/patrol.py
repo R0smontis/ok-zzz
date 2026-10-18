@@ -10,10 +10,10 @@ import numpy as np
 from onedragon.base.geometry.rectangle import Rect
 from onedragon.utils.log_utils import log
 from src.controls.gamepad import press as pad
-from src.navigation.menus import focus_mask
+from src.navigation.common import MAP_CURSOR, focus_mask, ocr_rows
 from src.navigation.map import _area_match, _candidates_for_template, _match, map_state, steer_to
 
-CURSOR = (695, 540)
+CURSOR = MAP_CURSOR
 SAME_ICON = 45
 
 
@@ -225,8 +225,7 @@ def sub_area_state(op, screen):
     if state is None or not _match(state['title'], op.area_name):
         return None
     names = [area.area_name for area in op.target_area.parent_area.sub_area_list]
-    rows = op.ctx.ocr_service.get_ocr_result_list(image=screen, rect=Rect(40, 580, 415, 1060))
-    rows = rows if isinstance(rows, (list, tuple)) else []
+    rows = ocr_rows(op, screen, Rect(40, 580, 415, 1060))
     current = next((name for row in rows if row.center.y > 985
                     for name in names if _match(str(row.data), name)), None)
     choices = [(name, row.center) for row in rows if 600 < row.center.y < 975

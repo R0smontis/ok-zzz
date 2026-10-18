@@ -155,7 +155,7 @@ def test_exit_callback_stops_existing_resources_once(monkeypatch):
     task._stop_engine.assert_called_once()
     context.run_context.stop_running.assert_called_once()
     context.after_app_shutdown.assert_called_once()
-    stop_recording.assert_called_once_with('程序退出')
+    stop_recording.assert_called_once_with('程序退出', wait=True)
 
 
 def test_uninitialized_context_is_not_created_during_exit(monkeypatch):

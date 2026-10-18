@@ -421,3 +421,56 @@ def test_single_application_id_is_only_accepted_on_task_start(tmp_path):
     service._validate({'op': 'task_start', 'task': 'OneDragonDailyTask', 'app': 'scratch_card'})
     assert service._execute({'op': 'task_start', 'task': 'OneDragonDailyTask', 'app': 'scratch_card'},
                             service.generation) == {'task': 'OneDragonDailyTask', 'action': 'start', 'app': 'scratch_card'}
+
+
+class _FakeLeasePad:
+    pad = object()
+    combo_press_time = .05
+
+    def reset(self):
+        pass
+
+
+class _FakeLeaseController:
+    """前台模式（键盘）账号：enable_xbox() 会替换 btn_controller 与按键映射。"""
+
+    def __init__(self):
+        self.keyboard = object()
+        self.btn_controller = self.keyboard
+        self.action_keys = {'dodge': 'shift'}
+        self.gamepad_action_keys = None
+        self.xbox_controller = None
+
+    def enable_xbox(self):
+        self.xbox_controller = _FakeLeasePad()
+        self.btn_controller = self.xbox_controller
+        self.action_keys = {'dodge': 'xbox_b'}
+        self.gamepad_action_keys = {'dodge': 'xbox_b'}
+
+
+def _lease_runtime():
+    from src.live.runtime import GameRuntime
+    from types import SimpleNamespace
+    controller = _FakeLeaseController()
+    context = SimpleNamespace(controller=controller, init_controller=lambda **_: None)
+    return GameRuntime(SimpleNamespace(), None), context, controller
+
+
+def test_gamepad_lease_restores_the_account_controller_mode():
+    """接管切到 Xbox 手柄后，释放控制要还原账号原本的控制器与按键映射（前台模式/DS4 账号）。"""
+    runtime, context, controller = _lease_runtime()
+    pad = runtime._acquire_gamepad(context)
+    assert pad is controller.xbox_controller and controller.btn_controller is pad
+    assert controller.action_keys == {'dodge': 'xbox_b'}
+    runtime.release()
+    assert controller.btn_controller is controller.keyboard
+    assert controller.action_keys == {'dodge': 'shift'}
+    assert controller.gamepad_action_keys is None
+
+
+def test_release_keeps_a_controller_the_task_already_switched():
+    runtime, context, controller = _lease_runtime()
+    runtime._acquire_gamepad(context)
+    controller.btn_controller = controller.keyboard  # 任务自行切回前台模式
+    runtime.release()
+    assert controller.action_keys == {'dodge': 'xbox_b'}  # 不覆盖任务当前的模式

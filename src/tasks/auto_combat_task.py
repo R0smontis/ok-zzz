@@ -11,7 +11,7 @@ from src.tasks.zzz_base_task import ZzzBaseTask
 from src.diagnostics.recorder import record_event
 
 
-def list_battle_templates(sub_dir: str, suffix: str = '.merged.yml') -> list[str]:
+def list_battle_templates(sub_dir: str) -> list[str]:
     """枚举 merged/sample/用户配置，去除重复名称。"""
     from onedragon.utils import os_utils
     suffixes = ('.merged.yml', '.sample.yml', '.yml')
@@ -37,35 +37,44 @@ class BattleTriggerTask(ZzzBaseTask, TriggerTask):
     config_sub_dir = 'auto_battle'
     COMBAT_DURATION = 10.0
 
+    # 一轮战斗会话的运行时状态：__init__ 与停止引擎共用这份默认值，避免两处手写清单漂移。
+    _SESSION_DEFAULTS = {
+        '_engine_started': False,
+        '_engine_op': None,
+        '_engine_hwnd': None,
+        '_last_settings': None,
+        '_actions_running': False,
+        '_input_phase': 'idle',
+        '_ui_paused': False,
+        '_last_burst_end': None,
+        '_input_until': 0.0,
+        '_last_screen_time': 0.0,
+        '_last_frame_seen': 0.0,
+        '_last_flash': None,
+        '_last_flash_time': 0.0,
+        '_flash_absent_since': None,
+        '_last_visual_warning_time': 0.0,
+        '_last_event_time': 0.0,
+        '_arrow_since': None,
+        '_arrow_last_seen': 0.0,
+        '_watchdog_stop': None,
+    }
+
+    def _reset_session_state(self):
+        """清空一轮战斗会话的运行时状态；输入代际、会话起点与固定回调不重置。"""
+        for name, value in self._SESSION_DEFAULTS.items():
+            setattr(self, name, value)
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.trigger_interval = 0.02
-        self._engine_started = False
-        self._engine_op = None
-        self._last_settings = None
-        self._last_frame_check = None
         self._engine_lock = threading.RLock()
-        self._actions_running = False
-        self._input_phase = 'idle'
-        self._ui_paused = False
-        self._last_burst_end = None
-        self._arrow_since = None
-        self._arrow_last_seen = 0.0
-        self._input_until = 0.0
         self._input_generation = 0
         self._session_started = 0.0
-        self._last_screen_time = 0.0
-        self._last_frame_seen = 0.0
-        self._last_flash = None
-        self._last_flash_time = 0.0
-        self._flash_absent_since = None
-        self._last_visual_warning_time = 0.0
-        self._last_event_time = 0.0
-        self._watchdog_stop = None
         self._input_guard = self._input_allowed
         self._action_guard = self._action_allowed
         self._event_listener = self._on_dodge_event
-        self._engine_hwnd = None
+        self._reset_session_state()
         self.config_description.update({
             '截图间隔秒': '识别间隔，范围 0.01～1 秒；较大值降低 CPU 占用，但响应更慢',
         })
@@ -162,22 +171,7 @@ class BattleTriggerTask(ZzzBaseTask, TriggerTask):
                     self.ctx.controller.battle_action_guard = None
             except Exception as exc:
                 log.warning(f'{self.name}停止异常: {exc}')
-        self._engine_started = False
-        self._engine_op = None
-        self._engine_hwnd = None
-        self._last_settings = None
-        self._last_frame_check = None
-        self._actions_running = False
-        self._input_phase = 'idle'
-        self._ui_paused = False
-        self._last_burst_end = None
-        self._last_screen_time = 0.0
-        self._last_frame_seen = 0.0
-        self._last_flash = None
-        self._last_flash_time = 0.0
-        self._flash_absent_since = None
-        self._last_visual_warning_time = 0.0
-        self._last_event_time = 0.0
+        self._reset_session_state()
 
     def _input_allowed(self):
         return self._input_phase in ('normal', 'chain') and self._session_input_allowed()
@@ -266,19 +260,7 @@ class BattleTriggerTask(ZzzBaseTask, TriggerTask):
             if state_name is not None:
                 record_event('assistant_dodge_event', task=self.name, event=state_name,
                              age=now-screenshot_time, captured_at=screenshot_time)
-            reason = None
-            if not self.enabled or not self._engine_started:
-                reason = '助手已停止'
-            elif self._input_phase != 'normal':
-                reason = '攻击按钮不可见或连携画面'
-            elif not self._window_input_allowed():
-                reason = '窗口输入条件不满足'
-            elif self._engine_op is not self.ctx.auto_battle_context.auto_op:
-                reason = '战斗引擎已切换'
-            elif screenshot_time < self._session_started or screenshot_time < self._last_screen_time:
-                reason = '旧画面结果'
-            elif not 0 <= now-screenshot_time <= .25:
-                reason = '识别结果过期'
+            reason = self._warning_rejection(screenshot_time, now)
             if reason is not None:
                 if state_name is not None:
                     record_event('assistant_warning_rejected', warning=state_name, reason=reason,
@@ -290,28 +272,10 @@ class BattleTriggerTask(ZzzBaseTask, TriggerTask):
                 if self._flash_absent_since is None:
                     self._flash_absent_since = screenshot_time
                 return False
-            # Audio and a colored flash often describe the same attack.
-            if (state_name == '闪避识别-声音'
-                    and 0 <= screenshot_time-self._last_visual_warning_time < .35):
-                record_event('assistant_warning_rejected', warning=state_name, reason='同一次视觉预警的声音',
-                             captured_at=screenshot_time, throttle=f'warning_audio_duplicate:{self.name}')
-                return False
-            # A continuous flash is one event, even if the classifier sees it in many frames.
-            is_flash = state_name != '闪避识别-声音'
-            if (is_flash and self._flash_absent_since is not None
-                    and screenshot_time-self._flash_absent_since >= .08):
-                self._last_flash = None
-            repeated = (is_flash and self._last_flash == state_name
-                        and screenshot_time - self._last_flash_time < 0.3)
-            if is_flash:
-                self._last_flash = state_name
-                self._last_flash_time = screenshot_time
-                self._flash_absent_since = None
-                self._last_visual_warning_time = screenshot_time
-            if repeated or screenshot_time - self._last_event_time < 0.1:
-                record_event('assistant_warning_rejected', warning=state_name,
-                             reason='持续闪光重复帧' if repeated else '事件间隔过短',
-                             captured_at=screenshot_time, throttle=f'warning_duplicate:{self.name}')
+            reason, throttle = self._warning_duplicate(state_name, screenshot_time)
+            if reason is not None:
+                record_event('assistant_warning_rejected', warning=state_name, reason=reason,
+                             captured_at=screenshot_time, throttle=f'{throttle}:{self.name}')
                 return False
             self._last_event_time = screenshot_time
             if self.config_sub_dir != 'dodge':
@@ -330,6 +294,49 @@ class BattleTriggerTask(ZzzBaseTask, TriggerTask):
             self.info['助手状态'] = f'响应{state_name}'
             self._publish_dodge_event(state_name, screenshot_time)
             return True
+
+    def _warning_rejection(self, screenshot_time, now):
+        """当前预警不可处理的原因；None 表示可以进入去重与响应。"""
+        if not self.enabled or not self._engine_started:
+            return '助手已停止'
+        if self._input_phase != 'normal':
+            return '攻击按钮不可见或连携画面'
+        if not self._window_input_allowed():
+            return '窗口输入条件不满足'
+        if self._engine_op is not self.ctx.auto_battle_context.auto_op:
+            return '战斗引擎已切换'
+        if screenshot_time < self._session_started or screenshot_time < self._last_screen_time:
+            return '旧画面结果'
+        if not 0 <= now-screenshot_time <= .25:
+            return '识别结果过期'
+        return None
+
+    def _warning_duplicate(self, state_name, screenshot_time):
+        """重复预警判定 → (拒绝原因, 诊断节流名)；None 表示需要响应的新预警。
+
+        同时推进闪光/声音时间戳：接受与拒绝路径都要调用本方法，保持跟踪节奏与拆分前一致。
+        """
+        # Audio and a colored flash often describe the same attack.
+        if (state_name == '闪避识别-声音'
+                and 0 <= screenshot_time-self._last_visual_warning_time < .35):
+            return '同一次视觉预警的声音', 'warning_audio_duplicate'
+        # A continuous flash is one event, even if the classifier sees it in many frames.
+        is_flash = state_name != '闪避识别-声音'
+        if (is_flash and self._flash_absent_since is not None
+                and screenshot_time-self._flash_absent_since >= .08):
+            self._last_flash = None
+        repeated = (is_flash and self._last_flash == state_name
+                    and screenshot_time - self._last_flash_time < 0.3)
+        if is_flash:
+            self._last_flash = state_name
+            self._last_flash_time = screenshot_time
+            self._flash_absent_since = None
+            self._last_visual_warning_time = screenshot_time
+        if repeated:
+            return '持续闪光重复帧', 'warning_duplicate'
+        if screenshot_time - self._last_event_time < 0.1:
+            return '事件间隔过短', 'warning_duplicate'
+        return None, None
 
     def _publish_dodge_event(self, state_name, screenshot_time):
         from onedragon.base.conditional_operation.state_recorder import StateRecord
@@ -406,7 +413,8 @@ class BattleTriggerTask(ZzzBaseTask, TriggerTask):
     def run(self):
         if not self.enabled:
             return
-        config_name = str(self.config.get(self.config_key, '全配队通用'))
+        config_name = str(self.config.get(self.config_key,
+                                          self.default_config.get(self.config_key, '全配队通用')))
         from src.controls.interaction import background_mode_selected
         settings = (config_name, background_mode_selected())
         if self._engine_started and (
@@ -435,10 +443,8 @@ class BattleTriggerTask(ZzzBaseTask, TriggerTask):
                 self._suspend_actions()
             return
         now = time.monotonic()
-        interval = float(self.config.get('截图间隔秒', 0.02))
-        if self._last_frame_check is not None and now - self._last_frame_check < interval:
-            return
-        self._last_frame_check = now
+        # 识别间隔由框架的 should_trigger（trigger_interval=max(截图间隔秒, 识别帧率上限)）
+        # 统一节流；这里不再二次计时，避免两个时钟的抖动吞掉整拍。
         self._last_frame_seen = now
         screen_time = time.time()
         battle_ctx.auto_ultimate_enabled = bool(self.config.get('自动终结技', True))

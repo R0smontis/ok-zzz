@@ -1,7 +1,15 @@
 # -*- coding: utf-8 -*-
-"""pytest 公共夹具：确保工作目录为项目根，构建共享 ZzzContext。"""
+"""pytest 公共夹具：把项目运行目录隔离成临时副本，再构建共享 ZzzContext。
+
+测试过去直接读写仓库里的 ``config/``（账号组、刷本计划、运行记录）与 ``logs/``，
+可能在开发机上悄悄改掉用户自己的设置；这里在导入任何被测模块之前把
+``onedragon.utils.os_utils`` 的运行目录指向临时副本，仓库始终只读。
+"""
+import atexit
 import os
+import shutil
 import sys
+import tempfile
 import time
 
 import pytest
@@ -10,6 +18,29 @@ import numpy as np
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(PROJECT_ROOT, 'src'))
 os.chdir(PROJECT_ROOT)
+
+
+def _isolate_work_dir():
+    """Copy the runtime folders the app resolves through its work directory."""
+    work = tempfile.mkdtemp(prefix='ok-zzz-tests-')
+    for folder in ('config', 'assets', 'i18n', 'icons'):
+        source = os.path.join(PROJECT_ROOT, folder)
+        if os.path.isdir(source):
+            shutil.copytree(source, os.path.join(work, folder),
+                            ignore=shutil.ignore_patterns('__pycache__'))
+    from onedragon.utils import os_utils
+    os_utils.set_work_dir(work)
+    atexit.register(shutil.rmtree, work, ignore_errors=True)
+    return work
+
+
+_test_work_dir = _isolate_work_dir()
+
+
+@pytest.fixture(scope='session')
+def work_dir():
+    """隔离后的运行目录（config/assets 的临时副本）。"""
+    return _test_work_dir
 
 
 @pytest.fixture(scope='session')
@@ -54,9 +85,6 @@ class BtnRecorder:
 
     def set_key_press_time(self, t):
         self.key_press_time = t
-
-    def has(self, action_prefix: str) -> bool:
-        return any(ev[0] == 'tap' for ev in self.events)
 
 
 @pytest.fixture()

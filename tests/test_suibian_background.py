@@ -289,3 +289,32 @@ def test_sales_picks_up_coins_once_and_reports_shelves():
     result = sales_step(op, screen)
     assert result.is_success and result.status == '货架售卖中'
     assert pressed(op) == ['xbox_rb', 'xbox_r_thumb', 'xbox_b']
+
+
+def test_slice_helper_clamps_negative_bounds():
+    from src.navigation.suibian import _slice
+    assert _slice(1920, -170, -100) == (0, 0)
+    assert _slice(1080, 1850, 2000) == (1080, 1080)  # 越界的窗口收缩为空，不反向回卷
+
+
+def test_location_focus_does_not_wrap_from_the_left_edge(monkeypatch):
+    """贴近左缘的地点标签不能因负索引切片回卷到右缘而被误判为选中。"""
+    import numpy as np
+    from src.navigation import suibian
+    mask = np.zeros((1080, 1920), np.uint8)
+    mask[280:360, 1750:1820] = 255  # 回卷会读到的右缘高亮
+    mask[280:360, 180:250] = 255
+    monkeypatch.setattr(suibian, 'focus_mask', lambda screen: mask)
+    label = SimpleNamespace(data='制造区1', center=Rect(40, 400, 40, 400).center)
+    assert suibian.adventure_locations(None, [label])[0][3] is False
+
+
+def test_duplicate_card_labels_end_the_step_instead_of_crashing():
+    """三张经营卡片 OCR 重复读出一个名称时返回 RETRY，而不是 StopIteration。"""
+    from src.navigation import suibian
+    op = operation(SuibianPadFlow)
+    rows = [SimpleNamespace(data='开物清单', center=Rect(600, 700, 600, 700).center),
+            SimpleNamespace(data='开物清单', center=Rect(900, 700, 900, 700).center),
+            SimpleNamespace(data='货架', center=Rect(1200, 700, 1200, 700).center)]
+    result = suibian.goto_manage_page(op, None, rows, '制造坊')
+    assert result is not None and result.result == R.RETRY

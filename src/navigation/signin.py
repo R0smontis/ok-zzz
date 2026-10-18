@@ -10,6 +10,7 @@ import numpy as np
 from onedragon.base.geometry.rectangle import Rect
 from onedragon.utils.log_utils import log
 from src.controls.gamepad import press as pad
+from src.navigation.common import norm_text, ocr_rows
 
 DIALOGUE_OPTIONS = ('叫醒他', '叫醒嗷呜', '只是来看刮刮卡和报纸')
 PROMPTS = Rect(1100, 985, 1920, 1075)
@@ -17,12 +18,7 @@ ALREADY_DONE = '按钮-同类型确认'
 
 
 def _text(value) -> str:
-    return str(value).replace(' ', '')
-
-
-def _rows(op, screen, rect):
-    rows = op.ctx.ocr_service.get_ocr_result_list(image=screen, rect=rect)
-    return rows if isinstance(rows, (list, tuple)) else []
+    return norm_text(value)
 
 
 def _press(op, button, counter, limit, status):
@@ -46,7 +42,7 @@ def newsstand_step(op, screen):
         if getattr(op, '_signin_taken', False):
             return op.round_success(ALREADY_DONE)
         return _press(op, 'x', '_scratch_opens', 3, '手柄打开刮刮卡')
-    options = [r for r in _rows(op, screen, op.ctx.screen_loader.get_area('报刊亭', '对话选项').rect)
+    options = [r for r in ocr_rows(op, screen,op.ctx.screen_loader.get_area('报刊亭', '对话选项').rect)
                if _text(r.data) in DIALOGUE_OPTIONS]
     if options or found('嗷呜被你叫醒了') or found('嗷呜标题'):
         # Every 嗷呜 dialogue choice leads to the newsstand, so the focused one is fine.
@@ -56,14 +52,14 @@ def newsstand_step(op, screen):
 
 def unverified_gesture(op, screen, name):
     """The scratch / divination gesture has not been seen with a free reward yet: stop, don't guess."""
-    prompts = ' '.join(_text(r.data) for r in _rows(op, screen, PROMPTS))
+    prompts = ' '.join(_text(r.data) for r in ocr_rows(op, screen,PROMPTS))
     log.warning('%s页面的手柄提示：%s', name, prompts or '无')
     return op.round_fail(f'{name}后台操作尚待实机核验（今日奖励未领取时才出现），未操作')
 
 
 def trigrams_step(op, screen):
     """阿朔: A 占卜 on the 卦象集录 page; A accepts the 确认 that follows (reward or already taken)."""
-    rows = _rows(op, screen, Rect(0, 400, 1920, 1080))
+    rows = ocr_rows(op, screen,Rect(0, 400, 1920, 1080))
     texts = [_text(r.data) for r in rows]
     if any('滑动屏幕以获取卦象' in t for t in texts):
         return unverified_gesture(op, screen, '卦象集录')
@@ -84,7 +80,7 @@ def scratch_step(op, screen):
     shows the prizes with only 「B 返回」 left, also when the card is opened again that day.
     """
     card = op.round_by_find_area(screen, '报刊亭', '每日可刮取一次').is_success
-    prompts = [_text(r.data) for r in _rows(op, screen, Rect(760, 700, 1160, 780))]
+    prompts = [_text(r.data) for r in ocr_rows(op, screen,Rect(760, 700, 1160, 780))]
     count = op.__dict__.get('_scratch_rounds', 0)
     if not card:
         if count == 0:
@@ -93,7 +89,7 @@ def scratch_step(op, screen):
     coating = screen[530:615, 810:1110]
     scraped = bool(coating.size) and float(np.mean(coating.max(axis=2) < 60)) < .3
     if not any('刮一刮' in t for t in prompts) or scraped:
-        return op.round_success('刮刮卡已刮开') if '返回' in prompts or scraped else op.round_retry(
+        return op.round_success('刮刮卡已刮开') if any('返回' in t for t in prompts) or scraped else op.round_retry(
             '等待刮刮卡提示，未操作', wait=1)
     if count >= 4:
         return op.round_fail('手柄刮刮卡未生效')

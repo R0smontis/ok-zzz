@@ -3,15 +3,15 @@ import cv2
 import numpy as np
 from onedragon.base.geometry.rectangle import Rect
 from src.controls.gamepad import is_ds4, press as pad
+from src.navigation.common import cjk_count, focus_mask, lit, norm_text, ocr_rows
 
 TABS=('目标','日常','训练','作战','战术')
 MAIN_MENU_ITEMS=frozenset({'更多','勘域编队','邮件','设置','公告','成就','绳网','仓库','代理人','商城','丽都城募','调频'})
 
 def verified_reward_mode(op, screen, enabled):
     """Set expert challenge 燃竭模式; verify page text, RS hint and each resulting frame."""
-    rows = op.ctx.ocr_service.get_ocr_result_list(image=screen, rect=Rect(300, 430, 1910, 850))
-    rows = rows if isinstance(rows, (list, tuple)) else []
-    text = lambda row: str(row.data).strip().replace(' ', '')
+    rows = ocr_rows(op, screen, Rect(300, 430, 1910, 850))
+    text = lambda row: norm_text(row.data).strip()
     popup_text = ''.join(text(row) for row in rows if 450 < row.center.x < 1500 and 450 < row.center.y < 590)
     popup = '是否退出' in popup_text and '燃竭模式' in popup_text
     requests = getattr(op, '_reward_mode_requests', 0)
@@ -54,12 +54,10 @@ def verified_reward_mode(op, screen, enabled):
 def compendium_category(op, screen, target):
     """Choose a controller category and verify its blue selection next frame."""
     from difflib import SequenceMatcher
-    rows=op.ctx.ocr_service.get_ocr_result_list(image=screen,rect=Rect(190,300,420,930))
-    if not isinstance(rows,(list,tuple)):
-        return op.round_retry('未识别快捷手册分类，未操作',wait=.6)
+    rows=ocr_rows(op, screen, Rect(190,300,420,930))
     target_row=None; selected=[]; best=.6
     for row in rows:
-        word=str(row.data).replace(' ','')
+        word=norm_text(row.data)
         if not word or not all('\u4e00' <= c <= '\u9fff' or c == '·' for c in word):
             continue
         # Category names differ a lot; OCR may swap one glyph (式舆 → 式奥), so take the best clear match.
@@ -111,11 +109,6 @@ def compendium_category(op, screen, target):
     return op.round_wait('手柄选择分类：'+target,wait=.6)
 
 
-def focus_mask(part):
-    """Controller focus fill; it pulses between yellow (≈247,219,0) and yellow-green (≈152,190,0)."""
-    return (part[:,:,0]>120)&(part[:,:,1]>150)&(part[:,:,2]<100)
-
-
 def label_focused(screen, center, half_width=150):
     """Whether the button whose label is centred at `center` carries the controller focus fill."""
     part=screen[max(0,center.y-28):center.y+28,max(0,center.x-half_width):center.x+half_width]
@@ -146,13 +139,14 @@ def compendium_card(op, screen, is_target, label):
     Every press is verified on the next frame; the end of the list reverses the search direction.
     """
     # Card lists start at y≈320 (实战模拟室) or below a challenge header (恶名狩猎); header text never matches a target.
-    rows=op.ctx.ocr_service.get_ocr_result_list(image=screen,rect=Rect(500,300,1650,950))
-    if not isinstance(rows,(list,tuple)):
+    rows=ocr_rows(op, screen, Rect(500,300,1650,950))
+    if not rows:
+        # 未识别的画面绝不盲目按 A：空读数按未识别处理。
         return op.round_retry(f'未识别{label}所在卡片，未操作',wait=.6)
-    text=lambda r: str(r.data).replace(' ','')
+    text=lambda r: norm_text(r.data)
     goes=[r for r in rows if text(r)=='前往']
     # Item icons produce stray glyphs ("2", "®"); card titles have at least two CJK characters.
-    titles=[r for r in rows if r.center.x<1200 and sum('一'<=c<='鿿' for c in text(r))>=2]
+    titles=[r for r in rows if r.center.x<1200 and cjk_count(text(r))>=2]
     seen=getattr(op,'_pad_card_seen',[])
     seen.extend(t for t in (text(r) for r in titles) if t not in seen)
     op._pad_card_seen=seen
@@ -199,13 +193,11 @@ def combat_simulation_mission(op, screen, target, names):
     d-pad direction comes from the visible tiles; an off-screen target is searched in one direction.
     """
     from difflib import get_close_matches
-    rows=op.ctx.ocr_service.get_ocr_result_list(image=screen,rect=Rect(80,700,1850,900))
-    if not isinstance(rows,(list,tuple)):
-        return op.round_retry('未识别实战模拟室副本，未操作',wait=.6)
+    rows=ocr_rows(op, screen, Rect(80,700,1850,900))
     focused=[]; visible={}
     for row in rows:
         # Close names such as 击破演练/命破演练 need a strict cutoff.
-        match=get_close_matches(str(row.data).replace(' ',''),names,n=1,cutoff=.8)
+        match=get_close_matches(norm_text(row.data),names,n=1,cutoff=.8)
         if not match:
             continue
         x=row.center.x
@@ -240,15 +232,14 @@ def grid_target(op, screen, target, rect, half_width=66):
     A cell is focused when the outline lights both of its vertical edges; NEW! badges and the
     neighbour's outline only ever light one edge.
     """
-    rows=op.ctx.ocr_service.get_ocr_result_list(image=screen,rect=rect)
-    rows=rows if isinstance(rows,(list,tuple)) else []
-    cells=[r for r in rows if sum('一'<=c<='鿿' for c in str(r.data))>=2]
-    def lit(r):
+    rows=ocr_rows(op, screen, rect)
+    cells=[r for r in rows if cjk_count(r.data)>=2]
+    mask=focus_mask(screen)
+    def is_lit(r):
         x,y=r.center.x,r.center.y
-        edge=lambda cx: screen[max(0,y-90):y+10,max(0,cx-4):cx+4]
-        return all(np.mean(focus_mask(edge(cx)))>.3 for cx in (x-half_width,x+half_width))
-    focused=[r for r in cells if lit(r)]
-    wanted=next((r for r in cells if str(r.data).replace(' ','')==target),None)
+        return all(lit(mask,cx-4,cx+4,y-90,y+10,.3) for cx in (x-half_width,x+half_width))
+    focused=[r for r in cells if is_lit(r)]
+    wanted=next((r for r in cells if norm_text(r.data)==target),None)
     if wanted is None or len(focused)!=1:
         # Keyboard prompts show no outline; the first d-pad press only reveals it.
         steps=getattr(op,'_pad_grid_reveal',0)
@@ -277,9 +268,8 @@ def press_labelled(op, screen, label, rect):
     Returns the pressed button, or None when the label or its button glyph is not on screen,
     so callers never assume a press that the game could not have received.
     """
-    rows=op.ctx.ocr_service.get_ocr_result_list(image=screen,rect=rect)
-    rows=rows if isinstance(rows,(list,tuple)) else []
-    text=lambda r: str(r.data).replace(' ','')
+    rows=ocr_rows(op, screen, rect)
+    text=lambda r: norm_text(r.data)
     target=next((r for r in rows if text(r).endswith(label)),None)
     if target is None:
         return None
@@ -314,12 +304,10 @@ def predefined_team(op, screen, target, names):
     `names` is the configured team order; it decides the d-pad direction when the target is off screen.
     """
     import re
-    rows=op.ctx.ocr_service.get_ocr_result_list(image=screen,rect=Rect(60,80,1860,990))
-    if not isinstance(rows,(list,tuple)):
-        return op.round_retry('未识别预备编队列表，未操作',wait=.6)
+    rows=ocr_rows(op, screen, Rect(60,80,1860,990))
     titles={}
     for row in rows:
-        name=re.sub(r'[A-Za-z]+$','',str(row.data).replace(' ',''))  # 编队1RS: the RS hint follows the title.
+        name=re.sub(r'[A-Za-z]+$','',norm_text(row.data))  # 编队1RS: the RS hint follows the title.
         if name in names:
             titles[name]=row
     focused=[]
@@ -348,11 +336,9 @@ def predefined_team(op, screen, target, names):
 
 
 def compendium_lost_void(op, screen):
-    rows=op.ctx.ocr_service.get_ocr_result_list(image=screen,rect=Rect(500,440,1650,950))
-    if not isinstance(rows,(list,tuple)):
-        return op.round_retry('未识别迷失之地卡片，未操作',wait=.6)
-    title=next((r for r in rows if str(r.data).replace(' ','')=='迷失之地'),None)
-    goes=[r for r in rows if str(r.data).replace(' ','')=='前往']
+    rows=ocr_rows(op, screen, Rect(500,440,1650,950))
+    title=next((r for r in rows if norm_text(r.data)=='迷失之地'),None)
+    goes=[r for r in rows if norm_text(r.data)=='前往']
     if title is None or not goes:
         return op.round_retry('未核验迷失之地及前往按钮，未操作',wait=.6)
     target=min((r for r in goes if title.center.y<r.center.y<title.center.y+190),key=lambda r:r.center.y,default=None)
@@ -413,18 +399,18 @@ def pad_press(op, button, duration=.12):
 
 
 def menu_words(op, rect, screen=None):
-    rows=op.ctx.ocr_service.get_ocr_result_list(image=op.last_screenshot if screen is None else screen,rect=rect)
-    return [str(r.data).strip().replace(' ','') for r in rows] if isinstance(rows,(list,tuple)) else []
+    rows=ocr_rows(op, op.last_screenshot if screen is None else screen, rect)
+    return [norm_text(r.data).strip() for r in rows]
 
 
 def selected_tab(op, rect, names):
     """Read the highlighted controller tab without changing focus."""
-    rows=op.ctx.ocr_service.get_ocr_result_list(image=op.last_screenshot,rect=rect)
+    rows=ocr_rows(op, op.last_screenshot, rect)
     active=[]
-    if not isinstance(rows,(list,tuple)):
+    if not rows:
         return None
     for row in rows:
-        name=str(row.data).replace(' ','')
+        name=norm_text(row.data)
         if name not in names:
             continue
         x,y=row.center.x,row.center.y
@@ -435,11 +421,9 @@ def selected_tab(op, rect, names):
 
 
 def main_menu_target(op, target):
-    rows=op.ctx.ocr_service.get_ocr_result_list(image=op.last_screenshot,rect=Rect(220,920,1730,1070),crop_first=False)
+    rows=ocr_rows(op, op.last_screenshot, Rect(220,920,1730,1070), crop_first=False)
     names=MAIN_MENU_ITEMS
-    if not isinstance(rows,(tuple,list)):
-        return op.round_retry('未识别主菜单，未操作',wait=.5)
-    points={str(r.data).replace(' ',''):r.center for r in rows if str(r.data).replace(' ','') in names}
+    points={norm_text(r.data):r.center for r in rows if norm_text(r.data) in names}
     if len(points)<8 or target not in points:
         return op.round_retry('主菜单选项不完整，未操作',wait=.5)
     active=[]
@@ -477,11 +461,9 @@ def compendium_tab(op, screen, target):
         return None
     if not isinstance(screen,np.ndarray):
         return op.round_retry('快捷手册画面无效，未操作',wait=.5)
-    rows=op.ctx.ocr_service.get_ocr_result_list(image=screen,rect=Rect(690,105,1660,210))
-    if not isinstance(rows,(tuple,list)):
-        return op.round_retry('未识别快捷手册页签，未操作',wait=.5)
-    positions={str(row.data).replace(' ',''):row.center for row in rows
-               if str(row.data).replace(' ','') in TABS and 105<row.center.y<210}
+    rows=ocr_rows(op, screen, Rect(690,105,1660,210))
+    positions={norm_text(row.data):row.center for row in rows
+               if norm_text(row.data) in TABS and 105<row.center.y<210}
     if len(positions)!=len(TABS):
         return op.round_retry('快捷手册页签不完整，未操作',wait=.5)
     active=[]
@@ -493,6 +475,7 @@ def compendium_tab(op, screen, target):
         return op.round_retry('未核验唯一选中页签，未操作',wait=.5)
     current=active[0]
     if returning:
+        # 这里保留原始读取：空页脚（键盘提示）与读取失败（None）后续动作不同，不能合并。
         footer=op.ctx.ocr_service.get_ocr_result_list(image=screen,rect=Rect(750,970,1230,1060))
         if not isinstance(footer,(tuple,list)):
             return op.round_retry('快捷手册返回提示未显示，未操作',wait=.5)
@@ -534,9 +517,8 @@ def escape_stuck(op, screen):
             op._pad_escape_sent = True
             return op.round_wait('手柄脱离卡死，等待实际画面', wait=2)
         return result
-    rows = op.ctx.ocr_service.get_ocr_result_list(image=screen, rect=Rect(220, 920, 1730, 1070), crop_first=False)
-    rows = rows if isinstance(rows, (list, tuple)) else []
-    if sum(str(r.data).replace(' ', '') in MAIN_MENU_ITEMS for r in rows) >= 8:
+    rows = ocr_rows(op, screen, Rect(220, 920, 1730, 1070), crop_first=False)
+    if sum(norm_text(r.data) in MAIN_MENU_ITEMS for r in rows) >= 8:
         return main_menu_target(op, '更多')
     opens = getattr(op, '_pad_escape_menu', 0)
     if opens >= 3:

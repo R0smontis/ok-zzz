@@ -55,8 +55,8 @@ class FrameworkLogBridge(logging.Handler):
 def install_runtime_logging():
     framework = logging.getLogger('ok')
     if not any(getattr(handler, '_zzz_runtime_file', False) for handler in framework.handlers):
-        path = Path('logs/runtime.log')
-        path.parent.mkdir(parents=True, exist_ok=True)
+        from onedragon.utils import os_utils
+        path = Path(os_utils.get_path_under_work_dir('logs')) / 'runtime.log'
         handler = RotatingFileHandler(path, maxBytes=4 * 1024 * 1024, backupCount=5, encoding='utf-8')
         handler.setLevel(logging.INFO)
         handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))

@@ -13,6 +13,7 @@ import numpy as np
 from onedragon.base.geometry.rectangle import Rect
 from onedragon.utils import os_utils
 from src.controls.gamepad import press as pad
+from src.navigation.common import norm_text, ocr_rows
 from src.navigation.menus import focus_mask
 
 
@@ -20,12 +21,7 @@ EVENT = Rect(1230, 200, 1920, 955)
 
 
 def _text(value):
-    return str(value).replace(' ', '').replace('【', '[').replace('】', ']')
-
-
-def _rows(op, screen, rect=EVENT):
-    rows = op.ctx.ocr_service.get_ocr_result_list(image=screen, rect=rect)
-    return rows if isinstance(rows, (list, tuple)) else []
+    return norm_text(value, 'hollow_events')
 
 
 @lru_cache(maxsize=1)
@@ -66,7 +62,7 @@ def pending_option(op, screen):
     pending = getattr(op, '_pad_event_pending', None)
     if pending is None:
         return None
-    rows = _rows(op, screen, Rect(600, 200, 1920, 955))
+    rows = ocr_rows(op, screen,Rect(600, 200, 1920, 955))
     pending['waits'] += 1
     still_visible = any(SequenceMatcher(None, _text(r.data), pending['text']).ratio() >= .85
                         and abs(r.center.y - pending['y']) < 40 for r in rows)
@@ -84,7 +80,7 @@ def pending_option(op, screen):
 
 def event_option(op, screen, status, rect):
     focus = _event_focus(screen)
-    rows = _rows(op, screen)
+    rows = ocr_rows(op, screen, EVENT)
     label = min((r for r in rows if abs(r.center.y - rect.center.y) < 30),
                 key=lambda r: abs(r.center.x - rect.center.x), default=None)
     if focus is None or label is None:
@@ -138,7 +134,7 @@ def resonium_card(op, screen, word, lowest=False):
     """Resonium cards whose buttons read `word` (选择/丢弃/交换/催化/抵押欠款); `lowest` picks the
     least wanted card, as upstream does when dropping."""
     from zzz_od.hollow_zero.event.resonium_utils import choose_resonium_by_priority
-    rows = _rows(op, screen, Rect(300, 120, 1630, 830))
+    rows = ocr_rows(op, screen,Rect(300, 120, 1630, 830))
     cards = []
     for row in rows:
         text = _text(row.data)
@@ -185,7 +181,7 @@ def resonium_card(op, screen, word, lowest=False):
 def remove_corruption(op, screen):
     """The clear panel fills the active 清除 button yellow; A removes one in-run corruption."""
     from src.navigation.menus import label_focused
-    rows = _rows(op, screen, Rect(240, 640, 1750, 745))
+    rows = ocr_rows(op, screen,Rect(240, 640, 1750, 745))
     buttons = [row for row in rows if _text(row.data) == '清除']
     pending = getattr(op, '_pad_clear_pending', None)
     if pending is not None:
@@ -212,7 +208,7 @@ def default_card(op, screen, word='选择'):
 
     Used for cards that are not resonium (e.g. 临时拍档's assist bangboo).
     """
-    rows = _rows(op, screen, Rect(300, 120, 1630, 830))
+    rows = ocr_rows(op, screen,Rect(300, 120, 1630, 830))
     titles = tuple((_text(r.data), (r.center.x - 300) // 410) for r in rows
                    if 460 < r.center.y < 530 and _text(r.data).startswith('['))
     pending = getattr(op, '_pad_default_pending', None)
@@ -237,7 +233,7 @@ def default_card(op, screen, word='选择'):
 def bottom_button(op, screen, labels, band=Rect(240, 730, 1750, 900)):
     """A row of buttons where the focused one is filled yellow (及时补给, 确认鸣徽, ...)."""
     from src.navigation.menus import label_focused
-    rows = _rows(op, screen, band)
+    rows = ocr_rows(op, screen,band)
     buttons = [r for r in rows if len(_text(r.data)) >= 2]
     pending = getattr(op, '_pad_button_pending', None)
     if pending is not None:
@@ -278,7 +274,7 @@ def pad_option(op, screen, words, status=None, lcs=.6):
     pending = pending_option(op, screen)
     if pending is not None:
         return pending
-    rows = _rows(op, screen)
+    rows = ocr_rows(op, screen, EVENT)
     best = None  # earlier words win ties
     for word in words:
         for row in rows:
@@ -311,7 +307,7 @@ def back_out(op, screen, visible):
 
 def result_confirm(op, screen):
     """挑战结果 (A 确定) and the 结算周期上限 dialog (确认) after a hollow battle."""
-    rows = _rows(op, screen, Rect(0, 0, 1920, 1080))
+    rows = ocr_rows(op, screen,Rect(0, 0, 1920, 1080))
 
     def inside(row, x1, y1, x2, y2):
         return x1 <= row.center.x < x2 and y1 <= row.center.y < y2
@@ -341,7 +337,7 @@ def result_confirm(op, screen):
 
 
 def _words(op, screen, rect=Rect(0, 0, 1920, 1080)):
-    return [(_text(r.data), r) for r in _rows(op, screen, rect)]
+    return [(_text(r.data), r) for r in ocr_rows(op, screen,rect)]
 
 
 def _dialog(op, screen):
@@ -431,7 +427,7 @@ def shop_items(op, screen):
     """Rows of the 鸣徽交易 list: (title row, resonium or None, price or None).
 
     The price sits under the icon, left of the title (live 2026-10-14)."""
-    rows = _rows(op, screen, SHOP_LIST)
+    rows = ocr_rows(op, screen,SHOP_LIST)
     titles = [r for r in rows if _text(r.data).startswith('[') and r.center.x > 1300]
     items = []
     for title in sorted(titles, key=lambda r: r.center.y):
@@ -465,7 +461,7 @@ def shop_focus_y(op, screen):
 
 
 def shop_coins(op, screen):
-    rows = _rows(op, screen, Rect(1200, 970, 1300, 1030))
+    rows = ocr_rows(op, screen,Rect(1200, 970, 1300, 1030))
     value = next((_text(r.data) for r in rows if _text(r.data).isdigit()), None)
     return int(value) if value is not None else None
 
@@ -512,7 +508,7 @@ def shop_buy(op, screen):
         op._pad_shop_buy = dict(signature=signature, coins=coins, waits=0)
         return op.round_wait('手柄购买当前商品，等待实际结果', wait=1)
     pending['waits'] += 1
-    words = {_text(r.data) for r in _rows(op, screen, Rect(500, 600, 1500, 900))}
+    words = {_text(r.data) for r in ocr_rows(op, screen,Rect(500, 600, 1500, 900))}
     if '确定' in words or signature != pending['signature'] or (
             coins is not None and pending['coins'] is not None and coins < pending['coins']):
         op._pad_shop_buy = None
@@ -524,7 +520,7 @@ def shop_buy(op, screen):
 
 def shop_leave(op, screen):
     """B backs out of the list and the shop menu; success once the board's 背包 shows again."""
-    words = [_text(r.data) for r in _rows(op, screen, Rect(0, 0, 1920, 1080))]
+    words = [_text(r.data) for r in ocr_rows(op, screen,Rect(0, 0, 1920, 1080))]
     in_shop = any(w.startswith('鸣徽交易[') or w.startswith('鸣徽催化[') or '欢迎光临' in w for w in words) \
         or ('鸣徽交易' in words and '鸣徽催化' in words)
     if not in_shop:

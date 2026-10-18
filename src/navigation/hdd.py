@@ -5,6 +5,7 @@ import numpy as np
 
 from onedragon.base.geometry.rectangle import Rect
 from src.controls.gamepad import press as pad
+from src.navigation.common import bump, norm_text, ocr_rows
 from src.navigation.menus import focus_mask
 
 CHAPTERS = ('序章', '第一章', '第二章', '第二章间章', '第三章', '第四章', '第五章',
@@ -12,22 +13,17 @@ CHAPTERS = ('序章', '第一章', '第二章', '第二章间章', '第三章', 
 
 
 def _text(value):
-    return str(value).replace(' ', '').replace('·', '')
+    return norm_text(value, 'hdd')
 
 
 def _chapter(value):
     return re.fullmatch(r'第[一二三四五六七八九十]+章(?:间章)?|第[一二三四五六七八九十]+季.+|序章', value) is not None
 
 
-def _rows(op, screen):
-    rows = op.ctx.ocr_service.get_ocr_result_list(image=screen, rect=Rect(0, 0, 1920, 1080))
-    return rows if isinstance(rows, (list, tuple)) else []
-
-
 def hdd_state(op, screen):
     if not isinstance(screen, np.ndarray) or screen.shape[:2] != (1080, 1920):
         return None
-    rows = _rows(op, screen)
+    rows = ocr_rows(op, screen)
     words = {_text(r.data) for r in rows}
     if {'战斗设置', '预备编队', '出战'} <= words:
         return dict(page='deployment', rows=rows)
@@ -107,17 +103,11 @@ def _card_focused(screen, label):
     return bool(part.size) and int(focus_mask(part).sum()) > 150
 
 
-def _bump(op, name, limit):
-    value = op.__dict__.get(name, 0) + 1
-    op.__dict__[name] = value
-    return value > limit
-
-
 def choose_mission_type(op, screen):
     """Hub → the commission card named op.mission_type (LB/RB would change the chapter)."""
     state = hdd_state(op, screen)
     if state is None:
-        if _bump(op, '_hdd_type_waits', 6):
+        if bump(op,'_hdd_type_waits', 6):
             return op.round_fail('未核验HDD委托画面')
         return op.round_wait('等待HDD委托画面', wait=.8)
     if state['page'] == 'missions':
@@ -135,11 +125,11 @@ def choose_mission_type(op, screen):
     if len(focused) != 1:
         return op.round_retry('委托焦点未唯一核验，未操作', wait=.6)
     if focused[0] is target:
-        if _bump(op, '_hdd_type_opens', 3):
+        if bump(op,'_hdd_type_opens', 3):
             return op.round_fail(f'手柄打开{op.mission_type}未生效')
         pad(op.ctx, 'a')
         return op.round_wait(f'手柄打开{op.mission_type}', wait=1.5)
-    if _bump(op, '_hdd_type_moves', 8):
+    if bump(op,'_hdd_type_moves', 8):
         return op.round_fail(f'手柄选择{op.mission_type}未生效')
     pad(op.ctx, 'dpad_left' if target.center.x < focused[0].center.x else 'dpad_right')
     return op.round_wait(f'手柄选择委托：{_text(focused[0].data)} → {op.mission_type}', wait=.6)
@@ -171,7 +161,7 @@ def choose_mission(op, screen):
     """Mission list: move the red selection to op.mission_name; the list scrolls with the focus."""
     state = hdd_state(op, screen)
     if state is None or state['page'] != 'missions':
-        if _bump(op, '_hdd_list_waits', 6):
+        if bump(op,'_hdd_list_waits', 6):
             return op.round_fail('未核验HDD副本列表')
         return op.round_wait('等待HDD副本列表', wait=.8)
     lines = mission_rows(screen, state['rows'])
@@ -182,7 +172,7 @@ def choose_mission(op, screen):
         return op.round_retry('副本选择未唯一核验，未操作', wait=.6)
     if target is not None and target is selected[0]:
         return op.round_success(f'已选中副本 {op.mission_name}')
-    if _bump(op, '_hdd_list_moves', 16):
+    if bump(op,'_hdd_list_moves', 16):
         return op.round_fail(f'HDD副本列表中未找到 {op.mission_name}')
     down = target is None or target[1].y > selected[0][1].y
     pad(op.ctx, 'dpad_down' if down else 'dpad_up')
@@ -195,10 +185,10 @@ def press_next(op, screen):
     if state is not None and state['page'] == 'deployment':
         return op.round_success('出战画面')
     if state is None or state['page'] != 'missions':
-        if _bump(op, '_hdd_next_waits', 6):
+        if bump(op,'_hdd_next_waits', 6):
             return op.round_fail('下一步后未出现出战画面')
         return op.round_wait('等待出战画面', wait=.8)
-    if _bump(op, '_hdd_next_presses', 3):
+    if bump(op,'_hdd_next_presses', 3):
         return op.round_fail('手柄下一步未生效')
     pad(op.ctx, 'start')
     return op.round_wait('手柄下一步，等待出战画面', wait=1.5)

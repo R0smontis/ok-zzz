@@ -6,18 +6,13 @@ import cv2
 import numpy as np
 from onedragon.base.geometry.rectangle import Rect
 from onedragon.utils import os_utils
-from onedragon.utils.log_utils import log
 from src.controls.gamepad import is_ds4, pad_key, press as pad
+from src.navigation.common import MAP_CURSOR, focus_mask, has_cjk, norm_text, ocr_rows, outlined
 
 
 def _text(value):
-    value = str(value).replace(' ', '').replace('「', '').replace('」', '')
-    return 'HDD' if value.upper().replace('.', '') == 'HDD' else value
-
-
-def _rows(op, screen, rect):
-    rows = op.ctx.ocr_service.get_ocr_result_list(image=screen, rect=rect)
-    return rows if isinstance(rows, (list, tuple)) else []
+    text = norm_text(value, 'map')
+    return 'HDD' if text.upper().replace('.', '') == 'HDD' else text
 
 
 def map_state(op, screen):
@@ -29,7 +24,7 @@ def map_state(op, screen):
         return dict(info=False, detail=False, title='', point='', can_go=False,
                     selected=selected[0][0] if len(selected) == 1 else None,
                     rows=[], grid=grid)
-    rows = _rows(op, screen, Rect(1390, 15, 1870, 965))
+    rows = ocr_rows(op, screen,Rect(1390, 15, 1870, 965))
     words = [_text(row.data) for row in rows]
     if '快捷导航' not in words:
         return None
@@ -38,16 +33,16 @@ def map_state(op, screen):
     if not info and not detail:
         # Other icons under the cursor open the same panel with a status button instead, e.g.
         # 「物资收集点」 with 已完成 (live 2026-10-17). It is a map with a non-teleport detail.
-        header = any(125 < r.center.y < 180 and 1480 < r.center.x < 1800 and _cjk(r) for r in rows)
-        button = any(860 < r.center.y < 940 and 1480 < r.center.x < 1770 and _cjk(r) for r in rows)
+        header = any(125 < r.center.y < 180 and 1480 < r.center.x < 1800 and has_cjk(r) for r in rows)
+        button = any(860 < r.center.y < 940 and 1480 < r.center.x < 1770 and has_cjk(r) for r in rows)
         detail = header and button
     if not info and not detail:
         return None
-    title_rows = _rows(op, screen, Rect(170, 20, 550, 78))
+    title_rows = ocr_rows(op, screen,Rect(170, 20, 550, 78))
     title = min((r for r in title_rows if any('\u4e00' <= c <= '\u9fff' for c in str(r.data))),
                 key=lambda r: abs(r.center.x - 225) + abs(r.center.y - 50), default=None)
     # Read the name separately so the adjacent icon cannot become part of OCR.
-    point_rows = _rows(op, screen, Rect(1480, 125, 1800, 180)) if detail else []
+    point_rows = ocr_rows(op, screen,Rect(1480, 125, 1800, 180)) if detail else []
     point = ''.join(_text(r.data) for r in point_rows if r.center.y < 180)
     selected = None
     part = screen[330:955, 1395:1850]
@@ -342,7 +337,7 @@ def choose_point(op, screen):
         # Map symbols can overlap and fade. Increase map spacing only after
         # verifying the map's zoom control, then inspect a fresh frame.
         zooms = getattr(op, '_background_map_zooms', 0)
-        footer = _rows(op, screen, Rect(650, 980, 1250, 1060))
+        footer = ocr_rows(op, screen,Rect(650, 980, 1250, 1060))
         zoom_button = _template('daily_map_zoom')
         zoom_visible = any(_text(r.data) in ('RT', 'R2') for r in footer)
         if not zoom_visible and zoom_button is not None:
@@ -364,7 +359,7 @@ def choose_point(op, screen):
 
 def steer_to(op, state, x, y):
     """Pan the map so the icon at (x, y) moves toward the cursor at (695, 540); one stick press."""
-    dx, dy = 695-x, 540-y
+    dx, dy = MAP_CURSOR[0]-x, MAP_CURSOR[1]-y
     axis = 'x' if abs(dx) >= abs(dy) else 'y'
     velocity = getattr(op, '_background_map_velocity', {'x': 600. if op.area_name=='录像店' else 2800.,
                                                        'y': 500. if op.area_name=='录像店' else 1400.})
@@ -409,7 +404,7 @@ def confirm_point(op, screen):
     if attempts and state is None:
         # A confirmed destination has left the map. Transport's next node still
         # verifies the actual world; unrelated map pages are not accepted here.
-        rows = _rows(op, screen, Rect(1390, 15, 1870, 100))
+        rows = ocr_rows(op, screen,Rect(1390, 15, 1870, 100))
         if any(_text(r.data)=='快捷导航' for r in rows):
             return op.round_fail('确认后地图层级改变，未核验传送')
         return op.round_success('已离开已核验目标的地图，等待加载')
@@ -433,15 +428,6 @@ def return_from_map(op, screen):
     return op.round_retry('手柄关闭地图，等待实际大世界画面', wait=1)
 
 
-def _cjk(row, minimum=2):
-    return sum('一' <= c <= '鿿' for c in str(row.data)) >= minimum
-
-
-def _outlined(mask, y0, y1, x0, x1):
-    part = mask[max(0, y0):y1, max(0, x0):x1]
-    return bool(part.size) and float(np.mean(part)) > .4
-
-
 def quick_nav_state(op, screen):
     """快捷导航 page: 3x3 region tiles above, the selected region's named points below.
 
@@ -450,8 +436,8 @@ def quick_nav_state(op, screen):
     """
     if not isinstance(screen, np.ndarray) or screen.shape[:2] != (1080, 1920):
         return None
-    rows = _rows(op, screen, Rect(0, 90, 1920, 1075))
-    from src.navigation.menus import focus_mask, label_focused
+    rows = ocr_rows(op, screen,Rect(0, 90, 1920, 1075))
+    from src.navigation.menus import label_focused
     if any('是否传送至该地点' in _text(r.data) for r in rows):
         ok = next((r for r in rows if _text(r.data) == '确认' and 560 < r.center.y < 700), None)
         return dict(dialog=True, confirm_focused=ok is not None and label_focused(screen, ok.center, 120))
@@ -459,13 +445,13 @@ def quick_nav_state(op, screen):
     tiles = []
     for r in rows:
         col, row = int(r.center.x // 636), next((i for i, y in enumerate((312, 591, 870)) if abs(r.center.y - y) < 40), None)
-        if row is None or not _cjk(r) or col > 2 or r.center.x - 636 * col < 300:
+        if row is None or not has_cjk(r) or col > 2 or r.center.x - 636 * col < 300:
             continue  # tile names sit at the bottom right of their tile
         x0, x1, y0, y1 = 12 + 636 * col, 636 + 636 * col, 102 + 279 * row, 368 + 279 * row
-        lit = _outlined(mask, y0 + 20, y1 - 20, x0 - 2, x0 + 10) and _outlined(mask, y0 + 20, y1 - 20, x1 - 10, x1 + 2)
+        lit = outlined(mask,y0 + 20, y1 - 20, x0 - 2, x0 + 10) and outlined(mask,y0 + 20, y1 - 20, x1 - 10, x1 + 2)
         tiles.append((_text(r.data), r.center, lit))
-    points = sorted(((_text(r.data), r.center, _outlined(mask, 1060, 1071, r.center.x - 110, r.center.x + 110))
-                     for r in rows if (_cjk(r) or _text(r.data) == 'HDD') and 1015 < r.center.y < 1065), key=lambda p: p[1].x)
+    points = sorted(((_text(r.data), r.center, outlined(mask,1060, 1071, r.center.x - 110, r.center.x + 110))
+                     for r in rows if (has_cjk(r) or _text(r.data) == 'HDD') and 1015 < r.center.y < 1065), key=lambda p: p[1].x)
     if len(tiles) < 3 or not points:
         return None
     return dict(dialog=False, tiles=tiles, points=points)

@@ -11,6 +11,7 @@ logs/
 /config/[0-9][0-9]/
 /config/model.yml
 /config/one_dragon.yml
+/config/redemption_codes.yml
 /cache/
 /screenshots/
 /debug/

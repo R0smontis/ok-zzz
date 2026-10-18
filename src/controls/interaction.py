@@ -53,6 +53,7 @@ def migrate_saved_interaction(folder='configs'):
         pass
     devices = os.path.join(folder, 'devices.json')
     changed = False
+    migrated = True
     try:
         with open(devices, encoding='utf-8') as fp:
             data = json.load(fp)
@@ -61,11 +62,14 @@ def migrate_saved_interaction(folder='configs'):
             with open(devices, 'w', encoding='utf-8') as fp:
                 json.dump(data, fp, ensure_ascii=False, indent=4)
             changed = True
-    except (OSError, ValueError):
+    except FileNotFoundError:
         pass  # No saved choice yet: the first entry of INTERACTIONS is the default.
-    os.makedirs(folder, exist_ok=True)
-    with open(marker, 'w', encoding='utf-8') as fp:
-        json.dump({'scheme': INTERACTION_SCHEME}, fp)
+    except (OSError, ValueError):
+        migrated = False  # 读不动或写不出去：不写标记，下次启动再试一次
+    if migrated:
+        os.makedirs(folder, exist_ok=True)
+        with open(marker, 'w', encoding='utf-8') as fp:
+            json.dump({'scheme': INTERACTION_SCHEME}, fp)
     return changed
 
 

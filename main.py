@@ -1,5 +1,4 @@
 import sys
-import os
 
 if __name__ == '__main__':
     from src.runtime.performance_policy import configure_native_threads
@@ -9,7 +8,8 @@ if __name__ == '__main__':
     check_output = None
     if '--check-package-output' in sys.argv:
         index = sys.argv.index('--check-package-output')
-        check_output = sys.argv[index + 1]
+        if index + 1 < len(sys.argv):
+            check_output = sys.argv[index + 1]
     ensure_output_streams(check_output)
     if '--live-client' in sys.argv:
         from src.live.client import run

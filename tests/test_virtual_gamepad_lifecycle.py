@@ -76,7 +76,7 @@ def test_app_stop_unplugs_pads_and_session_end_triggers_stop(monkeypatch):
     app._stopped = False
     controller = Mock()
     app._context = SimpleNamespace(run_context=Mock(), after_app_shutdown=Mock(), controller=controller)
-    monkeypatch.setattr('src.diagnostics.recorder.recorder.stop', lambda reason: None)
+    monkeypatch.setattr('src.diagnostics.recorder.recorder.stop', lambda reason, **kwargs: None)
     monkeypatch.setattr('ok.og.executor', SimpleNamespace(trigger_tasks=[]), raising=False)
     app._session_ending()
     controller.disconnect_virtual_gamepad_bus.assert_called_once()
