@@ -454,7 +454,7 @@ def test_dialogue_discards_result_when_input_target_changes(dialogue_task, chang
     assert task._menu_until == 0
 
 
-def test_dialogue_in_background_mode_uses_only_window_messages(dialogue_task, monkeypatch):
+def test_dialogue_in_background_mode_without_virtual_pad_uses_window_messages(dialogue_task, monkeypatch):
     import src.controls.interaction as interaction
     task, ctx, _, action = dialogue_task
     monkeypatch.setattr(interaction, 'background_mode_selected', lambda: True)
@@ -879,3 +879,76 @@ def test_missing_config_name_falls_back_to_the_task_default(task_factory, monkey
     task._enabled = True
     task.run()
     assert started == ['闪避']
+
+
+@pytest.fixture
+def pad_dialogue(dialogue_task, monkeypatch):
+    """Background mode with a working virtual pad; OCR rows are served per region."""
+    import src.controls.interaction as interaction
+    import src.tasks.dialogue_task as module
+    task, ctx, frames, _ = dialogue_task
+    monkeypatch.setattr(interaction, 'background_mode_selected', lambda: True)
+    clock = [1000.0]
+    monkeypatch.setattr(module.time, 'monotonic', lambda: clock[0])
+    rows = []
+    ctx.ocr_service = SimpleNamespace(get_ocr_result_list=lambda image, rect, **_: [
+        r for r in rows if rect.x1 <= r.center.x < rect.x2 and rect.y1 <= r.center.y < rect.y2])
+    ctx.game_config = SimpleNamespace(background_gamepad_type='xbox')
+    ctx.controller.background_mode = True
+    ctx.controller.game_win.is_win_active = False
+    ctx.controller.btn_press = Mock()
+    return task, ctx, rows, clock
+
+
+def ocr_row(text, x, y):
+    from onedragon.base.geometry.point import Point
+    return SimpleNamespace(data=text, center=Point(x, y))
+
+
+def pad_presses(ctx):
+    return [c.args[0] for c in ctx.controller.btn_press.call_args_list]
+
+
+def test_background_dialogue_advances_with_controller_a_once_per_sentence(pad_dialogue):
+    from zzz_od.application.commission_assistant.dialogue_detector import DialogueAction
+    from onedragon.base.geometry.point import Point
+    task, ctx, rows, clock = pad_dialogue
+    rows.append(ocr_row('他俩再这么吵下去', 960, 930))
+    task._detector.detect.return_value = DialogueAction('advance', Point(960, 905), '继续对话')
+    for _ in range(4):  # Same sentence on screen: one press, then wait for it to change.
+        task.run()
+        clock[0] += 0.6
+    assert pad_presses(ctx) == ['xbox_a']
+    rows[:] = [ocr_row('事情就来不及了', 960, 930)]
+    task.run()
+    assert pad_presses(ctx) == ['xbox_a', 'xbox_a']
+    ctx.controller.click_dialogue_event.assert_not_called()
+
+
+def test_background_story_skip_uses_its_printed_button_or_falls_back_to_window_message(pad_dialogue):
+    from zzz_od.application.commission_assistant.dialogue_detector import DialogueAction
+    from onedragon.base.geometry.point import Point
+    task, ctx, rows, clock = pad_dialogue
+    skip = DialogueAction('skip', Point(1750, 80), '跳过剧情')
+    task._detector.detect.return_value = skip
+    rows.append(ocr_row('跳过', 1750, 80))
+    task.run()  # No controller letter beside 跳过: the window message is still sent.
+    assert not pad_presses(ctx)
+    ctx.controller.click_dialogue_event.assert_called_once_with(skip.point, expected_hwnd=101,
+                                                                allow_background=True)
+    clock[0] += 1
+    rows.insert(0, ocr_row('X', 1690, 80))
+    task.run()
+    assert pad_presses(ctx) == ['xbox_x']
+    assert ctx.controller.click_dialogue_event.call_count == 1
+
+
+def test_background_dialogue_never_answers_a_purchase_option(pad_dialogue):
+    from zzz_od.application.commission_assistant.dialogue_detector import DialogueAction
+    from onedragon.base.geometry.point import Point
+    task, ctx, _, _ = pad_dialogue
+    task._detector.detect.return_value = DialogueAction('option', Point(1500, 600), '购买咖啡')
+    task.run()
+    assert not pad_presses(ctx)
+    ctx.controller.click_dialogue_event.assert_not_called()
+    assert '人工' in task.info['助手状态']

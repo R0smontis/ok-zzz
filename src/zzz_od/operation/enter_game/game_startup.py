@@ -13,8 +13,11 @@ STATUS_STARTING: str = '游戏刚启动，等待进入游戏'
 STARTUP_SECONDS: float = 300
 """A younger game process may still be starting up; it has to reach the game once before tasks act."""
 
-TITLE_STATUS_WORDS: tuple[str, ...] = ('加载配置数据中', '版本校对中', '登录游戏服务器中', '资源下载中')
+TITLE_STATUS_WORDS: tuple[str, ...] = ('加载配置数据中', '版本校对中', '登录游戏服务器中', '资源下载中', '点击登录')
 """Shown where the enter button will appear, while the title is still loading."""
+
+STARTUP_NOTICE_WORDS: tuple[str, ...] = ('沉迷游戏', '适度游戏', '盗版游戏', '出版单位', '审批文号', '批文号')
+"""The health advisory under the launch splash; it sits where dialogue text goes (2026-10-19)."""
 
 
 def at_title_screen(ctx, screen) -> bool:
@@ -24,9 +27,20 @@ def at_title_screen(ctx, screen) -> bool:
         return False
     area = ctx.screen_loader.get_area('打开游戏', '进入游戏点击后状态')
     rows = ctx.ocr_service.get_ocr_result_list(image=screen, rect=area.rect)
-    words = [str(r.data).replace(' ', '') for r in rows] if isinstance(rows, (list, tuple)) else []
-    return any(word.endswith('进入游戏') or any(status in word for status in TITLE_STATUS_WORDS)
-               for word in words)
+    words = [str(r.data) for r in rows] if isinstance(rows, (list, tuple)) else []
+    return any(title_word(word) for word in words)
+
+
+def title_word(text) -> bool:
+    """「点击进入游戏」/「进入游戏」 or a title loading state, as read by OCR."""
+    word = str(text).replace(' ', '')
+    return word.endswith('进入游戏') or any(status in word for status in TITLE_STATUS_WORDS)
+
+
+def startup_word(text) -> bool:
+    """Title text or the launch splash's health advisory: neither is in-game dialogue."""
+    word = str(text).replace(' ', '')
+    return title_word(word) or any(notice in word for notice in STARTUP_NOTICE_WORDS)
 
 
 def _game_process(ctx) -> tuple[int, float] | None:

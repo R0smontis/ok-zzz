@@ -86,7 +86,8 @@ class NotoriousHunt(ZOperation):
         )
 
         self.plan: ChargePlanItem = plan
-        self.use_charge_power: bool = use_charge_power  # 是否使用电量 深度追猎
+        self.use_charge_power: bool = use_charge_power  # 由体力刷本运行：完成次数记入体力计划
+        self.pursuit: bool = use_charge_power  # 本局是否为深度追猎（消耗电量）；有免费奖励次数时先用免费挑战
         self.can_run_times: int = -1
         self.battle_entered: bool = False
 
@@ -157,6 +158,17 @@ class NotoriousHunt(ZOperation):
                     left = int(match.group(1))
                     break
         return {'toggle': toggle, 'left': left, 'popup': False}
+
+    def _free_rewards_left(self) -> int | None:
+        """「剩余奖励次数 x/y」 at the bottom right; None when the page shows something else there.
+
+        The game offers 深度追猎 only after the free rewards of the cycle are spent; until then this
+        label is shown instead (2026-10-19: 库萨里库 page with 3/3 left and no 深度追猎 toggle).
+        """
+        rows = self.ctx.ocr_service.get_ocr_result_list(image=self.last_screenshot, rect=Rect(1360, 990, 1640, 1060))
+        rows = sorted(rows, key=lambda r: r.center.x) if isinstance(rows, (list, tuple)) else []
+        match = re.search(r'剩余奖励次数[:：]?(\d+)/\d+', ''.join(str(r.data).replace(' ', '') for r in rows))
+        return int(match.group(1)) if match else None
 
     def _choose_level_by_gamepad(self) -> OperationRoundResult:
         """LS opens the 挑战等级 list; d-pad moves the filled focus and A applies it. Every step is re-read."""
@@ -279,7 +291,10 @@ class NotoriousHunt(ZOperation):
 
         if self.use_charge_power:
             return self.round_success('深度追猎')
+        return self._decide_free_runs()
 
+    def _decide_free_runs(self) -> OperationRoundResult:
+        """Free runs: 深度追猎 off; run as many as the free rewards left and the plan allow."""
         panel = self._entry_panel()
         if panel is not None:
             if panel['popup']:
@@ -332,7 +347,20 @@ class NotoriousHunt(ZOperation):
 
         出现'深度追猎-信息'，且点亮'深度追猎-ON'后，才可正式开始
         区域对应文本"剩余奖励次数"会变成"电量消耗"，深度追猎需要消耗体力
+
+        体力计划遇到仍有免费奖励次数时，先用免费挑战完成计划次数，不再跳过：
+        一条龙未启用恶名狩猎应用时，免费次数没人用，深度追猎就永远不会出现。
         """
+        left = self._free_rewards_left()
+        if left:
+            self.pursuit = False
+            if self._entry_panel() is not None:
+                return self._decide_free_runs()  # Layout with a 深度追猎 toggle: it must be off.
+            self.run_record.left_times = left
+            self.can_run_times = min(left, self.plan.plan_times - self.plan.run_times)
+            log.info('恶名狩猎剩余奖励次数 %s，体力计划先使用免费挑战 %s 次', left, self.can_run_times)
+            return self.round_success(NotoriousHunt.STATUS_WITH_LEFT_TIMES)
+        self.pursuit = True
 
         panel = self._entry_panel()
         if panel is not None:
@@ -360,6 +388,7 @@ class NotoriousHunt(ZOperation):
         return self.round_success(NotoriousHunt.STATUS_BLOCKED_BY_LEFT_TIMES)
 
     @node_from(from_name='抉择恶名狩猎', status=STATUS_WITH_LEFT_TIMES)
+    @node_from(from_name='抉择深度追猎', status=STATUS_WITH_LEFT_TIMES)
     @node_from(from_name='抉择深度追猎', status=STATUS_NO_LEFT_TIMES)
     @operation_node(name='选择难度')
     def choose_level(self) -> OperationRoundResult:
@@ -571,27 +600,27 @@ class NotoriousHunt(ZOperation):
             return self.round_fail('未核验进入战斗及胜利结果，不计完成次数')
         if self.plan.run_times >= self.plan.plan_times:
             return self.round_fail('计划已完成，不重复增加完成次数')
-        if not self.use_charge_power and (self.can_run_times <= 0 or self.run_record.left_times <= 0):
+        if not self.pursuit and (self.can_run_times <= 0 or self.run_record.left_times <= 0):
             return self.round_fail('未核验可用免费奖励次数，不计完成次数')
         self.battle_entered = False
+        if not self.pursuit:
+            self.can_run_times -= 1
+            self.run_record.left_times -= 1
         if self.use_charge_power:
             self.charge_plan_config.add_plan_run_times(self.plan)
         else:
-            self.can_run_times -= 1
-            self.run_record.left_times -= 1
             self.config.add_plan_run_times(self.plan)
         return self.round_success()
 
     @node_from(from_name='战斗结束')
     @operation_node(name='判断下一次')
     def check_next(self) -> OperationRoundResult:
-        if self.use_charge_power:
-            try_next = self.plan.plan_times > self.plan.run_times
-        else:
-            try_next = self.can_run_times > 0
+        try_next = self.plan.plan_times > self.plan.run_times if self.use_charge_power else True
+        if not self.pursuit:
+            try_next = try_next and self.can_run_times > 0
         op = ChooseNextOrFinishAfterBattle(self.ctx, try_next, is_agent_plan=self.plan.is_agent_plan)
         result = op.execute()
-        if not self.use_charge_power and result.success and result.status == '战斗结果-完成' and self.can_run_times > 0:
+        if not self.pursuit and result.success and result.status == '战斗结果-完成' and self.can_run_times > 0:
             # 可能是其他设备挑战了 没有剩余次数了
             self.run_record.left_times = 0
         return self.round_by_op_result(result)
@@ -599,10 +628,41 @@ class NotoriousHunt(ZOperation):
     @node_from(from_name='判断下一次', status='战斗结果-再来一次')
     @operation_node(name='重新开始-确认')
     def restart_confirm(self) -> OperationRoundResult:
-        if self.use_charge_power:  # 使用体力的时候不需要重新确认
+        if self.pursuit:  # 使用体力的时候不需要重新确认
             return self.round_success()
+        if getattr(self.ctx.controller, 'background_mode', False):
+            return self._confirm_restart_by_gamepad()
         return self.round_by_find_and_click_area(self.last_screenshot, '恶名狩猎', '重新开始-确认',
                                                  success_wait=1, retry_wait_round=1)
+
+    def _confirm_restart_by_gamepad(self) -> OperationRoundResult:
+        """「是否消耗1次奖励次数，再次挑战」 ignores window-message clicks; A presses the focused 确认.
+
+        2026-10-19: the click was reported as success while the dialog stayed open, so the next
+        free run never loaded. Press once on the verified focus, then wait for the dialog to close.
+        """
+        from src.navigation.menus import label_focused
+        rows = self.ctx.ocr_service.get_ocr_result_list(image=self.last_screenshot, rect=Rect(600, 480, 1320, 740))
+        rows = rows if isinstance(rows, (list, tuple)) else []
+        prompt = any('再次挑战' in str(r.data) or '奖励次数' in str(r.data) for r in rows)
+        if getattr(self, '_restart_confirm_pending', False):
+            if not prompt:
+                self._restart_confirm_pending = False
+                return self.round_success('手柄确认再次挑战')
+            waits = getattr(self, '_restart_confirm_waits', 0) + 1
+            self._restart_confirm_waits = waits
+            if waits > 6:
+                return self.round_fail('确认再次挑战后对话框未关闭，未重复确认')
+            return self.round_wait('等待再次挑战生效，未重复确认', wait=.6)
+        if not prompt:
+            return self.round_retry('未识别再次挑战确认框，未操作', wait=.6)
+        confirm = next((r for r in rows if str(r.data).replace(' ', '') == '确认'), None)
+        if confirm is None or not label_focused(self.last_screenshot, confirm.center, 120):
+            return self.round_retry('再次挑战的确认焦点未核验，未操作', wait=.6)
+        self._restart_confirm_pending = True
+        self._restart_confirm_waits = 0
+        pad(self.ctx, 'a')
+        return self.round_wait('手柄确认再次挑战', wait=1)
 
     @node_from(from_name='判断下一次', status='战斗结果-完成')
     @operation_node(name='等待返回入口', node_max_retry_times=60)

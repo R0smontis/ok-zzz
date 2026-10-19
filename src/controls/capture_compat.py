@@ -24,6 +24,7 @@ def install_capture_compat():
     install_device_selection_compat()
     install_windows_graphics_compat()
     install_wgc_blank_frame_guard()
+    install_wgc_close_outside_lock()
 
     if getattr(bitblt_utils.capture_by_bitblt, '_zzz_offscreen', False) is True:
         return
@@ -178,6 +179,60 @@ def install_wgc_blank_frame_guard():
 
     capture._zzz_blank_guard = True
     WindowsGraphicsCaptureMethod.do_get_frame = capture
+
+
+def install_wgc_close_outside_lock():
+    """Release WGC's capture objects only after dropping the capture lock.
+
+    The framework releases them while holding the lock that FrameArrived also takes. A first frame
+    arriving during that close blocks its system thread on the lock, and the final texture Release
+    then never returns (2026-10-19: the device thread hung there, so a restarted game was never
+    rebound and trigger tasks had no frames). Detach under the lock, release after it: a blocked
+    callback then finds no frame pool and returns.
+    """
+    from ok.device.capture_methods import windows_graphics as module
+    original = module.WindowsGraphicsCaptureMethod.close
+    if getattr(original, '_zzz_release_outside_lock', False) is True:
+        return
+
+    def release(action, name):
+        try:
+            action()
+        except Exception as error:
+            module.logger.warning(f'destroy windows capture: {name} failed: {error}')
+
+    def close(method):
+        with method.lock:
+            method._frame_cancel_generation += 1
+            method.frame_requested.clear()
+            method.frame_event.set()
+        # get_frame_lock still keeps composite_hwnds() off the BitBlt contexts released below.
+        with method.get_frame_lock:
+            with method.lock:
+                module.logger.info('destroy windows capture')
+                method.frame_requested.clear()
+                method.frame_event.set()
+                pool, session = method.frame_pool, method.session
+                objects = (('cputex', method.cputex), ('immediatedc', method.immediatedc),
+                           ('dxdevice', method.dxdevice), ('rtdevice', method.rtdevice))
+                contexts = list(method.contexts.values())
+                method.frame_pool = method.session = method.item = None
+                method.rtdevice = method.dxdevice = method.immediatedc = method.cputex = None
+                method.contexts.clear()
+                method.capture_hwnd = 0
+                method.capture_target_signature = None
+            if pool is not None:
+                release(pool.Close, 'frame pool')
+            if session is not None:
+                release(session.Close, 'session')
+            for name, value in objects:
+                if value:
+                    release(value.Release, name)
+            for context in contexts:
+                release(functools.partial(module.clean_up_bitblt, context), 'bitblt context')
+
+    close._zzz_release_outside_lock = True
+    module.WindowsGraphicsCaptureMethod.close = close
 
 
 def install_window_position_compat():

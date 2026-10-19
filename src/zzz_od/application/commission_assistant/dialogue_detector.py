@@ -5,6 +5,7 @@ from onedragon.base.geometry.point import Point
 from onedragon.base.geometry.rectangle import Rect
 from onedragon.base.screen import screen_utils
 from onedragon.utils import cv2_utils, str_utils
+from zzz_od.operation.enter_game.game_startup import startup_word
 
 
 @dataclass(frozen=True)
@@ -39,8 +40,11 @@ class DialogueDetector:
         area = self._area('对话框内容')
         if not cv2_utils.is_in_gray_mask(screen, rect=area.rect):
             return False
-        return any(str_utils.with_chinese(self._text(record))
-                   for record in self._ocr(screen, '对话框内容'))
+        words = [self._text(record) for record in self._ocr(screen, '对话框内容')]
+        if any(startup_word(word) for word in words):
+            # The title's 「点击进入游戏」 slot and the launch splash's health advisory sit where dialogue text goes.
+            return False
+        return any(str_utils.with_chinese(word) for word in words)
 
     def skip_confirmation(self, screen):
         # A generic "确认" can belong to purchases or other menus. Require

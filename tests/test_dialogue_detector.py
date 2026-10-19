@@ -129,7 +129,7 @@ def test_commission_settings_use_the_commission_file(tmp_path, monkeypatch):
     assert Path(config.file_path).name == 'commission_assistant.yml'
 
 
-@pytest.mark.parametrize('name', ['coffee-no-order', 'world-no-dialogue'])
+@pytest.mark.parametrize('name', ['coffee-no-order', 'world-no-dialogue', 'title-keyboard-prompt', 'launch-health-advisory', 'title-login-prompt'])
 def test_real_non_dialogue_screens_do_not_generate_actions(dialogue_scene, name):
     import json
     import cv2

@@ -861,7 +861,7 @@ def test_monthly_card_is_closed_with_b_and_bounded():
 def hunt_op(name,use_charge_power):
     from zzz_od.operation.compendium.notorious_hunt import NotoriousHunt
     op=operation(NotoriousHunt);fixture(op,name)
-    op.use_charge_power=use_charge_power
+    op.use_charge_power=op.pursuit=use_charge_power
     op.plan=SimpleNamespace(plan_times=1,run_times=0,is_agent_plan=False)
     op.run_record=SimpleNamespace(left_times=3)
     op.round_by_find_area=lambda *a,**k: SimpleNamespace(is_success=False,status='')
@@ -896,6 +896,40 @@ def test_pursuit_hunt_switches_on_and_confirms_energy_prompt():
     op.ctx.controller.btn_press.assert_called_once_with('xbox_a',press_time=.12)
     op=hunt_op('hunt-entry-page',True)  # ON
     assert op.decide_by_use_power().status==NotoriousHunt.STATUS_NO_LEFT_TIMES
+
+
+def test_energy_plan_spends_free_rewards_first_when_pursuit_is_not_offered():
+    from zzz_od.operation.compendium.notorious_hunt import NotoriousHunt
+    op=hunt_op('hunt-entry-free-rewards',True)  # 剩余奖励次数 3/3; no 深度追猎 toggle on the page.
+    op.plan.plan_times=2
+    result=op.decide_by_use_power()
+    assert result.status==NotoriousHunt.STATUS_WITH_LEFT_TIMES  # Used to be 本次跳过深度追猎.
+    assert not op.pursuit and op.can_run_times==2 and op.run_record.left_times==3
+    op.ctx.controller.btn_press.assert_not_called()
+
+
+def test_free_hunt_restart_confirms_with_a_once_and_waits_for_the_dialog_to_close():
+    op=hunt_op('hunt-restart-confirm',False)  # 是否消耗1次奖励次数，再次挑战「恶名狩猎」, 确认 focused
+    op.round_by_find_and_click_area=Mock(side_effect=AssertionError('ignored click'))
+    assert op.restart_confirm().result==R.WAIT
+    assert op.restart_confirm().result==R.WAIT  # Still open: no second press.
+    op.ctx.controller.btn_press.assert_called_once_with('xbox_a',press_time=.12)
+    op.last_screenshot=op.last_screenshot*0
+    op.ctx.ocr_service=SimpleNamespace(get_ocr_result_list=lambda image,rect,**_: [])
+    assert op.restart_confirm().is_success
+
+
+def test_free_hunt_restart_needs_the_focused_confirm():
+    op=hunt_op('hunt-restart-confirm',False)
+    op.last_screenshot[590:665,965:1260]=20  # 确认 without its focus fill.
+    assert op.restart_confirm().result==R.RETRY
+    op.ctx.controller.btn_press.assert_not_called()
+
+
+def test_energy_plan_keeps_pursuit_when_free_rewards_are_spent():
+    op=hunt_op('hunt-entry-pursuit-toggle',True)  # 剩余奖励次数 0/3, toggle OFF
+    assert op.decide_by_use_power().result==R.WAIT and op.pursuit
+    op.ctx.controller.btn_press.assert_called_once_with('xbox_r_thumb',press_time=.12)
 
 
 def test_hunt_weekly_rewards_use_x_for_panel_and_claim():

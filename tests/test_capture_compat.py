@@ -1,3 +1,4 @@
+import time
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -161,3 +162,56 @@ def test_position_patch_is_idempotent(position_check):
     install_window_position_compat()
     assert module.HwndWindow.do_update_window_size is update
     assert module.check_pos is check
+
+
+def wgc_closing_with_pending_frame(monkeypatch):
+    """A WGC capture whose texture Release waits for a FrameArrived callback that is blocked on the lock."""
+    import threading
+    from ok.device.capture_methods import windows_graphics as module
+    method = object.__new__(module.WindowsGraphicsCaptureMethod)
+    method.lock, method.get_frame_lock = threading.RLock(), threading.RLock()
+    method._frame_cancel_generation = 0
+    method.frame_requested, method.frame_event = threading.Event(), threading.Event()
+    method.contexts, method.item, method.session = {}, object(), None
+    method.capture_hwnd, method.capture_target_signature = 1, ('sig',)
+    method.frame_pool = SimpleNamespace(Close=Mock())
+    method.immediatedc = method.dxdevice = method.rtdevice = None
+    seen, done = [], threading.Event()
+
+    def frame_arrived():
+        with method.lock:
+            seen.append(method.frame_pool)
+        done.set()
+
+    def destroy_message(message, *args, **kwargs):
+        if message == 'destroy windows capture':  # Logged while close() holds the lock.
+            threading.Thread(target=frame_arrived, daemon=True).start()
+            time.sleep(.05)
+
+    released = []
+    def release():  # D3D finishes the in-flight callback before the last texture goes away.
+        released.append(done.wait(1))
+    method.cputex = SimpleNamespace(Release=release)
+    monkeypatch.setattr(module.logger, 'info', destroy_message)
+    return module, method, seen, released
+
+
+def test_wgc_close_releases_textures_after_a_pending_frame_callback(monkeypatch):
+    from src.controls.capture_compat import install_wgc_close_outside_lock
+    module, method, seen, released = wgc_closing_with_pending_frame(monkeypatch)
+    monkeypatch.setattr(module.WindowsGraphicsCaptureMethod, 'close', module.WindowsGraphicsCaptureMethod.close)
+    install_wgc_close_outside_lock()
+    module.WindowsGraphicsCaptureMethod.close(method)
+    assert released == [True]  # The original close released inside the lock and hung here.
+    assert seen == [None]  # The late callback finds the pool detached and returns.
+    assert method.cputex is None and method.capture_hwnd == 0 and method.capture_target_signature is None
+
+
+def test_wgc_close_patch_is_idempotent(monkeypatch):
+    from ok.device.capture_methods import windows_graphics as module
+    from src.controls.capture_compat import install_wgc_close_outside_lock
+    monkeypatch.setattr(module.WindowsGraphicsCaptureMethod, 'close', module.WindowsGraphicsCaptureMethod.close)
+    install_wgc_close_outside_lock()
+    patched = module.WindowsGraphicsCaptureMethod.close
+    install_wgc_close_outside_lock()
+    assert module.WindowsGraphicsCaptureMethod.close is patched

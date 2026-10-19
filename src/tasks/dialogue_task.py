@@ -1,13 +1,43 @@
-"""Frame-driven dialogue skipping: each invocation sends at most one click."""
+"""Frame-driven dialogue skipping: each invocation sends at most one input."""
 import math
 import threading
 import time
 
 from ok import TriggerTask
 
+from onedragon.base.operation.operation_round_result import OperationRoundResult, OperationRoundResultEnum
+
 from src.tasks.zzz_base_task import ZzzBaseTask
 from zzz_od.application.commission_assistant.dialogue_detector import DialogueDetector
 from src.diagnostics.recorder import record_event
+from src.navigation.dialogue import dialogue_action
+
+STORY_BUTTONS = ('skip', 'menu', 'auto')
+PAD_ROUND_SECONDS = 0.5
+"""src.navigation.dialogue counts unchanged rounds; pace them like the commission assistant's."""
+
+
+class _PadDialogue:
+    """The part of an Operation that src.navigation.dialogue uses, held by the trigger task.
+
+    Its attributes keep the pending-press state between frames, so one detected action is
+    pressed once and only pressed again after the dialogue on screen changes.
+    """
+
+    def __init__(self, ctx):
+        self.ctx = ctx
+
+    @staticmethod
+    def round_retry(status=None, wait=None):
+        return OperationRoundResult(OperationRoundResultEnum.RETRY, status)
+
+    @staticmethod
+    def round_wait(status=None, wait=None):
+        return OperationRoundResult(OperationRoundResultEnum.WAIT, status)
+
+    @staticmethod
+    def round_fail(status=None, wait=None):
+        return OperationRoundResult(OperationRoundResultEnum.FAIL, status)
 
 
 class AutoDialogueTriggerTask(ZzzBaseTask, TriggerTask):
@@ -39,6 +69,9 @@ class AutoDialogueTriggerTask(ZzzBaseTask, TriggerTask):
         self._detector_ctx = None
         self._last_click = None
         self._menu_until = 0.0
+        self._pad = None
+        self._pad_next = 0.0
+        self._input_mode_synced = None
 
     def validate_config(self, key, value):
         error = super().validate_config(key, value)
@@ -59,6 +92,9 @@ class AutoDialogueTriggerTask(ZzzBaseTask, TriggerTask):
         self._ready = False
         self._last_click = None
         self._menu_until = 0.0
+        self._pad = None
+        self._pad_next = 0.0
+        self._input_mode_synced = None
         self.info['助手状态'] = '等待对话'
 
     def enable(self):
@@ -138,6 +174,7 @@ class AutoDialogueTriggerTask(ZzzBaseTask, TriggerTask):
                 self.info['助手状态'] = '等待游戏窗口'
                 return
             self._ready = True
+        self._sync_input_mode(ctx)
         if self._blocked(ctx):
             self._menu_until = 0.0
             return
@@ -174,16 +211,48 @@ class AutoDialogueTriggerTask(ZzzBaseTask, TriggerTask):
                 self.info['助手状态'] = '识别结果过期，等待新画面'
                 return
             if action is None:
+                self._pad = None
                 self.info['助手状态'] = '等待对话'
                 return
             self.info['助手状态'] = f'检测到：{action.text}'
             if self._last_click is not None and now-self._last_click < float(settings[2]):
                 return
+            if settings[3] and getattr(controller, 'background_mode', False):
+                if now < self._pad_next:
+                    return
+                self._pad_next = now + PAD_ROUND_SECONDS
+                if self._pad is None:
+                    self._pad = _PadDialogue(ctx)
+                result = dialogue_action(self._pad, frame, action)
+                if result.result == OperationRoundResultEnum.WAIT and str(result.status).startswith('手柄'):
+                    self._sent(action, f'手柄{action.text}')
+                    return
+                if action.kind not in STORY_BUTTONS or result.result != OperationRoundResultEnum.RETRY:
+                    self.info['助手状态'] = result.status
+                    return
+                # No controller letter is printed next to this story button: keep the window message.
             if controller.click_dialogue_event(action.point, expected_hwnd=hwnd,
                                                allow_background=settings[3]):
-                self._last_click = time.monotonic()
-                self._menu_until = self._last_click + 2 if action.kind == 'menu' else 0.0
-                self.info['助手状态'] = action.text
-                self.log_info(f'对话助手：已执行{action.text}')
+                self._sent(action, f'已执行{action.text}')
             else:
                 self.info['助手状态'] = '点击未发送，等待有效窗口或游戏前台'
+
+    def _sent(self, action, message):
+        self._last_click = time.monotonic()
+        self._menu_until = self._last_click + 2 if action.kind == 'menu' else 0.0
+        self.info['助手状态'] = action.text
+        self.log_info(f'对话助手：{message}')
+
+    def _sync_input_mode(self, ctx):
+        """Follow the start page's background/foreground choice once per change (it creates the virtual pad)."""
+        background = self._background()
+        if self._input_mode_synced == background or not hasattr(ctx, 'init_controller'):
+            return
+        self._input_mode_synced = background
+        if background == bool(getattr(ctx.controller, 'background_mode', False)):
+            return
+        try:
+            ctx.init_controller(activate=False)
+        except RuntimeError as error:
+            # Without the virtual pad, window messages are still sent in background mode.
+            self.log_error(f'对话助手：{error}')
