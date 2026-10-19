@@ -307,6 +307,10 @@ class BackToNormalWorld(ZOperation):
         if result is not None:
             HollowExitByMenu(self.ctx).execute()
             return self.round_retry(result, wait=1)
+        from zzz_od.operation.enter_game.game_startup import STATUS_AT_TITLE, at_title_screen
+        if at_title_screen(self.ctx, screen):
+            # B on the title opens 退出游戏; the next application's window check logs in again.
+            return self.round_fail(STATUS_AT_TITLE)
         # Unknown menu or popup: B backs out of nearly every game screen.
         pad(self.ctx, 'b')
         return self.round_retry('未知画面，手柄返回', wait=1)

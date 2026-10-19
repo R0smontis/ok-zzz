@@ -690,7 +690,10 @@ def test_app_on_title_screen_is_routed_through_enter_game_without_relaunch(monke
     assert game.open_game().is_success  # Already open: no second launch.
 
 
-def test_unknown_screen_in_gamepad_mode_backs_out_with_b():
+TITLE_RECT=Rect(700,820,1220,1032)
+
+
+def back_to_world_op():
     op=operation(BackToNormalWorld)
     op.handle_init()
     op.check_and_update_current_screen=Mock(return_value=None)
@@ -698,15 +701,97 @@ def test_unknown_screen_in_gamepad_mode_backs_out_with_b():
     op.round_by_find_area=lambda *a,**k: SimpleNamespace(is_success=False,status='')
     op.round_by_find_and_click_area=lambda *a,**k: SimpleNamespace(is_success=False,status='')
     op.ctx.ocr_service=SimpleNamespace(get_ocr_result_list=lambda **_: [])
-    op.ctx.screen_loader=SimpleNamespace(current_screen_name=None)
+    op.ctx.screen_loader=SimpleNamespace(current_screen_name=None,
+        get_area=lambda screen,area: SimpleNamespace(rect=TITLE_RECT))
     op.ctx.world_patrol_service=SimpleNamespace(cut_mini_map=lambda screen: SimpleNamespace(play_mask_found=False))
     op.check_compendium=lambda screen: None
     op._check_agent_dialog=lambda screen: False
     op.round_by_click_area=Mock(side_effect=AssertionError('blind window-message click'))
     import zzz_od.operation.back_to_normal_world as module
     module.hollow_event_utils.check_in_hollow=lambda ctx,screen: None
+    return op
+
+
+def test_unknown_screen_in_gamepad_mode_backs_out_with_b():
+    op=back_to_world_op()
     assert op.check_screen_and_run().result==R.RETRY
     op.ctx.controller.btn_press.assert_called_once_with('xbox_b',press_time=.12)
+
+
+def test_title_screen_is_not_backed_out_with_b():
+    op=back_to_world_op()
+    title=[SimpleNamespace(data='进入游戏')]
+    op.ctx.ocr_service=SimpleNamespace(get_ocr_result_list=lambda **k: title if k.get('rect') is TITLE_RECT else [])
+    result=op.check_screen_and_run()
+    assert result.is_fail and result.status=='游戏停在标题画面，先登录'
+    op.ctx.controller.btn_press.assert_not_called()  # B on the title opens 退出游戏.
+
+
+def title_check_app(monkeypatch, words, process):
+    from zzz_od.application.zzz_application import ZApplication
+    from zzz_od.operation.enter_game import game_startup
+    from onedragon.base.operation.application_base import Application
+    op=operation(ZApplication)
+    op.screenshot=lambda: op.last_screenshot
+    op.ctx.ocr_service=SimpleNamespace(get_ocr_result_list=lambda image,rect: [SimpleNamespace(data=w) for w in words])
+    op.ctx.screen_loader=SimpleNamespace(get_area=lambda screen,area: SimpleNamespace(rect=Rect(700,820,1220,1032)))
+    monkeypatch.setattr(Application,'check_game_window',lambda self: self.round_success())
+    monkeypatch.setattr(game_startup,'_game_process',lambda ctx: process[0])
+    return op, game_startup
+
+
+def test_freshly_launched_game_enters_game_before_any_application(monkeypatch):
+    process=[(4242, 12.0)]  # ok-script launched the game seconds before the task.
+    op, game_startup=title_check_app(monkeypatch, [], process)
+    monkeypatch.setattr(game_startup,'in_game_screen',lambda ctx,screen: False)
+    result=op.check_game_window()
+    assert result.is_fail and result.status==op.STATUS_STARTING  # Splash screen -> 打开并进入游戏
+    from onedragon.base.operation.application_base import Application
+    monkeypatch.setattr(Application,'open_and_enter_game',lambda self: self.round_success('大世界'))
+    assert op.open_and_enter_game().is_success
+    assert op.check_game_window().is_success  # This process reached the game; trust its screens.
+    process[0]=(5151, 20.0)  # Restarted game: a new process starts over.
+    assert op.check_game_window().is_fail
+    process[0]=(5151, game_startup.STARTUP_SECONDS+1)  # Long-running game: unchanged behavior.
+    assert op.check_game_window().is_success
+    process[0]=None  # Unknown process: unchanged behavior.
+    assert op.check_game_window().is_success
+
+
+def test_fresh_game_already_in_a_known_screen_is_trusted(monkeypatch):
+    process=[(4242, 90.0)]
+    op, game_startup=title_check_app(monkeypatch, ['菜单'], process)
+    monkeypatch.setattr(game_startup,'in_game_screen',lambda ctx,screen: True)
+    assert op.check_game_window().is_success
+    assert op.ctx.entered_game_pid==4242
+    monkeypatch.setattr(game_startup,'in_game_screen',lambda ctx,screen: False)
+    assert op.check_game_window().is_success
+
+
+def test_title_loading_states_route_through_enter_game(monkeypatch):
+    op, _=title_check_app(monkeypatch, ['版本校对中'], [None])
+    result=op.check_game_window()
+    assert result.is_fail and result.status==op.STATUS_AT_TITLE
+
+
+def test_enter_game_waits_out_a_slow_startup(monkeypatch):
+    from zzz_od.operation.enter_game.enter_game import EnterGame
+    from zzz_od.operation.enter_game import game_startup
+    op=operation(EnterGame)
+    op.check_game_data_updated=lambda screen,back_to_check_screen: None
+    op.check_enter_click_status_text=lambda screen,include_enter_click=False: (None,None)
+    op.check_login_related=lambda screen: None
+    op.match_login_error=lambda screen: None
+    op.round_by_find_area=lambda *a,**k: SimpleNamespace(is_success=False)
+    age=[30.0]
+    monkeypatch.setattr(game_startup,'startup_seconds',lambda ctx: age[0])
+    first=op.check_screen()
+    age[0]=31.0
+    second=op.check_screen()
+    assert first.result==second.result==R.WAIT  # Not counted against the 60 retries.
+    assert first.status!=second.status  # Keeps the background stall check from ending the wait.
+    age[0]=None
+    assert op.check_screen().result==R.RETRY
 
 
 def test_dungeon_next_step_uses_menu_button_for_every_dungeon_type():

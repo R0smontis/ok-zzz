@@ -11,6 +11,8 @@ from onedragon.base.operation.operation import Operation
 from onedragon.base.operation.operation_base import OperationResult
 from zzz_od.context.zzz_context import ZContext
 from onedragon.base.operation.operation_round_result import OperationRoundResult
+from zzz_od.operation.enter_game import game_startup
+from zzz_od.operation.enter_game.game_startup import at_title_screen
 from zzz_od.operation.enter_game.open_and_enter_game import OpenAndEnterGame
 
 
@@ -41,12 +43,15 @@ class ZApplication(Application):
             run_record=run_record,
         )
 
-    STATUS_AT_TITLE: str = '游戏停在标题画面，先登录'
+    STATUS_AT_TITLE: str = game_startup.STATUS_AT_TITLE
+    STATUS_STARTING: str = game_startup.STATUS_STARTING
 
     def check_game_window(self) -> OperationRoundResult:
-        """An open game window may still be on the title screen; route it through the enter-game step.
+        """An open game window may still be starting up or on the title; route it through the enter-game step.
 
         The not-ready edge leads to OpenAndEnterGame, which skips launching an already open game.
+        A freshly started game process goes there until it reaches the game once, because its splash
+        screens are neither the title nor a game screen.
         """
         result = Application.check_game_window(self)
         if not result.is_success:
@@ -57,18 +62,18 @@ class ZApplication(Application):
             return result  # The app's own first step reports capture problems.
         if at_title_screen(self.ctx, screen):
             return self.round_fail(ZApplication.STATUS_AT_TITLE)
+        if game_startup.startup_seconds(self.ctx) is not None:
+            if not game_startup.in_game_screen(self.ctx, screen):
+                return self.round_fail(ZApplication.STATUS_STARTING)
+            game_startup.mark_game_entered(self.ctx)  # Logged in by hand already.
+        return result
+
+    def open_and_enter_game(self) -> OperationRoundResult:
+        result = Application.open_and_enter_game(self)
+        if result.is_success:
+            game_startup.mark_game_entered(self.ctx)
         return result
 
     def handle_resume(self) -> None:
         self.ctx.controller.active_window()
         Application.handle_resume(self)
-
-
-def at_title_screen(ctx: ZContext, screen) -> bool:
-    """The title shows 「点击进入游戏」 (keyboard prompts) or 「进入游戏」 (controller prompts) at the bottom."""
-    if screen is None or getattr(ctx, 'ocr_service', None) is None:
-        return False
-    area = ctx.screen_loader.get_area('打开游戏', '进入游戏点击后状态')
-    rows = ctx.ocr_service.get_ocr_result_list(image=screen, rect=area.rect)
-    words = [str(r.data).replace(' ', '') for r in rows] if isinstance(rows, (list, tuple)) else []
-    return any(word.endswith('进入游戏') for word in words)

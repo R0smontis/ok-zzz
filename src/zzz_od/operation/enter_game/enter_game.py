@@ -28,6 +28,7 @@ from onedragon.utils.log_utils import log
 from typing import ClassVar
 from src.controls.gamepad import press as pad
 from zzz_od.context.zzz_context import ZContext
+from zzz_od.operation.enter_game import game_startup
 from zzz_od.operation.zzz_operation import ZOperation
 
 
@@ -117,6 +118,11 @@ class EnterGame(ZOperation):
             self.round_by_click_area('打开游戏', '国服-返回按钮')
             return self.round_retry(status='返回重试', wait=1)
 
+        starting = game_startup.startup_seconds(self.ctx)
+        if starting is not None:
+            # Splash and loading screens can last minutes on a fresh launch; retries would run out first.
+            # The changing status also keeps the background stall check from ending this wait.
+            return self.round_wait(status=f'等待游戏启动画面（已启动 {int(starting)} 秒）', wait=1)
         return self.round_retry(status='未知画面', wait=1)
 
     def check_login_related(self, screen: MatLike) -> OperationRoundResult | None:
