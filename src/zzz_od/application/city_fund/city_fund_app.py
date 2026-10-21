@@ -14,6 +14,7 @@ from zzz_od.operation.back_to_normal_world import BackToNormalWorld
 from zzz_od.operation.goto.goto_menu import GotoMenu
 from onedragon.base.geometry.rectangle import Rect
 from src.navigation.menus import menu_words, main_menu_target, selected_tab, pad_press
+from src.navigation.city_fund import season_screen
 
 
 class CityFundApp(ZApplication):
@@ -36,6 +37,9 @@ class CityFundApp(ZApplication):
         self._pad_menu_confirms=0
         self._pad_task_claims=0
         self._pad_level_claims=0
+        for counter in ('_city_fund_intro_presses','_city_fund_picker_presses',
+                        '_city_fund_reveal_presses','_city_fund_clicks'):
+            self.__dict__[counter]=0
 
     @operation_node(name='打开菜单', is_start_node=True)
     def open_menu(self) -> OperationRoundResult:
@@ -45,6 +49,10 @@ class CityFundApp(ZApplication):
     @node_from(from_name='打开菜单')
     @operation_node(name='点击丽都城募')
     def click_fund(self) -> OperationRoundResult:
+        # A new season opens on its plan intro and scheme picker instead of the tabs.
+        season=season_screen(self,self.last_screenshot)
+        if season is not None:
+            return season
         if getattr(self.ctx.controller,'background_mode',False):
             words=menu_words(self,Rect(1100,15,1850,90))
             if '等级回馈' in words and '成长任务' in words:
@@ -58,6 +66,9 @@ class CityFundApp(ZApplication):
     @node_from(from_name='点击成长任务', status='按钮-确认')
     @operation_node(name='点击成长任务')
     def click_task(self) -> OperationRoundResult:
+        season=season_screen(self,self.last_screenshot)
+        if season is not None:
+            return season
         if getattr(self.ctx.controller,'background_mode',False):
             current=selected_tab(self,Rect(1100,15,1850,90),('等级回馈','成长任务','城募赠礼'))
             if current=='成长任务':

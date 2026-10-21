@@ -365,6 +365,62 @@ def test_city_fund_reads_current_top_tabs_and_claims_actual_task_rewards():
     assert op.ctx.controller.btn_press.call_args.args==('xbox_lb',)
 
 
+def pressed_buttons(op):
+    return [c.args[0] for c in op.ctx.controller.btn_press.call_args_list]
+
+
+def test_new_season_intro_opens_the_free_track_with_its_printed_button():
+    op=operation(CityFundApp);op.handle_init();rows=fixture(op,'city-fund-intro')
+    rows.append(SimpleNamespace(data='A',center=Rect(1580,1003,1600,1027).center))  # Controller prompt.
+    assert op.click_fund().result==R.WAIT
+    assert pressed_buttons(op)==['xbox_a']
+
+
+def test_new_season_intro_with_keyboard_prompts_never_presses_blindly():
+    op=operation(CityFundApp);op.handle_init();fixture(op,'city-fund-intro')  # Your screenshot: no glyph.
+    assert op.click_fund().result==R.WAIT and op.click_fund().result==R.WAIT
+    result=op.click_fund()
+    assert result.is_fail and '开启丽都城募' in result.status
+    assert pressed_buttons(op)==['xbox_dpad_down','xbox_dpad_down']  # Reveal prompts only; no A or X.
+    op.ctx.controller.click.assert_not_called()
+
+
+@pytest.mark.parametrize('name,expected',[('city-fund-picker-pad',['xbox_x']),
+                                          ('city-fund-picker-first',['xbox_dpad_down'])])
+def test_scheme_picker_confirms_the_preselected_scheme(name,expected):
+    op=operation(CityFundApp);op.handle_init();fixture(op,name)
+    assert op.click_fund().result==R.WAIT
+    assert pressed_buttons(op)==expected  # 「确认方案」 is X; 取消 (B) is never pressed.
+
+
+def test_season_screens_do_not_interrupt_the_fund_sequence():
+    op=operation(CityFundApp);op.handle_init();fixture(op,'city-fund-picker-pad')
+    assert op.click_fund().result==R.WAIT
+    fixture(op,'city-task-tab')  # The picker closed onto the fund page.
+    assert op.click_fund().is_success
+    assert op.click_task().is_success
+    assert op.click_task_claim().result==R.RETRY
+    assert pressed_buttons(op)==['xbox_x','xbox_x']  # Picker confirm, then 成长任务 全部领取.
+
+
+def test_paid_unlock_on_the_fund_page_is_not_the_free_intro_button():
+    from src.navigation.city_fund import season_screen
+    op=operation(CityFundApp);op.handle_init();rows=fixture(op,'city-task-tab')
+    rows.append(SimpleNamespace(data='解锁丽都城募',center=Rect(1608,1010,1768,1046).center))
+    rows.append(SimpleNamespace(data='Y',center=Rect(1544,1014,1568,1042).center))
+    assert season_screen(op,op.last_screenshot) is None
+    op.ctx.controller.btn_press.assert_not_called()
+
+
+def test_new_season_intro_is_clicked_in_foreground_mode():
+    op=operation(CityFundApp);op.handle_init();fixture(op,'city-fund-intro')
+    op.ctx.controller.background_mode=False
+    assert op.click_fund().result==R.WAIT
+    point=op.ctx.controller.click.call_args.args[0]
+    assert 1600<point.x<1800 and 990<point.y<1040
+    op.ctx.controller.btn_press.assert_not_called()
+
+
 def test_store_recovery_cannot_turn_failure_into_success(monkeypatch):
     op=store()
     monkeypatch.setattr(RandomPlayApp,'previous_node',property(lambda self:SimpleNamespace(name='点击宣传员入口',is_success=False,status='入口失败')))
