@@ -85,7 +85,29 @@ def find_session(root):
                 return path
         except Exception:
             continue
-    raise ValueError('没有运行中的实时调试接口，请启动新版ok-zzz并打开调试页面')
+    raise ValueError('没有运行中的实时调试接口：在调试页点击「开始监控」，'
+                     '或运行 tools/live_debug.py --root <运行目录> enable')
+
+
+def enable_session(root, timeout=15.0):
+    """Ask the ok-zzz running in `root` to start monitoring, then wait for its session."""
+    from src.live.request import write_request
+    root = Path(root).resolve()
+    try:
+        return find_session(root)
+    except ValueError:
+        pass
+    folder = root/'debug/live'
+    write_request(folder)
+    deadline = time.monotonic()+timeout
+    while time.monotonic() < deadline:
+        time.sleep(.5)
+        try:
+            return find_session(root)
+        except ValueError:
+            continue
+    (folder/'request').unlink(missing_ok=True)
+    raise ValueError(f'{timeout:g}秒内未开启实时调试：请确认ok-zzz正在 {root} 运行（版本需支持按需开启）')
 
 
 def run(argv=None):
@@ -99,6 +121,8 @@ def run(argv=None):
     parser.add_argument('--output', help='保存JSON结果，适用于无控制台EXE')
     subs = parser.add_subparsers(dest='operation', required=True)
     subs.add_parser('status')
+    enable = subs.add_parser('enable', help='请求正在运行的ok-zzz开启实时调试并等待会话')
+    enable.add_argument('--timeout', type=float, default=15)
     subs.add_parser('release')
     events = subs.add_parser('events')
     events.add_argument('--after', type=int, default=0)
@@ -114,8 +138,16 @@ def run(argv=None):
     watch.add_argument('--interval', type=float, default=1)
     args = parser.parse_args(argv)
     try:
-        client = LiveClient(args.session or find_session(args.root))
-        if args.operation == 'status':
+        if args.operation == 'enable':
+            session = Path(args.session) if args.session else enable_session(args.root, args.timeout)
+            client = LiveClient(session)
+            status = client.request('/status')
+        else:
+            client = LiveClient(args.session or find_session(args.root))
+        if args.operation == 'enable':
+            result = {'session': str(session), 'url': client.url, 'monitoring': status['monitoring'],
+                      'session_id': status['session_id']}
+        elif args.operation == 'status':
             result = client.request('/status')
         elif args.operation == 'release':
             result = client.request('/release', {})

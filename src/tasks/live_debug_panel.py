@@ -9,6 +9,8 @@ from ok import og
 
 
 class LiveDebugPanel(QWidget):
+    IDLE_TEXT = '未开启：点击「开始监控」启用实时调试接口（默认关闭）'
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.service = None
@@ -34,7 +36,7 @@ class LiveDebugPanel(QWidget):
             control_buttons.addWidget(widget)
         control_buttons.addStretch(1)
         layout.addLayout(control_buttons)
-        self.status_label = BodyLabel('未启动', self)
+        self.status_label = BodyLabel(self.IDLE_TEXT, self)
         self.status_label.setWordWrap(True)
         self.status_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         layout.addWidget(self.status_label)
@@ -52,20 +54,36 @@ class LiveDebugPanel(QWidget):
         self.timer.setInterval(500)
         self.timer.timeout.connect(self.refresh)
         self.timer.start()
-        # A read-only endpoint is available after normal software startup.
-        if callable(getattr(getattr(og, 'my_app', None), 'window_hwnd', None)):
+        # Off by default; started from this page, by --live-debug, or by an agent's request file.
+        from src.live.request import requested_at_launch
+        if self._in_app() and (requested_at_launch() or self._take_request()):
             self.start()
+
+    @staticmethod
+    def _in_app():
+        return callable(getattr(getattr(og, 'my_app', None), 'window_hwnd', None))
+
+    @staticmethod
+    def live_folder():
+        from onedragon.utils import os_utils
+        return Path(os_utils.get_work_dir()) / 'debug/live'
+
+    def _take_request(self):
+        from src.live.request import take_request
+        try:
+            return take_request(self.live_folder())
+        except Exception:
+            return False
 
     def start(self):
         if self.service is not None and self.service.started:
             return
         from src.live.service import LiveDebugService
         from src.live.runtime import GameRuntime, GuiCalls
-        from onedragon.utils import os_utils
         try:
             self.gui = GuiCalls(self)
             adapter = GameRuntime(og.my_app, self.gui)
-            self.service = LiveDebugService(adapter, Path(os_utils.get_work_dir()) / 'debug/live')
+            self.service = LiveDebugService(adapter, self.live_folder())
             adapter.service = self.service
             self.service.start()
             og.my_app.live_debug = self.service
@@ -95,12 +113,15 @@ class LiveDebugPanel(QWidget):
     def refresh(self):
         service = self.service
         started = service is not None and service.started
+        if not started and self._in_app() and self._take_request():
+            self.start()  # start() refreshes again with the new service.
+            return
         self.start_button.setEnabled(not started)
         self.stop_button.setEnabled(started)
         self.acquire_button.setEnabled(started and not service.owned)
         self.release_button.setEnabled(started and service.owned)
         if not started:
-            self.status_label.setText('监控已停止')
+            self.status_label.setText(self.IDLE_TEXT if service is None else '监控已停止')
             return
         status = service.status()
         frame = status['frame']

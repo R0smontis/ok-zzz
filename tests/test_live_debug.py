@@ -474,3 +474,95 @@ def test_release_keeps_a_controller_the_task_already_switched():
     controller.btn_controller = controller.keyboard  # 任务自行切回前台模式
     runtime.release()
     assert controller.action_keys == {'dodge': 'xbox_b'}  # 不覆盖任务当前的模式
+
+
+@pytest.fixture
+def opt_in_panel(tmp_path, monkeypatch):
+    """A panel inside the app (my_app has window_hwnd) whose start() only records the call."""
+    qt = QApplication.instance() or QApplication([])
+    from ok import og
+    from onedragon.utils import os_utils
+    from src.tasks.live_debug_panel import LiveDebugPanel
+    monkeypatch.setattr(og, 'my_app', SimpleNamespace(window_hwnd=lambda: 0))
+    monkeypatch.setattr(os_utils, 'get_work_dir', lambda: str(tmp_path))
+    monkeypatch.delenv('OK_ZZZ_LIVE_DEBUG', raising=False)
+    monkeypatch.setattr('sys.argv', ['main.py'])
+    starts = []
+    monkeypatch.setattr(LiveDebugPanel, 'start', lambda self: starts.append(self))
+    panels = []
+
+    def build():
+        panel = LiveDebugPanel()
+        panel.timer.stop()
+        panels.append(panel)
+        return panel
+    yield build, starts, tmp_path/'debug/live'
+    for panel in panels:
+        panel.deleteLater()
+    qt.processEvents()
+
+
+def test_live_debug_is_off_until_requested(opt_in_panel):
+    build, starts, _ = opt_in_panel
+    panel = build()
+    panel.refresh()
+    assert starts == [] and panel.start_button.isEnabled()
+    assert '默认关闭' in panel.status_label.text()
+
+
+@pytest.mark.parametrize('how', ['flag', 'env'])
+def test_agent_launch_switch_starts_live_debug(opt_in_panel, monkeypatch, how):
+    build, starts, _ = opt_in_panel
+    if how == 'flag':
+        monkeypatch.setattr('sys.argv', ['main.py', '--live-debug'])
+    else:
+        monkeypatch.setenv('OK_ZZZ_LIVE_DEBUG', '1')
+    panel = build()
+    assert starts == [panel]
+
+
+def test_agent_request_file_starts_a_running_app_once(opt_in_panel):
+    from src.live.request import write_request
+    build, starts, folder = opt_in_panel
+    panel = build()
+    panel.refresh()
+    assert starts == []
+    write_request(folder)
+    panel.refresh()
+    assert starts == [panel] and not (folder/'request').exists()  # Consumed: not repeated.
+    panel.refresh()
+    assert starts == [panel]
+
+
+def test_client_enable_waits_for_the_requested_session(tmp_path):
+    from src.live.client import enable_session
+    folder = tmp_path/'debug/live'
+    services = []
+
+    def app():  # Stands in for the running ok-zzz noticing the request file.
+        deadline = time.monotonic()+5
+        while not (folder/'request').exists() and time.monotonic() < deadline:
+            time.sleep(.05)
+        (folder/'request').unlink()
+        service = LiveDebugService(SubstituteGame(), folder, interval=.05)
+        services.append(service)
+        service.start()
+    thread = threading.Thread(target=app)
+    thread.start()
+    try:
+        session = enable_session(tmp_path, timeout=10)
+        assert session == folder/'session.json'
+        assert LiveClient(session).request('/status')['monitoring']
+        assert enable_session(tmp_path, timeout=1) == session  # Already on: no new request.
+        assert not (folder/'request').exists()
+    finally:
+        thread.join(timeout=6)
+        for service in services:
+            service.stop()
+
+
+def test_client_enable_reports_and_cleans_up_when_no_app_answers(tmp_path):
+    from src.live.client import enable_session
+    with pytest.raises(ValueError, match='未开启实时调试'):
+        enable_session(tmp_path, timeout=1)
+    assert not (tmp_path/'debug/live/request').exists()
