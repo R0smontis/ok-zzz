@@ -32,6 +32,8 @@ class Globals:
         install_gpu_ocr()
         from src.runtime.startup import install_update_compat
         install_update_compat()
+        from src.tasks.error_report_ui import install_error_reports
+        install_error_reports()
         from src.runtime.game_discovery import install_game_discovery
         self._game_discovery_timer = install_game_discovery()
         self.exit_event = exit_event

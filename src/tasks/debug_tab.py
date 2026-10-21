@@ -22,6 +22,11 @@ class DebugToolsTab(TaskTab):
         self.live_debug_card = self.add_card('实时调试与控制', self.live_debug_panel)
         self.vBoxLayout.removeWidget(self.live_debug_card)
         self.vBoxLayout.insertWidget(0, self.live_debug_card)
+        from src.tasks.error_report_ui import ErrorReportPanel
+        self.error_report_panel = ErrorReportPanel(self.view)
+        self.error_report_card = self.add_card('错误报告', self.error_report_panel)
+        self.vBoxLayout.removeWidget(self.error_report_card)
+        self.vBoxLayout.insertWidget(1, self.error_report_card)
         self.card_widgets = []
         for task in self.tasks:
             card = TaskCard(task, task in og.executor.onetime_tasks)
