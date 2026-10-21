@@ -59,6 +59,37 @@ def supports_online_updates(module):
                 and callable(getattr(module, 'get_version_list', None)))
 
 
+STATUS_UNBROKEN_WIDTH = 160
+"""Status texts up to this width (e.g. 「已是最新版本。」) never wrap."""
+
+
+def fit_update_status(card):
+    """Give the about page's update status room before the spacer takes it.
+
+    The framework puts a stretch-1 spacer after a word-wrapping status label; the spacer took all
+    free width and squeezed the label to a few characters, so 「已是最新版本。」 broke into lines.
+    """
+    from PySide6.QtWidgets import QSpacerItem
+    layout, label = card.controls_layout, card.status_label
+    index = layout.indexOf(label)
+    if index < 0:
+        return
+    layout.setStretch(index, 1)
+    for position in range(index + 1, layout.count()):
+        if isinstance(layout.itemAt(position), QSpacerItem):
+            layout.setStretch(position, 0)
+            break
+    original_set = card._set_status
+
+    def set_status(message, error=False):
+        original_set(message, error)
+        width = label.fontMetrics().horizontalAdvance(str(message)) + 2
+        label.setMinimumWidth(min(width, STATUS_UNBROKEN_WIDTH, label.maximumWidth()))
+
+    card._set_status = set_status
+    set_status(label.text())
+
+
 def install_update_compat():
     from ok.ui.qt.about.UpdateCard import UpdateCard
     from ok.ui.qt.MainWindow import MainWindow
@@ -77,6 +108,7 @@ def install_update_compat():
     @functools.wraps(original_init)
     def init(card, *args, **kwargs):
         original_init(card, *args, **kwargs)
+        fit_update_status(card)
         if not supports_online_updates(card.pyappify_module):
             standalone_status(card)
 

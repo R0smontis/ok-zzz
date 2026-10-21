@@ -492,6 +492,19 @@ class DraftConfig(dict):
         self.update(copy.deepcopy(self.default))
 
 
+def app_has_settings(app_id):
+    """Whether the daily's 编辑 dialog can change anything for this app.
+
+    Saving there only writes the app's options (and plan lists) back to the engine; apps without
+    any, such as 邮件 or 丽都城募, would open a dialog with nothing that affects the daily.
+    """
+    from zzz_od.application.app_options_data import APP_OPTIONS
+    from src.tasks.app_option_ui import PLAN_LIST_APPS
+    if app_id in PLAN_LIST_APPS:
+        return True
+    return any(a.get('app_id') == app_id and a.get('options') for a in APP_OPTIONS)
+
+
 def app_task_for_editor(app_id, owner):
     from src.tasks import app_tasks
     from ok.util.config import Config
@@ -621,10 +634,14 @@ class DailyPlanWidget(ConfigLabelAndWidget):
             label.setData(Qt.UserRole, name)
             label.setToolTip(TASK_DESCRIPTIONS.get(by_name.get(name), ''))
             self.table.setItem(row, 2, label)
+            if not app_has_settings(by_name[name]):
+                self.table.removeCellWidget(row, 3)
+                continue
             actions = QWidget(self.table)
             layout = QHBoxLayout(actions)
             layout.setContentsMargins(4, 4, 4, 4)
             button = PushButton('编辑', actions)
+            button.setAccessibleName(f'编辑{name}')
             button.clicked.connect(lambda _, aid=by_name[name]: self.edit_app(aid))
             layout.addWidget(button)
             self.table.setCellWidget(row, 3, actions)

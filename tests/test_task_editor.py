@@ -132,6 +132,23 @@ def test_daily_editor_order_and_toggle_reach_group_yaml(editor,tmp_path,monkeypa
     card.close()
 
 
+def test_daily_rows_offer_edit_only_for_apps_with_settings(editor):
+    task, card = editor(OneDragonDailyTask)
+    widget = card.config_widget_by_key['启用应用']
+    def edit_button(name):
+        cell = widget.table.cellWidget(widget.order.index(name), 3)
+        return None if cell is None else cell.findChild(PushButton)
+    for name in ('邮件', '活跃度奖励', '丽都城募', '丽都周纪 (领奖励)', '兑换码', '通知'):
+        assert edit_button(name) is None, name  # Nothing in the dialog would affect the daily.
+    for name in ('每日签到', '录像店营业', '咖啡店', '体力刷本', '恶名狩猎', '迷失之地'):
+        assert edit_button(name) is not None, name
+    first_plain = widget.order.index('邮件')
+    widget.move(first_plain, -first_plain)  # Rows are rebuilt on reorder; the cell must stay empty.
+    assert widget.order[0] == '邮件' and widget.table.cellWidget(0, 3) is None
+    assert edit_button('体力刷本') is not None
+    card.close()
+
+
 def test_daily_drop_moves_whole_row_and_preserves_enabled_state(editor, tmp_path):
     task, card = editor(OneDragonDailyTask)
     widget = card.config_widget_by_key['启用应用']

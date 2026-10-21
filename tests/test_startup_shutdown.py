@@ -4,6 +4,7 @@ import threading
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import pytest
 from PySide6.QtWidgets import QApplication
 
 
@@ -177,3 +178,31 @@ def test_audio_stop_precedes_executor_shutdown(monkeypatch):
     dodge.after_app_shutdown()
     assert order == ['audio_stop', 'pool_shutdown']
     assert dodge.event_listener is None
+
+
+@pytest.mark.parametrize('width', [700, 1200])
+def test_short_update_status_is_not_broken_into_lines(width):
+    from src.runtime.startup import install_update_compat
+    from ok.ui.qt.about.UpdateCard import UpdateCard
+    qt = QApplication.instance() or QApplication([])
+    install_update_compat()
+    module = SimpleNamespace(pyappify_version='1.0', get_version_list=Mock(return_value=[]))
+    card = UpdateCard('0.2.2', module)
+    try:
+        card._set_version_controls_visible(True)
+        card.resize(width, 200)
+        card.show()
+        label = card.status_label
+        for text in ('已是最新版本。', '点击检查更新'):
+            card._set_status(text)
+            qt.processEvents()
+            card.layout().activate()
+            qt.processEvents()
+            assert label.width() >= label.fontMetrics().horizontalAdvance(text)
+            assert label.heightForWidth(label.width()) <= label.fontMetrics().lineSpacing() * 1.5
+        card._set_status('检查失败：网络错误', error=True)
+        assert label.toolTip() == '检查失败：网络错误'  # The wrapper keeps the framework's error styling.
+    finally:
+        card.close()
+        card.deleteLater()
+        qt.processEvents()
