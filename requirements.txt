@@ -1,18 +1,19 @@
 # ok-zzz 运行依赖（Windows / Python 3.12）
+# 发布版按 requirements.lock.txt 以 --no-deps 安装（pyappify.yml 的 pip_args）：
+# 只装锁定的包。PySide6 元包与 pyside6-addons（约 440 MB，未使用）、
+# onnxruntime 的离线工具依赖 sympy 不进入用户环境；完整性由 tests/test_repo_hygiene.py 检查。
 # ok-script 由框架提供 UI、截图(WGC/BitBlt)、输入(PostMessage/Pynput)、OCR(onnxocr)能力
 ok-script[qt,ocr]>=2.0.0,<3
 
-# ok-script 不自动选择 OpenCV 变体，项目统一使用 contrib 完整版
-opencv-contrib-python>=4.9,<5
+# ok-script 不自动选择 OpenCV 变体；未使用 contrib 模块，用标准版
+opencv-python>=4.9,<5
 
 # 自动战斗 YOLO 识别（DirectML GPU 推理）
 onnxruntime-directml>=1.20
 
-# 闪避音频识别（一条龙移植）
+# 闪避音频识别（一条龙移植；读取模板与重采样用 scipy，不再需要 librosa/scikit-learn）
 soundcard>=0.4.6
-librosa>=0.11
 scipy>=1.13
-scikit-learn>=1.5
 
 # 后台模式虚拟手柄（需另行安装 ViGEm 驱动）
 vgamepad>=0.1.0; sys_platform == 'win32'

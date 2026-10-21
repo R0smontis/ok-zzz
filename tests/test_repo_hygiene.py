@@ -110,3 +110,58 @@ def test_user_lock_excludes_dev_tools():
         assert package not in lock, f'{package} 不应出现在用户锁文件中'
     dev = (ROOT / 'requirements-dev.txt').read_text(encoding='utf-8')
     assert 'pytest' in dev and 'polib' in dev
+
+
+# Packages whose metadata names a dependency the lock leaves out on purpose (installed with --no-deps).
+INTENTIONALLY_UNLOCKED = {
+    'pyside6': 'pyside6-fluent-widgets needs PySide6 only for QtCore/QtGui/QtWidgets/QtSvg/QtXml, all in '
+               'pyside6-essentials; the meta package would add pyside6-addons (~440 MB, never imported)',
+    'sympy': 'onnxruntime imports sympy only in its offline symbolic shape-inference tool',
+}
+USED_EXTRAS = {'ok-script': {'qt', 'ocr'}}
+
+
+def _locked():
+    import re
+    text = (ROOT / 'requirements.lock.txt').read_text(encoding='utf-8')
+    return {m.group(1).lower().replace('_', '-'): m.group(2)
+            for m in re.finditer(r'^([A-Za-z0-9_.-]+)==(\S+)', text, re.M)}
+
+
+def test_user_lock_is_complete_for_a_no_deps_install():
+    """pyappify installs the lock with --no-deps, so every runtime dependency must be locked itself."""
+    import importlib.metadata as md
+    from packaging.requirements import Requirement
+    from packaging.utils import canonicalize_name
+    locked = _locked()
+    installed = {}
+    for name, version in locked.items():
+        try:
+            installed[name] = md.distribution(name)
+        except md.PackageNotFoundError:
+            pass
+    if set(installed) != set(locked):
+        pytest.skip('test environment was not installed from the lock: '
+                    + ', '.join(sorted(set(locked) - set(installed))))
+    missing = []
+    for name, dist in installed.items():
+        extras = USED_EXTRAS.get(name, set()) | {''}
+        for text in dist.requires or []:
+            requirement = Requirement(text)
+            environments = [{'extra': e, 'sys_platform': 'win32', 'platform_system': 'Windows',
+                             'python_version': '3.12'} for e in extras]
+            if requirement.marker is not None and not any(requirement.marker.evaluate(env) for env in environments):
+                continue
+            dep = canonicalize_name(requirement.name)
+            if dep not in locked and dep not in INTENTIONALLY_UNLOCKED:
+                missing.append(f'{name} -> {text}')
+    assert not missing, '锁文件缺少运行依赖：' + '; '.join(missing)
+
+
+def test_unused_heavy_packages_stay_out_of_the_user_lock():
+    locked = _locked()
+    for package in ('pyside6', 'pyside6-addons', 'sympy', 'librosa', 'numba', 'llvmlite', 'scikit-learn',
+                    'opencv-contrib-python'):
+        assert package not in locked, f'{package} 不应进入用户锁文件（见 requirements.txt 说明）'
+    assert 'pyside6-essentials' in locked and 'opencv-python' in locked
+    assert '--no-deps' in (ROOT / 'pyappify.yml').read_text(encoding='utf-8')

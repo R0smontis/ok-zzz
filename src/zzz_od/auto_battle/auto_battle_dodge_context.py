@@ -13,11 +13,9 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from enum import Enum
 from typing import TYPE_CHECKING
 
-import librosa
 import numpy as np
 from cv2.typing import MatLike
-from scipy.signal import butter, correlate, filtfilt
-from sklearn.preprocessing import scale
+from scipy.signal import butter, correlate, filtfilt, resample_poly
 
 from onedragon.base.conditional_operation.state_recorder import StateRecord
 from onedragon.base.operation.context_notify_event import ContextNotifyEvent
@@ -32,6 +30,45 @@ if TYPE_CHECKING:
 
 # 创建一个线程池执行器，用于异步执行任务
 _dodge_check_executor = ThreadPoolExecutor(thread_name_prefix='od_dodge_check', max_workers=16)
+
+
+# ok-zzz: the three helpers below replace librosa and scikit-learn, which only served these calls
+# and brought numba, llvmlite and scikit-learn (~200 MB) into the package.
+
+def to_mono(channels: np.ndarray) -> np.ndarray:
+    """(channels, samples) -> samples, averaging channels like librosa.to_mono."""
+    channels = np.asarray(channels)
+    return channels if channels.ndim == 1 else np.mean(channels, axis=tuple(range(channels.ndim - 1)))
+
+
+def scale_by_std(x: np.ndarray) -> np.ndarray:
+    """x / std(x) like sklearn.preprocessing.scale(x, with_mean=False), keeping a flat signal unchanged."""
+    x = np.asarray(x)
+    dtype = x.dtype if np.issubdtype(x.dtype, np.floating) else np.float64
+    x = x.astype(dtype, copy=False)
+    std = float(np.std(x))
+    if std < 10 * np.finfo(dtype).eps:
+        std = 1.0
+    return x / std
+
+
+def load_wav(path: str, sample_rate: int) -> np.ndarray:
+    """Mono float32 samples at `sample_rate`, like librosa.load(path, sr=sample_rate)."""
+    import math
+    import warnings
+    from scipy.io import wavfile
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore', wavfile.WavFileWarning)  # Extra metadata chunks.
+        source_rate, data = wavfile.read(path)
+    if np.issubdtype(data.dtype, np.integer):
+        info = np.iinfo(data.dtype)
+        offset = (info.max + 1) / 2 if info.min == 0 else 0  # 8-bit WAV is unsigned.
+        data = (data.astype(np.float64) - offset) / (info.max + 1 - offset)
+    samples = to_mono(np.asarray(data, dtype=np.float64).T)
+    if source_rate != sample_rate:
+        divisor = math.gcd(int(source_rate), int(sample_rate))
+        samples = resample_poly(samples, sample_rate // divisor, source_rate // divisor)
+    return samples.astype(np.float32)
 
 
 class AudioRecorder:
@@ -99,7 +136,7 @@ class AudioRecorder:
                 while self.running:
                     stream_data = audio_recorder.record(numframes=self._chunk_size)
                     if self._used_channel > 1:
-                        stream_data = librosa.to_mono(stream_data.T)
+                        stream_data = to_mono(stream_data.T)
                     else:
                         stream_data = stream_data.T
 
@@ -290,10 +327,10 @@ class AutoBattleDodgeContext:
         if self._audio_template is not None:
             return
         log.info('加载声音模板中')
-        self._audio_template, _ = librosa.load(os.path.join(
+        self._audio_template = load_wav(os.path.join(
             os_utils.get_path_under_work_dir('assets', 'template', 'dodge_audio'),
             'template_1.wav'
-        ), sr=32000)
+        ), 32000)
 
         self._audio_template = self._get_filter_wave(self._audio_template)  # 滤波
 
@@ -393,8 +430,8 @@ class AutoBattleDodgeContext:
         y = self._get_filter_wave(y)  # 滤波
 
         # 标准化
-        wx = scale(x, with_mean=False)
-        wy = scale(y, with_mean=False)
+        wx = scale_by_std(x)
+        wy = scale_by_std(y)
 
         # 计算NCC
         if wx.shape[0] > wy.shape[0]:

@@ -29,7 +29,7 @@ def run_package_check():
     import gettext
 
     for name in ('cv2', 'onnxruntime', 'onnxocr.onnx_paddleocr', 'scipy.signal',
-                 'librosa', 'soundcard', 'win32api', 'win32timezone'):
+                 'scipy.io.wavfile', 'soundcard', 'win32api', 'win32timezone'):
         importlib.import_module(name)
     root = Path(os_utils.get_work_dir())
     from src.diagnostics.model_check import check_realtime_models

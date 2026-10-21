@@ -10,5 +10,8 @@ profiles:
     main_script: "main.py"
     requires_python: "3.12"
     requirements: "requirements.lock.txt"
+    # The lock is the complete runtime set; skip dependency metadata that would pull back unused
+    # PySide6 addons and sympy (checked by tests/test_repo_hygiene.py).
+    pip_args: "--no-deps"
     use_pythonw: true
     show_add_defender: true

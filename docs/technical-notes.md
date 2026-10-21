@@ -31,7 +31,7 @@ uv venv --python 3.12 .venv
 .venv\Scripts\activate
 
 # 2. 安装依赖
-pip install -r requirements.lock.txt
+pip install --no-deps -r requirements.lock.txt
 
 # 3. 发布包已包含闪避与 OCR 模型；源码模型缺失时可用此命令补齐
 python tools\download_models.py
@@ -184,8 +184,8 @@ Windows 10 2004及以上可使用WGC；关闭捕获边框是另一项系统能�
 ## 开发
 
 ```powershell
-pip install -r requirements.lock.txt     # 运行依赖（用户安装同一份）
-pip install -r requirements-dev.txt      # 开发与测试依赖（pytest、polib）
+pip install --no-deps -r requirements.lock.txt   # 运行依赖（用户安装同一份，只装锁定的包）
+pip install -r requirements-dev.txt                # 开发与测试依赖（pytest、polib）
 python -m pytest tests/ -q     # 离线测试（无需游戏）
 ```
 

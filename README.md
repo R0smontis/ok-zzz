@@ -72,7 +72,7 @@
 ```powershell
 python -m venv .venv
 .venv\Scripts\activate
-pip install -r requirements.lock.txt
+pip install --no-deps -r requirements.lock.txt
 python main.py           # 正常运行
 python -m pytest -q      # 离线测试（无需游戏）
 ```
