@@ -7,6 +7,7 @@ from src.navigation.common import cjk_count, focus_mask, lit, norm_text, ocr_row
 
 TABS=('目标','日常','训练','作战','战术')
 MAIN_MENU_ITEMS=frozenset({'更多','勘域编队','邮件','设置','公告','成就','绳网','仓库','代理人','商城','丽都城募','调频'})
+NO_DOUBLE_REWARD = '已核验当前专业挑战室无燃竭模式'
 
 def verified_reward_mode(op, screen, enabled):
     """Set expert challenge 燃竭模式; verify page text, RS hint and each resulting frame."""
@@ -31,6 +32,18 @@ def verified_reward_mode(op, screen, enabled):
         return op.round_retry('确认退出燃竭模式，等待实际OFF状态', wait=1)
     labels = [row for row in rows if text(row) == '燃竭模式' and row.center.x > 1300 and 630 < row.center.y < 760]
     toggles = [row for row in rows if text(row).upper() in ('ON', 'OFF') and 1640 < row.center.x < 1790 and 630 < row.center.y < 760]
+    if not labels and not toggles:
+        # Outside the event the whole control disappears. OCR silence alone is
+        # not proof: require the loaded entry and an actually empty control area.
+        part = screen[665:730, 1380:1800]
+        empty_control = part.size and np.max(part) < 80 and np.std(part) < 8
+        if empty_control and any(text(row) == '挑战奖励' for row in rows):
+            header = ocr_rows(op, screen, Rect(1400, 10, 1900, 100))
+            footer = ocr_rows(op, screen, Rect(1300, 980, 1850, 1070))
+            if any(text(row) == '挑战等级' for row in header) and any(text(row) == '下一步' for row in footer):
+                if enabled:
+                    return op.round_fail(NO_DOUBLE_REWARD)
+                return op.round_success('已核验普通挑战入口：当前无燃竭模式')
     if len(labels) != 1 or len(toggles) != 1:
         return op.round_retry('未核验燃竭模式及ON/OFF文字，未操作', wait=1)
     target = 'ON' if enabled else 'OFF'

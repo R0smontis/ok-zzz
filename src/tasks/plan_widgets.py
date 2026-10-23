@@ -44,7 +44,7 @@ def parse_charge_plans(value, *, single=False, category=None):
     if not isinstance(data, dict if single else list):
         raise ValueError('双倍奖励计划应为一项计划，普通刷本计划应为计划列表')
     rows = [data] if single else data
-    allowed = {field.name for field in fields(ChargePlanItem) if field.name != 'skipped'}
+    allowed = {field.name for field in fields(ChargePlanItem) if field.metadata.get('persist', True)}
     result = []
     for number, row in enumerate(rows, 1):
         if not isinstance(row, dict) or set(row)-allowed-{'skipped', 'double_reward_enabled'}:
@@ -60,11 +60,14 @@ def parse_charge_plans(value, *, single=False, category=None):
                 raise ValueError(f'计划 {number} 的文本字段格式错误')
         if not item.category_name or not item.auto_battle_config:
             raise ValueError(f'计划 {number} 的副本类别和战斗模板不能为空')
+        if item.double_fallback not in ('停止', '等体力单倍', '等次数单倍'):
+            raise ValueError(f'计划 {number} 的无双倍时策略应为停止、等体力单倍或等次数单倍')
         if item.supports_double_reward and item.plan_times == 0:
             raise ValueError(f'计划 {number} 的双倍次数和单倍次数不能都为 0')
         for key, low, high in (('plan_times', 1, 99999), ('run_times', 0, 99999),
                 ('predefined_team_idx', -1, 19), ('notorious_hunt_buff_num', 1, 3),
-                ('double_times', 0, 99999), ('single_times', 0, 99999)):
+                ('double_times', 0, 99999), ('single_times', 0, 99999),
+                ('fallback_single_runs', 0, 1)):
             val = getattr(item, key)
             if isinstance(val, bool) or not isinstance(val, int) or not low <= val <= high:
                 raise ValueError(f'计划 {number} 的 {key} 超出允许范围')
@@ -82,7 +85,7 @@ class ChargePlanWidget(ConfigLabelAndWidget):
         ('mission_name', '副本名称'), ('level', '副本等级'),
         ('auto_battle_config', '战斗模板'), ('card_num', '卡片数量'),
         ('plan_times', '计划次数'), ('double_times', '双倍次数'), ('single_times', '单倍次数'),
-        ('predefined_team_idx', '预备编队'),
+        ('double_fallback', '无双倍时'), ('predefined_team_idx', '预备编队'),
         ('notorious_hunt_buff_num', '狩猎增益编号')]
     hunt_fields = [('mission_type_name', '狩猎目标'), ('level', '副本等级'),
         ('auto_battle_config', '战斗模板'), ('plan_times', '计划次数'),
@@ -225,6 +228,8 @@ class ChargePlanWidget(ConfigLabelAndWidget):
             return self._mission_choices(row, key)
         if key == 'card_num':
             return [(item.value.label, item.value.value) for item in CardNumEnum]
+        if key == 'double_fallback':
+            return [(value, value) for value in ('停止', '等体力单倍', '等次数单倍')]
         if key == 'predefined_team_idx':
             return [('沿用当前队伍', -1), *[(f'预备编队 {i+1}', i) for i in range(20)]]
         if key == 'auto_battle_config':
@@ -243,6 +248,8 @@ class ChargePlanWidget(ConfigLabelAndWidget):
         value = control.currentData()
         row = self.rows[index]
         row[key] = value
+        if key == 'category_name' or (key == 'double_fallback' and value != '等体力单倍'):
+            row['fallback_single_runs'] = 0
         if key == 'category_name':
             from zzz_od.application.charge_plan.charge_plan_config import ChargePlanItem
             # 支持双倍的类别显示双倍/单倍次数，其余类别只显示计划次数
@@ -265,7 +272,7 @@ class ChargePlanWidget(ConfigLabelAndWidget):
         if self.hunt:
             return self.fields
         hidden = ('plan_times',) if row['category_name'] in DOUBLE_REWARD_CATEGORIES else (
-            'double_times', 'single_times')
+            'double_times', 'single_times', 'double_fallback')
         return [(key, title) for key, title in self.fields if key not in hidden]
 
     def _render(self):

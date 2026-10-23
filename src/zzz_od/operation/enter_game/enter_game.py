@@ -86,6 +86,7 @@ class EnterGame(ZOperation):
     @node_from(from_name='B服新-选择登录过的账号')
     @node_from(from_name='国际服-换服')
     @node_from(from_name='点击进入游戏', status=STATUS_GAME_DATA_UPDATED)
+    @node_from(from_name='登录成功', status=STATUS_GAME_DATA_UPDATED)
     @node_from(from_name='点击进入游戏', status='切换账号确定')
     @node_from(from_name='画面识别', status='B服新-同意隐私政策')
     @operation_node(name='画面识别', node_max_retry_times=60, is_start_node=True)
@@ -378,15 +379,18 @@ class EnterGame(ZOperation):
         if not message_result.is_success:
             return None
 
-        confirm_result = self.round_by_find_and_click_area(
-            screen,
-            '打开游戏',
-            '游戏数据更新-确定',
-            retry_wait=1,
-        )
+        if getattr(self.ctx.controller, 'background_mode', False):
+            confirm_result = self.round_by_find_area(screen, '打开游戏', '游戏数据更新-确定', retry_wait=1)
+            if confirm_result.is_success:
+                pad(self.ctx, 'a')
+        else:
+            confirm_result = self.round_by_find_and_click_area(
+                screen, '打开游戏', '游戏数据更新-确定', retry_wait=1,
+            )
         if not confirm_result.is_success:
             return confirm_result
 
+        self.after_first_enter_click = False
         self.after_second_enter_click = False
         self.resource_download_start_time = None
         if back_to_check_screen:
@@ -690,6 +694,10 @@ class EnterGame(ZOperation):
         Returns:
             仍在加载时等待；识别到弹窗时处理；识别到大世界时结束。
         """
+        data_updated_result = self.check_game_data_updated(self.last_screenshot, back_to_check_screen=True)
+        if data_updated_result is not None:
+            return data_updated_result
+
         result = self.round_by_find_area(self.last_screenshot, '加载中', '加载中')
         if result.is_success:
             return self.round_wait(result.status, wait=2)

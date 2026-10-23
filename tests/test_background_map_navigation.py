@@ -295,3 +295,71 @@ def test_region_grid_target_outline_does_not_accept_another_regions_points():
     op.ctx.ocr_service.get_ocr_result_list = stale_points
     assert choose_area(op, screen).result == R.RETRY
     op.ctx.controller.btn_press.assert_not_called()
+
+
+def test_sixth_street_point_focus_survives_missing_bottom_edge():
+    from src.navigation.map import quick_nav_state, quick_nav
+    op, screen = fixture('qn-sixth', '六分街', '咖啡店')
+    # The real rounded card has only five lit rows in the old eleven-row probe.
+    # Losing its bottom edge must not turn point focus into another area confirm.
+    screen[1060:1075] = 0
+    state = quick_nav_state(op, screen)
+    assert [name for name, _, lit in state['tiles'] if lit] == ['六分街']
+    assert [name for name, _, lit in state['points'] if lit] == ['喵吉长官']
+    assert choose_area(op, screen).is_success
+    assert quick_nav(op, screen).result == R.WAIT
+    op.ctx.controller.btn_press.assert_called_once_with('xbox_dpad_right', press_time=.12)
+    assert op._quick_nav_chosen is None
+
+
+def test_sixth_street_coffee_requires_new_point_focus_before_confirm():
+    from src.navigation.map import quick_nav_state, quick_nav
+    from src.navigation.common import focus_mask
+    op, screen = fixture('qn-sixth', '六分街', '咖啡店')
+    assert quick_nav(op, screen).result == R.WAIT
+    # Move the real rounded outline, not the OCR label or the selected area tile.
+    outline = focus_mask(screen)[938:1068, 70:361].copy()
+    screen[938:1068, 70:361][outline] = 0
+    screen[938:1068, 370:661][outline] = (170, 205, 45)
+    assert [name for name, _, lit in quick_nav_state(op, screen)['points'] if lit] == ['咖啡店']
+    assert quick_nav(op, screen).result == R.WAIT
+    assert op.ctx.controller.btn_press.call_args.args == ('xbox_a',)
+    assert op._quick_nav_chosen == '咖啡店'
+    dialog_op, dialog = fixture('map-quick-nav-point', '六分街', '咖啡店')
+    op.ctx.ocr_service = dialog_op.ctx.ocr_service
+    assert quick_nav(op, dialog).result == R.WAIT
+    assert op._quick_nav_confirms == 1
+
+
+def test_area_confirmation_is_not_repeated_when_point_focus_is_unreadable():
+    from src.navigation.map import quick_nav
+    from src.navigation.common import focus_mask
+    op, screen = fixture('qn-sixth', '六分街', '咖啡店')
+    strip = screen[925:1075]
+    strip[focus_mask(strip)] = 0
+    assert quick_nav(op, screen).result == R.WAIT
+    op.ctx.controller.btn_press.assert_called_once_with('xbox_a', press_time=.12)
+    assert quick_nav(op, screen).result == R.WAIT
+    op.ctx.controller.btn_press.assert_called_once_with('xbox_a', press_time=.12)
+    dialog_op, dialog = fixture('map-quick-nav-point', '六分街', '咖啡店')
+    op.ctx.ocr_service = dialog_op.ctx.ocr_service
+    assert quick_nav(op, dialog).result == R.WAIT
+    assert op.ctx.controller.btn_press.call_args.args == ('xbox_b',)
+    assert not getattr(op, '_quick_nav_confirms', 0)
+
+
+def test_yellow_point_artwork_without_outline_never_becomes_point_focus():
+    from src.navigation.map import quick_nav_state
+    op, screen = fixture('qn-open', '六分街', '咖啡店')
+    state = quick_nav_state(op, screen)
+    assert [name for name, _, lit in state['tiles'] if lit] == ['布亚斯特城区']
+    assert not any(lit for _, _, lit in state['points'])
+
+
+def test_trust_marker_interrupting_point_outline_still_moves_to_coffee():
+    from src.navigation.map import quick_nav_state, quick_nav
+    op, screen = fixture('qn-trust-marker', '六分街', '咖啡店')
+    assert [name for name, _, focused in quick_nav_state(op, screen)['points'] if focused] == ['拉面店']
+    assert quick_nav(op, screen).result == R.WAIT
+    op.ctx.controller.btn_press.assert_called_once_with('xbox_dpad_left', press_time=.12)
+    assert op._quick_nav_chosen is None

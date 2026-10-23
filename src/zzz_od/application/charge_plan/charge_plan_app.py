@@ -76,6 +76,7 @@ class ChargePlanApp(ZApplication):
         self.idle_reason = None
         for plan in self.config.plan_list:
             plan.skipped = False
+            plan._double_unavailable = False
         current_dt = self.run_record.get_current_dt()
         if self.config.reset_plan_times_each_run:
             # ok-zzz: 每次执行都从头走完整个计划；中途失败的计划下次执行也会重新计数。
@@ -193,6 +194,10 @@ class ChargePlanApp(ZApplication):
 
         # 未知类型会返回 0，交给副本内流程继续判断真实消耗
         need_battery_charge = self.current_plan.estimated_charge_power
+        if self.current_plan.use_double_reward and self.current_plan.double_fallback != '停止':
+            # Inspect the entry even with only one normal run's charge left;
+            # an available double mode still checks its real cost before battle.
+            need_battery_charge = 40
         if need_battery_charge <= 0 or self.battery_charge >= need_battery_charge:
             return self.round_success()
 

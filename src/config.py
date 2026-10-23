@@ -7,7 +7,7 @@ from src.runtime.inference import recognition_config
 from src.runtime.game_discovery import (OPTION_NAME as GAME_PATH_OPTION, PATH_KEY as GAME_PATH_KEY,
                                         validate_game_path)
 
-version = "0.2.4"
+version = "0.2.5"
 
 gui_config = {
     'type': 'qt',

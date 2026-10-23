@@ -2722,8 +2722,8 @@
     - 520
     - 1160
     - 590
-    text: 游戏数据已更新
-    lcs_percent: 0.6
+    text: 游戏数据已更新，请重新登录。
+    lcs_percent: 0.9
     template_sub_dir: ''
     template_id: ''
     template_match_threshold: 0.7

@@ -431,8 +431,8 @@ def return_from_map(op, screen):
 def quick_nav_state(op, screen):
     """快捷导航 page: 3x3 region tiles above, the selected region's named points below.
 
-    The controller focus is an outline: a tile lights both side edges, a point lights the
-    edge under its label. Returns None for any other page.
+    The controller focus is an outline: a tile lights both side edges, a point has a
+    rounded card outline around its image and label. Returns None for any other page.
     """
     if not isinstance(screen, np.ndarray) or screen.shape[:2] != (1080, 1920):
         return None
@@ -450,8 +450,29 @@ def quick_nav_state(op, screen):
         x0, x1, y0, y1 = 12 + 636 * col, 636 + 636 * col, 102 + 279 * row, 368 + 279 * row
         lit = outlined(mask,y0 + 20, y1 - 20, x0 - 2, x0 + 10) and outlined(mask,y0 + 20, y1 - 20, x1 - 10, x1 + 2)
         tiles.append((_text(r.data), r.center, lit))
-    points = sorted(((_text(r.data), r.center, outlined(mask,1060, 1071, r.center.x - 110, r.center.x + 110))
-                     for r in rows if (has_cjk(r) or _text(r.data) == 'HDD') and 1015 < r.center.y < 1065), key=lambda p: p[1].x)
+    # Real point cards are ~291x130 at y=938, with only five lit rows in the old
+    # 1060:1071 bottom probe. A single dim/antialiased row loses that focus. Match
+    # both tall side edges instead; yellow artwork inside an unfocused card is not focus.
+    contours, _ = cv2.findContours(mask[925:1075].astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    boxes = [cv2.boundingRect(contour) for contour in contours]
+    # The A hint interrupts the top edge; losing the bottom edge splits the
+    # outline into two halves. Pair aligned tall halves before checking sides.
+    halves = [box for box in boxes if 110 < box[3] < 145]
+    for x, y, w, h in halves:
+        for right, other_y, other_w, other_h in halves:
+            if x < right and abs(y - other_y) < 15 and abs(h - other_h) < 25:
+                boxes.append((x, y, right + other_w - x, max(h, other_h)))
+    point_outlines = []
+    for x, y, w, h in boxes:
+        y += 925
+        if not (260 < w < 315 and 110 < h < 145 and 930 <= y <= 950):
+            continue
+        if outlined(mask, y + 20, y + h - 20, x, x + 7) and outlined(mask, y + 20, y + h - 20, x + w - 7, x + w):
+            point_outlines.append((x, y, w, h))
+    points = sorted(((_text(r.data), r.center,
+                      any(x + 15 < r.center.x < x + w - 15 and y + 85 < r.center.y < 1075
+                          for x, y, w, h in point_outlines))
+                     for r in rows if (has_cjk(r) or _text(r.data) == 'HDD') and 1000 < r.center.y < 1065), key=lambda p: p[1].x)
     if len(tiles) < 3 or not points:
         return None
     return dict(dialog=False, tiles=tiles, points=points)
@@ -530,7 +551,9 @@ def quick_nav(op, screen):
         # Focus is on the point strip, which lists the points of the lit (selected) region.
         if lit_tiles != [target_tile]:
             _press(op, 'back')
+            op._quick_nav_pending_area = None
             return op.round_wait('点位列表不属于目标区域，返回区域选择', wait=.8)
+        op._quick_nav_pending_area = op.area_name
         current = focused_points[0]
         if _match(current[0], op.tp_name):
             _press(op, 'confirm')
@@ -557,7 +580,10 @@ def quick_nav(op, screen):
         return op.round_wait(f'快捷导航焦点未唯一核验，未操作：{names}', wait=.6)
     current = lit_tiles[0]
     if current is target_tile:
+        if getattr(op, '_quick_nav_pending_area', None) == op.area_name:
+            return op.round_wait('等待目标区域点位焦点核验，未重复确认区域', wait=.6)
         _press(op, 'confirm')
+        op._quick_nav_pending_area = op.area_name
         return op.round_wait(f'手柄选择区域 {op.area_name}，等待传送点列表', wait=1.2)
     dx, dy = target_tile[1].x - current[1].x, target_tile[1].y - current[1].y
     direction = ('down' if dy > 0 else 'up') if abs(dy) > 140 else ('right' if dx > 0 else 'left')

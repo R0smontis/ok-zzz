@@ -35,6 +35,7 @@ class RestoreChargeEnum(Enum):
 
 # 只有入口具备「燃竭模式」（双倍电量、双倍奖励）开关的副本类别才能设置双倍次数
 DOUBLE_REWARD_CATEGORIES = frozenset({'专业挑战室'})
+DOUBLE_FALLBACK_OPTIONS = ('停止', '等体力单倍', '等次数单倍')
 
 
 @dataclass
@@ -49,6 +50,10 @@ class ChargePlanItem:
     plan_times: int = 1
     double_times: int = 0
     single_times: int | None = None  # 支持双倍的类别：单倍次数；其余类别等于计划次数
+    double_fallback: str = '停止'
+    fallback_single_runs: int = 0  # 等体力回退中，当前双倍次数已完成的单倍场数
+    _double_unavailable: bool = field(default=False, init=False, repr=False, compare=False,
+                                     metadata={'persist': False})
     card_num: str = CardNumEnum.DEFAULT.value.value  # 实战模拟室的卡片数量
     predefined_team_idx: int = -1  # 预备配队下标 -1为使用当前配队
     notorious_hunt_buff_num: int = 1  # 恶名狩猎 选择的buff
@@ -58,6 +63,10 @@ class ChargePlanItem:
     def __post_init__(self) -> None:
         if self.plan_id is None:
             self.plan_id = str(uuid.uuid4())
+        if self.double_fallback not in DOUBLE_FALLBACK_OPTIONS:
+            raise ValueError('无双倍时策略无效')
+        if type(self.fallback_single_runs) is not int or self.fallback_single_runs not in (0, 1):
+            raise ValueError('单倍回退进度必须为0或1')
         if self.supports_double_reward:
             if self.single_times is None:
                 self.single_times = self.plan_times - self.double_times
@@ -65,6 +74,9 @@ class ChargePlanItem:
         else:
             self.double_times = 0
             self.single_times = self.plan_times
+        if self.fallback_single_runs and (not self.supports_double_reward
+                or self.double_fallback != '等体力单倍' or self.run_times >= self.double_times):
+            raise ValueError('单倍回退进度与双倍计划不一致')
 
     @property
     def supports_double_reward(self) -> bool:
@@ -72,7 +84,23 @@ class ChargePlanItem:
 
     @property
     def use_double_reward(self) -> bool:
-        return self.run_times < self.double_times
+        return (self.run_times < self.double_times and not self._double_unavailable
+                and not self.fallback_single_runs)
+
+    def enable_double_fallback(self) -> bool:
+        if self.double_fallback == '停止' or self.run_times >= self.double_times:
+            return False
+        self._double_unavailable = True
+        return True
+
+    def record_completed_run(self) -> None:
+        if (self.run_times < self.double_times and not self.use_double_reward
+                and self.double_fallback == '等体力单倍'):
+            if not self.fallback_single_runs:
+                self.fallback_single_runs = 1
+                return
+            self.fallback_single_runs = 0
+        self.run_times += 1
 
     @property
     def is_agent_plan(self) -> bool:
@@ -201,6 +229,8 @@ class ChargePlanConfig(ApplicationConfig):
 
                 for plan in eligible:
                     plan.run_times -= plan.plan_times
+                    plan.fallback_single_runs = 0
+                    plan._double_unavailable = False
                 modified = True
 
             if not modified:
@@ -232,6 +262,8 @@ class ChargePlanConfig(ApplicationConfig):
 
         for plan in self.plan_list:
             plan.run_times = 0
+            plan.fallback_single_runs = 0
+            plan._double_unavailable = False
         self.update('last_daily_reset_dt', current_dt, save=False)
         self.save()
         return True
@@ -302,7 +334,7 @@ class ChargePlanConfig(ApplicationConfig):
                 continue
             if plan.run_times >= plan.plan_times:
                 continue
-            plan.run_times += 1
+            plan.record_completed_run()
             self.save()
             return
 
@@ -310,7 +342,7 @@ class ChargePlanConfig(ApplicationConfig):
         for plan in self.plan_list:
             if not self._is_same_plan(plan, to_add):
                 continue
-            plan.run_times += 1
+            plan.record_completed_run()
             self.save()
             return
 
@@ -346,9 +378,12 @@ class ChargePlanConfig(ApplicationConfig):
 
     def reset_plan_times_for_run(self) -> bool:
         """清零全部计划的已运行次数；返回是否有计划被清零。"""
-        changed = [plan for plan in self.plan_list if plan.run_times != 0]
+        changed = [plan for plan in self.plan_list if plan.run_times != 0 or plan.fallback_single_runs]
+        for plan in self.plan_list:
+            plan._double_unavailable = False
         for plan in changed:
             plan.run_times = 0
+            plan.fallback_single_runs = 0
         if changed:
             self.save()
         return bool(changed)

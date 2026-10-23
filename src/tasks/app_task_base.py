@@ -84,6 +84,11 @@ class AppTaskBase(ZzzBaseTask, BaseTask):
             for row in updates.get('plan_list', []):
                 if row['plan_id'] in existing:
                     row['run_times'] = existing[row['plan_id']].run_times
+                    prior = existing[row['plan_id']]
+                    row['fallback_single_runs'] = (prior.fallback_single_runs
+                        if row.get('double_fallback') == prior.double_fallback
+                        and row.get('category_name') == prior.category_name
+                        and row.get('double_times', 0) > prior.run_times else 0)
         if self.app_id == 'lost_void' and updates.get('mission_name') == '矩阵行动' \
                 and updates.get('matrix_team_mode') == '自定义编队':
             from zzz_od.application.hollow_zero.lost_void.matrix_team import resolve_agent_ids

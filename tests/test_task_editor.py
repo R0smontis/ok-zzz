@@ -50,13 +50,18 @@ def test_category_switch_shows_split_counts_only_for_double_capable_plans(editor
     widget = card.config_widget_by_key['plan_list']
     widget.add_plan()
     widget.editors[0]['plan_times'].setValue(4)
-    assert {'double_times', 'single_times'}.isdisjoint(widget.editors[0])
+    assert {'double_times', 'single_times', 'double_fallback', 'fallback_single_runs'}.isdisjoint(widget.editors[0])
     category = widget.editors[0]['category_name']
     category.setCurrentIndex(category.findData('专业挑战室'))
     _APP.processEvents()
     controls = widget.editors[0]
     assert 'plan_times' not in controls
     assert (controls['double_times'].value(), controls['single_times'].value()) == (0, 4)
+    assert controls['double_fallback'].currentData() == '停止'
+    assert controls['double_fallback'].accessibleName() == '无双倍时'
+    assert [controls['double_fallback'].itemData(i) for i in range(controls['double_fallback'].count())] == [
+        '停止', '等体力单倍', '等次数单倍']
+    assert 'fallback_single_runs' not in controls
     controls['double_times'].setValue(2)
     saved = json.loads(task.config['plan_list'])[0]
     assert (saved['double_times'], saved['single_times'], saved['plan_times']) == (2, 4, 6)
@@ -70,7 +75,7 @@ def test_category_switch_shows_split_counts_only_for_double_capable_plans(editor
     category.setCurrentIndex(category.findData('区域巡防'))
     _APP.processEvents()
     controls = widget.editors[0]
-    assert {'double_times', 'single_times'}.isdisjoint(controls)
+    assert {'double_times', 'single_times', 'double_fallback', 'fallback_single_runs'}.isdisjoint(controls)
     saved = json.loads(task.config['plan_list'])[0]
     assert (saved['double_times'], saved['plan_times']) == (0, 1)
     card.close()
@@ -83,6 +88,102 @@ def test_legacy_disabled_double_plan_runs_its_total_as_single():
     assert (rows[0]['double_times'], rows[0]['single_times'], rows[0]['plan_times']) == (0, 8, 8)
     assert (rows[0]['run_times'], rows[0]['plan_id']) == (1, 'kept')
     assert 'double_reward_enabled' not in rows[0]
+
+
+def test_legacy_plan_defaults_to_stopping_and_discards_skipped_flag():
+    row = parse_charge_plans([{'category_name': '专业挑战室', 'plan_times': 2,
+        'double_times': 1, 'skipped': True}])[0]
+    assert row['double_fallback'] == '停止'
+    assert row['fallback_single_runs'] == 0
+    assert 'skipped' not in row
+
+
+@pytest.mark.parametrize('strategy', ['停止', '等体力单倍', '等次数单倍'])
+def test_double_fallback_selection_and_half_progress_survive_reload(editor, strategy):
+    from zzz_od.application.charge_plan.charge_plan_config import ChargePlanItem
+    task, card = editor(App_ChargePlan)
+    widget = card.config_widget_by_key['plan_list']
+    half_progress = int(strategy == '等体力单倍')
+    row = ChargePlanItem(category_name='专业挑战室', double_times=2, single_times=1,
+        double_fallback='等体力单倍', fallback_single_runs=1).to_dict()
+    task.config['plan_list'] = json.dumps([row], ensure_ascii=False)
+    widget.update_value()
+    controls = widget.editors[0]
+    assert 'fallback_single_runs' not in controls
+    fallback = controls['double_fallback']
+    fallback.setCurrentIndex(fallback.findData(strategy))
+    saved = json.loads(task.config['plan_list'])[0]
+    assert saved['double_fallback'] == strategy
+    assert saved['fallback_single_runs'] == half_progress
+    assert saved['plan_id'] == row['plan_id']
+    card.close()
+    reloaded, card = editor(App_ChargePlan)
+    controls = card.config_widget_by_key['plan_list'].editors[0]
+    assert controls['double_fallback'].currentData() == strategy
+    assert 'fallback_single_runs' not in controls
+    assert json.loads(reloaded.config['plan_list'])[0]['fallback_single_runs'] == half_progress
+    card.close()
+
+
+@pytest.mark.parametrize('key, value', [
+    ('double_fallback', '停止'), ('double_fallback', '等次数单倍'),
+    ('category_name', '区域巡防')])
+def test_switching_fallback_or_category_clears_half_without_completing_a_run(editor, key, value):
+    from zzz_od.application.charge_plan.charge_plan_config import ChargePlanItem
+    task, card = editor(App_ChargePlan)
+    widget = card.config_widget_by_key['plan_list']
+    row = ChargePlanItem(category_name='专业挑战室', double_times=3, single_times=1,
+        run_times=1, double_fallback='等体力单倍', fallback_single_runs=1).to_dict()
+    task.config['plan_list'] = json.dumps([row], ensure_ascii=False)
+    widget.update_value()
+    control = widget.editors[0][key]
+    control.setCurrentIndex(control.findData(value))
+    _APP.processEvents()
+    saved = json.loads(task.config['plan_list'])[0]
+    assert saved[key] == value
+    assert saved['fallback_single_runs'] == 0
+    assert saved['run_times'] == 1
+    assert saved['plan_id'] == row['plan_id']
+    assert not widget.error_label.text()
+    if key == 'double_fallback':
+        assert (saved['double_times'], saved['single_times']) == (3, 1)
+        fallback = widget.editors[0]['double_fallback']
+        fallback.setCurrentIndex(fallback.findData('等体力单倍'))
+        saved = json.loads(task.config['plan_list'])[0]
+        assert saved['fallback_single_runs'] == 0 and saved['run_times'] == 1
+    else:
+        assert 'double_fallback' not in widget.editors[0]
+    card.close()
+
+
+@pytest.mark.parametrize('strategy', ['', '未知策略', None, True, 1, [], {}])
+def test_parser_rejects_unknown_double_fallback(strategy):
+    with pytest.raises((ValueError, TypeError)):
+        parse_charge_plans([{'category_name': '专业挑战室', 'double_fallback': strategy}])
+
+
+@pytest.mark.parametrize('progress', [-1, 2, 0.5, '1', None, False, True])
+def test_parser_rejects_invalid_fallback_half_progress(progress):
+    with pytest.raises((ValueError, TypeError)):
+        parse_charge_plans([{'fallback_single_runs': progress}])
+
+
+@pytest.mark.parametrize('progress', [0, 1])
+def test_parser_preserves_fallback_half_progress(progress):
+    row = parse_charge_plans([{'category_name': '专业挑战室', 'double_times': 1,
+        'single_times': 0, 'double_fallback': '等体力单倍', 'fallback_single_runs': progress}])[0]
+    assert row['fallback_single_runs'] == progress
+
+
+def test_parser_rejects_nonpersistent_fields_except_legacy_skipped():
+    from dataclasses import fields
+    from zzz_od.application.charge_plan.charge_plan_config import ChargePlanItem
+    runtime_fields = [item.name for item in fields(ChargePlanItem)
+        if not item.metadata.get('persist', True) and item.name != 'skipped']
+    assert '_double_unavailable' in runtime_fields
+    for name in runtime_fields:
+        with pytest.raises(ValueError, match='未知字段'):
+            parse_charge_plans([{name: False}])
 
 
 def test_charge_rows_edit_add_reorder_and_preserve_identity(editor):
@@ -379,6 +480,7 @@ def test_notorious_hunt_plans_use_hunt_targets_without_mission_names(editor):
     assert (row['tab_name'], row['category_name'], row['mission_name']) == ('训练', '恶名狩猎', None)
     controls = widget.editors[0]
     assert 'category_name' not in controls and 'mission_name' not in controls
+    assert {'double_fallback', 'fallback_single_runs'}.isdisjoint(controls)
     assert controls['mission_type_name'].findData('代理人方案培养') >= 0
     controls['mission_type_name'].setCurrentIndex(controls['mission_type_name'].findData('彷徨猎手'))
     controls['level'].setCurrentIndex(controls['level'].findData('等级Lv.65'))

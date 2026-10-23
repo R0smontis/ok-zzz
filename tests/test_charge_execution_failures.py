@@ -143,6 +143,62 @@ def test_burnout_changes_stop_at_bounded_attempts(monkeypatch):
     pressed.assert_not_called()
 
 
+@pytest.mark.parametrize('enabled', [False, True])
+def test_no_burnout_event_allows_only_normal_plan(monkeypatch, enabled):
+    rows = [('挑战奖励', 806, 699), ('挑战等级', 1490, 50), ('下一步', 1734, 1027)]
+    op = reward_op('expert-no-burnout', rows)
+    pressed = Mock()
+    monkeypatch.setattr(menus, 'pad_press', pressed)
+    result = menus.verified_reward_mode(op, op.last_screenshot, enabled)
+    assert result.is_fail if enabled else result.is_success
+    if enabled:
+        assert result.status == menus.NO_DOUBLE_REWARD
+    pressed.assert_not_called()
+
+
+@pytest.mark.parametrize('missing', ['挑战奖励', '挑战等级', '下一步'])
+def test_no_burnout_requires_loaded_entry(monkeypatch, missing):
+    rows = [(text, x, y) for text, x, y in
+            [('挑战奖励', 806, 699), ('挑战等级', 1490, 50), ('下一步', 1734, 1027)]
+            if text != missing]
+    op = reward_op('expert-no-burnout', rows)
+    monkeypatch.setattr(menus, 'pad_press', Mock())
+    assert menus.verified_reward_mode(op, op.last_screenshot, False).result == OperationRoundResultEnum.RETRY
+
+
+def test_visible_burnout_control_with_failed_ocr_is_not_absent(monkeypatch):
+    op = reward_op('expert-burnout-on',
+                   [('挑战奖励', 806, 699), ('挑战等级', 1490, 50), ('下一步', 1734, 1027)])
+    pressed = Mock()
+    monkeypatch.setattr(menus, 'pad_press', pressed)
+    assert menus.verified_reward_mode(op, op.last_screenshot, False).result == OperationRoundResultEnum.RETRY
+    pressed.assert_not_called()
+
+
+@pytest.mark.parametrize('policy,expected', [('停止', False), ('等体力单倍', True), ('等次数单倍', True)])
+def test_expert_falls_back_only_after_verified_absent_control(monkeypatch, policy, expected):
+    rows = [('挑战奖励', 806, 699), ('挑战等级', 1490, 50), ('下一步', 1734, 1027)]
+    op = reward_op('expert-no-burnout', rows)
+    op.plan = ChargePlanItem(category_name='专业挑战室', double_times=2, single_times=0,
+                             double_fallback=policy)
+    pressed = Mock()
+    monkeypatch.setattr(menus, 'pad_press', pressed)
+    result = op.close_burnout_mode()
+    assert result.is_success == expected
+    assert op.plan.use_double_reward != expected
+    assert op.plan.run_times == 0
+    pressed.assert_not_called()
+
+
+def test_missing_burnout_ocr_does_not_enable_fallback(monkeypatch):
+    op = reward_op('expert-burnout-on', [])
+    op.plan = ChargePlanItem(category_name='专业挑战室', double_times=2, single_times=0,
+                             double_fallback='等次数单倍')
+    monkeypatch.setattr(menus, 'pad_press', Mock())
+    assert op.close_burnout_mode().result == OperationRoundResultEnum.RETRY
+    assert op.plan.use_double_reward
+
+
 def world_cleanup(monkeypatch):
     cleanup = Mock()
     cleanup.execute.return_value = OperationResult(True, '大世界-普通')

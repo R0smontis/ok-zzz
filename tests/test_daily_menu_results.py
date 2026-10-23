@@ -103,6 +103,25 @@ def store():
     op.handle_init()
     return op
 
+@pytest.mark.parametrize('name,status',[
+    ('store-pending-20261022','已核验开始营业按钮'),
+    ('store-already-running',RandomPlayApp.STATUS_ALREADY_RUNNING),
+])
+def test_store_business_status_from_real_pending_and_running_pages(name,status):
+    op=store();fixture(op,name)
+    assert op.check_running().is_success
+    assert op.check_running().status==status
+    op.ctx.controller.btn_press.assert_not_called()
+
+
+@pytest.mark.parametrize('name',[
+    'store-business-confirmation','store-business-success-popup','store-promoter-list',
+])
+def test_store_business_status_never_accepts_other_store_pages(name):
+    op=store();fixture(op,name)
+    assert op.check_running().result==R.RETRY
+    op.ctx.controller.btn_press.assert_not_called()
+
 
 def test_small_promoter_confirm_is_read_without_full_footer_downscaling():
     op=store();fixture(op,'store-promoter-small-confirm')

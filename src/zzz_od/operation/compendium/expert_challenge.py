@@ -65,10 +65,15 @@ class ExpertChallenge(ZOperation):
     @node_from(from_name='等待入口加载')
     @operation_node(name='关闭燃竭模式', node_max_retry_times=10)
     def close_burnout_mode(self):
-        from src.navigation.menus import verified_reward_mode
-        return verified_reward_mode(
-            self, self.last_screenshot, self.plan.use_double_reward
-        )
+        from src.navigation.menus import NO_DOUBLE_REWARD, verified_reward_mode
+        if self.plan.fallback_single_runs:
+            self.plan.enable_double_fallback()
+        result = verified_reward_mode(self, self.last_screenshot, self.plan.use_double_reward)
+        if result.is_fail and result.status == NO_DOUBLE_REWARD:
+            if self.plan.enable_double_fallback():
+                return self.round_success('无双倍可用，已回退：' + self.plan.double_fallback)
+            return self.round_fail('当前无双倍可用，未启用单倍回退')
+        return result
 
     @node_from(from_name='关闭燃竭模式')
     @node_from(from_name='恢复电量', status=RestoreCharge.STATUS_RESTORE_SUCCESS)
