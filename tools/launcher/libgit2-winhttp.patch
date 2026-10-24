@@ -1,0 +1,14 @@
+diff --git a/libgit2/src/libgit2/transports/winhttp.c b/libgit2/src/libgit2/transports/winhttp.c
+--- a/libgit2/src/libgit2/transports/winhttp.c
++++ b/libgit2/src/libgit2/transports/winhttp.c
+@@ -33,8 +33,8 @@
+ #define WINHTTP_OPTION_PEERDIST_EXTENSION_STATE	109
+ #define CACHED_POST_BODY_BUF_SIZE	4096
+ #define UUID_LENGTH_CCH	32
+-#define TIMEOUT_INFINITE -1
+-#define DEFAULT_CONNECT_TIMEOUT 60000
++#define TIMEOUT_INFINITE 20000 /* Bound resolve/send/receive waits; never abandon a live Git worker. */
++#define DEFAULT_CONNECT_TIMEOUT 10000
+ #ifndef WINHTTP_IGNORE_REQUEST_TOTAL_LENGTH
+ #define WINHTTP_IGNORE_REQUEST_TOTAL_LENGTH 0
+ #endif

@@ -1,0 +1,174 @@
+diff --git a/src-tauri/src/app_service.rs b/src-tauri/src/app_service.rs
+index f8c43b2..ee40048 100644
+--- a/src-tauri/src/app_service.rs
++++ b/src-tauri/src/app_service.rs
+@@ -387,15 +387,27 @@ pub async fn load_app() -> Result<App, Error> {
+     *APP.lock().await = Some(app);
+     emit_app().await;
+ 
+-    if update_app_from_disk().await? {
+-        emit_app().await;
+-    } else {
+-        info!("Not emitting app from disk because no changes were detected from git.");
+-    }
++    let update_check_failed = match update_app_from_disk().await {
++        Ok(true) => {
++            emit_app().await;
++            false
++        }
++        Ok(false) => {
++            info!("Not emitting app from disk because no changes were detected from git.");
++            false
++        }
++        Err(error) => {
++            let app = get_app().await.ok_or_else(|| err!("App is not loaded."))?;
++            emit_error!(app.name, "Update check failed: {:?}. Keeping the installed version; manual Start remains available.", error);
++            send_notification(app.name.clone(), format!("Update check failed: {}. Keeping the installed version; manual Start remains available.", error));
++            true
++        }
++    };
+ 
+     let mut auto_start_guard = AUTO_START_CHECKED.lock().await;
+     if !*auto_start_guard {
+         *auto_start_guard = true;
++        drop(auto_start_guard);
+ 
+         let app_clone_for_checks = APP.lock().await.clone();
+ 
+@@ -482,6 +494,7 @@ pub async fn load_app() -> Result<App, Error> {
+ 
+             info!("locale is {}", get_locale());
+             if !update_failed
++                && !update_check_failed
+                 && app.installed
+                 && !app.available_versions.is_empty()
+                 && update_available
+@@ -534,6 +547,9 @@ pub async fn load_app() -> Result<App, Error> {
+                             update_failed = true;
+                         }
+                     }
++                    if let Some(refreshed_app) = APP.lock().await.clone() {
++                        app = refreshed_app;
++                    }
+                 } else {
+                     send_notification(
+                         app_name_clone.clone(),
+@@ -546,13 +562,14 @@ pub async fn load_app() -> Result<App, Error> {
+                 && !update_failed
+                 && app.update_state == AppUpdateState::Idle
+                 && app.installed
+-                && !app.available_versions.is_empty()
++                && (!app.available_versions.is_empty()
++                    || (update_check_failed && app.current_version.is_some()))
+             {
+                 info!("Scheduling auto-start for '{}' in 10 seconds.", app.name);
+                 let app_name_clone = app.name.clone();
+                 let auto_start_override = startup_overrides.auto_start;
++                let allow_cached_install = update_check_failed && app.current_version.is_some();
+                 AUTO_START_CANCELLED.store(false, AtomicOrdering::SeqCst);
+-                drop(auto_start_guard);
+                 if let Some(app_handle) = get_app_handle() {
+                     let app_handle_clone = app_handle.clone();
+                     tokio::spawn(async move {
+@@ -565,7 +582,8 @@ pub async fn load_app() -> Result<App, Error> {
+                                 current_app.name == app_name_clone
+                                     && auto_start_override.unwrap_or(current_app.auto_start)
+                                     && current_app.installed
+-                                    && !current_app.available_versions.is_empty()
++                                    && (!current_app.available_versions.is_empty()
++                                        || allow_cached_install)
+                                     && current_app.update_state == AppUpdateState::Idle
+                             })
+                         };
+@@ -578,6 +596,7 @@ pub async fn load_app() -> Result<App, Error> {
+                         info!("Auto-starting app '{}' after delay.", app_name_clone);
+                         if let Err(e) = start_app(app_handle_clone, app_name_clone.clone()).await {
+                             error!("Auto-start for app '{}' failed: {:?}", app_name_clone, e);
++                            send_notification(app_name_clone.clone(), format!("Automatic start failed: {}. Open the launcher console for details.", e));
+                         }
+                     });
+                 }
+@@ -1789,10 +1808,9 @@ pub async fn start_app(app_handle: AppHandle, app_name: String) -> Result<(), Er
+             "Windows app shortcuts were created or updated successfully."
+         );
+     } else {
+-        emit_info!(
+-            app_name,
+-            "Skipping shortcut creation because the app process was not detected after startup."
+-        );
++        let message = format!("App '{}' did not remain running after startup. Open the launcher console for the process error.", app_name);
++        emit_error!(app_name, "{}", message);
++        return Err(err!(message));
+     }
+     Ok(())
+ }
+diff --git a/src-tauri/src/utils/command.rs b/src-tauri/src/utils/command.rs
+index 96aae80..eb186d5 100644
+--- a/src-tauri/src/utils/command.rs
++++ b/src-tauri/src/utils/command.rs
+@@ -8,6 +8,15 @@ use tokio::process::Command;
+ use tracing::{debug, error, info};
+ use windows_sys::Win32::UI::Shell::IsUserAnAdmin;
+ 
++// Only downgrade recognized logging records, never arbitrary stderr containing
++// the word INFO (tracebacks and unstructured diagnostics remain errors).
++fn stderr_is_informational(line: &str) -> bool {
++    static RECORD: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(
++        r"^(?:\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[,.]\d+ - .+? - (?:DEBUG|INFO|WARNING) - |\[\d{2}:\d{2}:\d{2}\.\d+\] \[[^\]\r\n]+\] \[(?:DEBUG|INFO|WARNING)\]:|\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[,.]\d+ (?:DEBUG|INFO|WARNING) )"
++    ).expect("valid stderr log pattern"));
++    RECORD.is_match(line)
++}
++
+ pub async fn run_command_and_stream_output(
+     mut command: Command,
+     app_name: &str,
+@@ -84,16 +93,20 @@ pub async fn run_command_and_stream_output(
+             match stderr_buf_reader.read_line(&mut buffer).await {
+                 Ok(0) => break,
+                 Ok(_) => {
+-                    let err_string = buffer.to_string();
+-                    buffer.clear();
+-                    if !err_string.trim().is_empty()
+-                        && !err_string.contains("A new release of pip is available")
+-                        && !err_string.contains("[notice] To update, run")
++                    let line = buffer.trim_end();
++                    if !line.trim().is_empty()
++                        && !line.contains("A new release of pip is available")
++                        && !line.contains("[notice] To update, run")
+                     {
+-                        emit_error!(app_name_for_stderr, "{}", err_string);
++                        if stderr_is_informational(line) {
++                            emit_info!(app_name_for_stderr, "{}", line);
++                        } else {
++                            emit_error!(app_name_for_stderr, "{}", line);
++                        }
+                     } else {
+-                        debug!("not emitting black listed stderr {}", err_string);
++                        debug!("not emitting black listed stderr {}", line);
+                     }
++                    buffer.clear();
+                 }
+                 Err(e) => {
+                     emit_error!(app_name_for_stderr, "Error reading stderr line: {}", e);
+@@ -116,6 +129,21 @@ pub async fn run_command_and_stream_output(
+     Ok(status)
+ }
+ 
++#[cfg(test)]
++mod stderr_tests {
++    use super::stderr_is_informational;
++
++    #[test]
++    fn recognizes_python_logging_without_hiding_errors() {
++        assert!(stderr_is_informational("2026-10-24 15:05:14,405 - onnxocr - INFO - use_npu: False"));
++        assert!(stderr_is_informational("[15:05:25.445] [app_registry.py 84] [INFO]: 应用注册完成"));
++        assert!(stderr_is_informational("2026-10-24 15:05:14,405 INFO MainThread app:ready"));
++        assert!(!stderr_is_informational("2026-10-24 15:05:14,405 - onnxocr - ERROR - failed INFO"));
++        assert!(!stderr_is_informational("Traceback (most recent call last):"));
++        assert!(!stderr_is_informational("RuntimeError: INFO unavailable"));
++    }
++}
++
+ pub fn command_to_string(command: &std::process::Command) -> String {
+     let program_path = command.get_program();
+     let arguments: Vec<&str> = command.get_args().filter_map(|arg| arg.to_str()).collect();

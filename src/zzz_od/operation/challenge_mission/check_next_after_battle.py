@@ -91,7 +91,7 @@ class ChooseNextOrFinishAfterBattle(ZOperation):
         result = self.round_by_find_area(self.last_screenshot, '恢复电量', '标题-恢复电量')
         if not result.is_success:
             # 没有恢复弹窗，说明这次“再来一次”已直接生效
-            return self.round_success(status='战斗结果-再来一次')
+            return self.round_success(status='战斗结果-再来一次' if self.try_next else '战斗结果-完成')
 
         config: ChargePlanConfig = self.ctx.run_context.get_config(
             app_id=charge_plan_const.APP_ID,
@@ -108,6 +108,9 @@ class ChooseNextOrFinishAfterBattle(ZOperation):
             self.try_next = op_result.status == RestoreCharge.STATUS_RESTORE_SUCCESS
         else:
             self.try_next = False
+            if getattr(self.ctx.controller, 'background_mode', False):
+                pad(self.ctx, 'b')
+                return self.round_wait('未启用恢复电量，关闭弹窗后重新核验结算画面', wait=.5)
             result = self.round_by_find_and_click_area(self.last_screenshot, '恢复电量', '取消',
                                                        success_wait=1, retry_wait=1)
             if not result.is_success:

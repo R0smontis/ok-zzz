@@ -1,6 +1,6 @@
 [project]
 name = "ok-zzz"
-version = "0.2.5"
+version = "0.2.6"
 description = "绝区零自动化助手 — 基于 ok-script 重写（移植自 ZenlessZoneZero-OneDragon）"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"

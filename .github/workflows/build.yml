@@ -179,8 +179,22 @@ jobs:
             exit 1
           }
 
+      - name: Set up Node for native launcher
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install pnpm
+        run: npm install --global pnpm@10
+
+      - name: Build pinned patched PyAppify launcher
+        shell: pwsh
+        run: ./tools/launcher/build.ps1 -BuildDir "$env:RUNNER_TEMP/p"
+
       - name: Build launcher and installers
         uses: ok-oldking/pyappify-action@c5cc8fe5c9bd5c732969018694a2645474c48b7e # master 2026-10-18
+        with:
+          version: v1.2.3
 
       - name: Stage release assets
         uses: actions/upload-artifact@v4
