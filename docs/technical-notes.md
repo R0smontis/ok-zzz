@@ -389,3 +389,9 @@ deploy/                # 可选：手工 PyInstaller/NSIS 打包（发布走 PyA
 本机已备份旧EXE及相关Python文件到 `debug/runtime-fix-20261024-backup/`，替换 `D:/ok-zzz/ok-zzz.exe` 后从真实启动器启动：16:10:19 Fetch complete，16:10:20安排自动启动，16:10:30实际启动并确认进程，16:10:37助手窗口正常显示；此阶段正常OCR INFO不再显示ERROR。账号配置、auto_start与补充选项未修改。全量Python回归1539通过、2跳过（1项既有音频素材警告）；随后补充禁用恢复返回结算分支，相关130项通过。
 
 该原生修复需要更换启动器EXE或使用包含补丁的新安装包；只更新Python工作目录不会更新启动器。本次未发布新版本。最后禁用补充分支修正同步后再次经真实启动器正常启动，已加载本轮全部修复。
+
+### 2026-10-24 启动器被 Defender 隔离导致更新检查失败
+
+更新到 v0.2.6 后「关于」页报 `PyAppify executable was not found`，并非代码缺失：Windows Defender 将新启动器判定为 `Trojan:Win32/Bearfoos.A!ml`（机器学习误报，ThreatID 2147731250），在 16:57:35 隔离了 `D:\ok-zzz\ok-zzz.exe` 及启动器快捷方式，随后恢复。还原后同一调用返回 `v0.2.6`，更新检查正常。
+
+现在「关于」页遇到该异常时改为显示可操作说明（启动器可能被安全软件隔离，恢复文件或重新安装），不再显示英文原始异常；README 常见问题补充恢复与排除项步骤。用户环境已把 `D:\ok-zzz` 加入 Defender 排除项。

@@ -62,6 +62,17 @@ def supports_online_updates(module):
 STATUS_UNBROKEN_WIDTH = 160
 """Status texts up to this width (e.g. 「已是最新版本。」) never wrap."""
 
+LAUNCHER_MISSING_MARKER = 'PyAppify executable was not found'
+LAUNCHER_MISSING_HINT = ('检查更新失败：未找到启动器 ok-zzz.exe，可能被安全软件隔离；'
+                         '请恢复安装目录中的该文件或重新安装')
+
+
+def update_status_text(message):
+    """Replace the launcher lookup exception with an actionable explanation."""
+    if LAUNCHER_MISSING_MARKER in str(message):
+        return LAUNCHER_MISSING_HINT
+    return message
+
 
 def fit_update_status(card):
     """Give the about page's update status room before the spacer takes it.
@@ -82,6 +93,7 @@ def fit_update_status(card):
     original_set = card._set_status
 
     def set_status(message, error=False):
+        message = update_status_text(message)
         original_set(message, error)
         width = label.fontMetrics().horizontalAdvance(str(message)) + 2
         label.setMinimumWidth(min(width, STATUS_UNBROKEN_WIDTH, label.maximumWidth()))

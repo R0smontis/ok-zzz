@@ -206,3 +206,26 @@ def test_short_update_status_is_not_broken_into_lines(width):
         card.close()
         card.deleteLater()
         qt.processEvents()
+
+
+def test_quarantined_launcher_error_becomes_actionable_hint():
+    from src.runtime.startup import LAUNCHER_MISSING_HINT, install_update_compat, update_status_text
+    from ok.ui.qt.about.UpdateCard import UpdateCard
+    raw = ('检查更新失败：PyAppify executable was not found. Set PYAPPIFY_EXECUTABLE to an existing '
+           'executable or place <app_name>.exe between the working directory and the app root.')
+    assert update_status_text(raw) == LAUNCHER_MISSING_HINT
+    assert 'ok-zzz.exe' in LAUNCHER_MISSING_HINT and '安全软件' in LAUNCHER_MISSING_HINT
+    assert update_status_text('检查更新失败：网络错误') == '检查更新失败：网络错误'
+    qt = QApplication.instance() or QApplication([])
+    install_update_compat()
+    module = SimpleNamespace(pyappify_version='1.0', get_version_list=Mock(return_value=[]))
+    card = UpdateCard('0.2.2', module)
+    try:
+        card._set_version_controls_visible(True)
+        card._set_status(raw, error=True)
+        assert card.status_label.text() == LAUNCHER_MISSING_HINT
+        assert card.status_label.toolTip() == LAUNCHER_MISSING_HINT
+    finally:
+        card.close()
+        card.deleteLater()
+        qt.processEvents()
