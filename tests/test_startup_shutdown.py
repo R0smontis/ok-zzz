@@ -166,6 +166,44 @@ def test_uninitialized_context_is_not_created_during_exit(monkeypatch):
     assert '_auto_battle_context' not in context.__dict__
 
 
+def test_realtime_dodge_switch_waits_for_context_instead_of_building_it(monkeypatch, tmp_path):
+    """Creating the assistant at startup used to build ZzzContext and the battle engine on the UI thread."""
+    from ok import og
+    from ok.util.config import Config
+    from src.globals import Globals
+    from src.tasks.auto_combat_task import AutoCombatTask
+    import zzz_od.application.app_registry as registry
+    import zzz_od.context.zzz_context as zzz_context
+    app = Globals.__new__(Globals)
+    app._context, app._context_lock, app._context_callbacks, app._stopped = None, threading.Lock(), [], False
+    monkeypatch.setattr(og, 'my_app', app)
+    monkeypatch.setattr(og, 'executor', None)
+    task = AutoCombatTask(executor=SimpleNamespace(scene=None, get_all_tasks=lambda: []), app=og.app)
+    task.config = Config(type(task).__name__, task.default_config, folder=str(tmp_path), validator=task.validate)
+    created = []
+
+    class FakeContext:
+        def __init__(self, **_):
+            self.auto_battle_context = SimpleNamespace(realtime_dodge_enabled_provider=None)
+            created.append(self)
+
+        def init(self):
+            pass
+
+    monkeypatch.setattr(zzz_context, 'ZContext', FakeContext)
+    monkeypatch.setattr(registry, 'discover_factories', lambda context: None)
+    monkeypatch.setattr(Globals, '_adopt_game_path', staticmethod(lambda context: None))
+    task.on_create()
+    try:
+        assert created == [] and app.context_if_ready() is None
+        provider = app.context.auto_battle_context.realtime_dodge_enabled_provider
+        assert provider() is True
+        task.config['优先实时闪避'] = False
+        assert provider() is False  # The switch is read live, not captured at creation.
+    finally:
+        task.on_destroy()
+
+
 def test_audio_stop_precedes_executor_shutdown(monkeypatch):
     from zzz_od.auto_battle import auto_battle_dodge_context as module
     order = []

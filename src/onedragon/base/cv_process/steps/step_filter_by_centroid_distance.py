@@ -7,7 +7,6 @@
 from typing import Dict, Any
 import cv2
 import numpy as np
-from scipy.spatial import KDTree
 from onedragon.base.cv_process.cv_step import CvStep, CvPipelineContext
 
 
@@ -57,7 +56,8 @@ class CvStepFilterByCentroidDistance(CvStep):
             context.analysis_results.append(f"有效轮廓数量不足2，无法过滤")
             return
 
-        # 构建K-D树
+        # 构建K-D树（scipy.spatial 仅此步骤使用，首次执行时导入，避免拖慢启动）
+        from scipy.spatial import KDTree
         kdtree = KDTree(centroids)
 
         # 查找每个点的邻居

@@ -377,10 +377,16 @@ class BattleTriggerTask(ZzzBaseTask, TriggerTask):
     def on_create(self):
         super().on_create()
         if self.config_sub_dir == 'auto_battle':
-            self.ctx.auto_battle_context.realtime_dodge_enabled_provider = (
-                lambda: bool(self.config.get('优先实时闪避', True)))
+            # Creating ZzzContext here built the whole battle engine on the UI thread at startup.
+            from ok import og
+            og.my_app.when_context_ready(self._install_realtime_dodge_provider)
         from ok.core.events import communicate
         communicate.executor_paused.connect(self._on_executor_paused)
+
+    def _install_realtime_dodge_provider(self, context):
+        # Runs under the context lock: use only the passed context, never self.ctx.
+        context.auto_battle_context.realtime_dodge_enabled_provider = (
+            lambda: bool(self.config.get('优先实时闪避', True)))
 
     def _on_executor_paused(self, paused):
         if paused:

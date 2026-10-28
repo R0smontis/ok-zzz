@@ -39,6 +39,7 @@ class Globals:
         self.exit_event = exit_event
         self._context = None
         self._context_lock = threading.Lock()
+        self._context_callbacks = []
         self._shutdown_lock = threading.Lock()
         self._stopped = False
         if hasattr(exit_event, 'bind_stop'):
@@ -150,6 +151,18 @@ class Globals:
         """已初始化的 ZzzContext；未创建时返回 None，且不会触发创建。"""
         return self._context
 
+    def when_context_ready(self, callback):
+        """Run `callback(context)` now if the context exists, otherwise right after it is created.
+
+        Startup registration must not build ZzzContext (and its battle engine) on the UI thread.
+        """
+        with self._context_lock:
+            if self._context is None:
+                self._context_callbacks.append(callback)
+                return
+            context = self._context
+        callback(context)
+
     @property
     def context(self):
         """ZzzContext 惰性创建（需要 ok-script 完成设备初始化后调用）。
@@ -174,6 +187,9 @@ class Globals:
                 discover_factories(context)
                 context.init()
                 self._adopt_game_path(context)
+                for callback in self._context_callbacks:
+                    callback(context)
+                self._context_callbacks.clear()
                 self._context = context
                 logger.info('ZzzContext 已创建并完成应用注册')
             return self._context

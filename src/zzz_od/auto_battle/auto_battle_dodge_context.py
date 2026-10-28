@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 from cv2.typing import MatLike
-from scipy.signal import butter, correlate, filtfilt, resample_poly
 
 from onedragon.base.conditional_operation.state_recorder import StateRecord
 from onedragon.base.operation.context_notify_event import ContextNotifyEvent
@@ -66,6 +65,7 @@ def load_wav(path: str, sample_rate: int) -> np.ndarray:
         data = (data.astype(np.float64) - offset) / (info.max + 1 - offset)
     samples = to_mono(np.asarray(data, dtype=np.float64).T)
     if source_rate != sample_rate:
+        from scipy.signal import resample_poly
         divisor = math.gcd(int(source_rate), int(sample_rate))
         samples = resample_poly(samples, sample_rate // divisor, source_rate // divisor)
     return samples.astype(np.float32)
@@ -91,17 +91,19 @@ class AudioRecorder:
         self._filter_degree = 4  # 四阶bathworth多项式, 越大阻带区域滤波程度越大
         self._cut_off = 1000  # Hz,截止频率,对该频率一下的声音进行滤波,若需要识别人声可适当降低
 
-        # Butterworth高通滤波
-        self.filter_b, self.filter_a = butter(
-            self._filter_degree,
-            self._cut_off,
-            btype='highpass',
-            output='ba',
-            fs=self._sample_rate
-        )
+        # Butterworth高通滤波系数在首次识别声音时计算：scipy.signal 导入约 0.7 秒，不应拖慢界面启动
+        self._filter_coefficients: tuple[np.ndarray, np.ndarray] | None = None
 
         self.latest_audio = np.empty(shape=(0,), dtype=np.float64)  # 存储最新的音频数据
         self._update_audio_lock = threading.Lock()
+
+    @property
+    def filter_coefficients(self) -> tuple[np.ndarray, np.ndarray]:
+        if self._filter_coefficients is None:
+            from scipy.signal import butter
+            self._filter_coefficients = butter(self._filter_degree, self._cut_off, btype='highpass',
+                                               output='ba', fs=self._sample_rate)
+        return self._filter_coefficients
 
     def start_running_async(self) -> None:
         """
@@ -433,7 +435,7 @@ class AutoBattleDodgeContext:
         wx = scale_by_std(x)
         wy = scale_by_std(y)
 
-        # 计算NCC
+        from scipy.signal import correlate
         if wx.shape[0] > wy.shape[0]:
             correlation = correlate(wx, wy, mode='same', method='fft') / wx.shape[0]
         else:
@@ -449,10 +451,9 @@ class AutoBattleDodgeContext:
         :param x: 音频信号x
         :return: 滤波后波形
         """
-        wx = filtfilt(self._audio_recorder.filter_b,
-                      self._audio_recorder.filter_a,
-                      x)
-        return wx
+        from scipy.signal import filtfilt
+        b, a = self._audio_recorder.filter_coefficients
+        return filtfilt(b, a, x)
 
     def start_context_async(self) -> None:
         """

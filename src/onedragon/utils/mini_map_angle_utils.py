@@ -8,7 +8,6 @@ from functools import lru_cache
 import cv2
 import numpy as np
 from cv2.typing import MatLike
-from scipy import signal
 
 
 @lru_cache
@@ -89,6 +88,7 @@ def create_angular_histogram_from_peaks(
     """
     # 1. 找到所有峰值在一维数组中的索引
     #    `signal.find_peaks` 返回一个元组，第一个元素是峰值的索引数组
+    from scipy import signal  # 仅小地图朝向识别使用，导入约 0.7 秒，不在模块加载时执行
     peak_indices = signal.find_peaks(
         gradient_signal,
         height=35,  # 峰值最小高度，过滤弱梯度
@@ -121,6 +121,7 @@ def peak_confidence(arr: np.ndarray) -> float:
     # 将数组重复3次连接，这样可以处理周期性数据（角度是周期性的）
     # 这样做可以避免在数组边界处丢失峰值
     extended_arr = np.concatenate((arr, arr, arr))
+    from scipy import signal
     peak_indices, properties = signal.find_peaks(
         extended_arr,
         height=0,
@@ -174,6 +175,7 @@ def convolve(arr: np.ndarray, kernel: int = 3) -> np.ndarray:
     # 2. 使用 SciPy 的 convolve 函数进行高效卷积
     #    mode='same' 确保输出与输入大小相同。
     #    method='fft' 利用快速傅里叶变换，对周期性数据处理得又快又好。
+    from scipy import signal
     return signal.convolve(arr, triangle_kernel, mode='same', method='fft')
 
 
