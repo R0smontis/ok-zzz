@@ -134,3 +134,11 @@ def test_report_is_only_sent_after_confirmation(reporting_ui, monkeypatch, tmp_p
         assert revealed == [archive]
     else:
         assert opened == [] and revealed == []
+
+
+def test_config_masking_keeps_fields_that_only_start_with_a_secret_word():
+    from src.diagnostics.error_report import sanitize_config
+    masked = sanitize_config({'账号 01 执行计划': '邮件 → 体力刷本', 'account': 'me', 'game_password': 'x',
+                              '手机号': '138', 'token': 't', '启用应用': ['邮件']})
+    assert masked == {'账号 01 执行计划': '邮件 → 体力刷本', 'account': '***', 'game_password': '***',
+                      '手机号': '***', 'token': '***', '启用应用': ['邮件']}

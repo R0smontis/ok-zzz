@@ -302,7 +302,9 @@ class GameRuntime:
                            **{f'pad_{b}': f'xbox_{b}' for b in self.PAD_BUTTONS}}
                           if pad else {'confirm': 'enter', 'back': 'esc', 'menu': 'esc',
                            **{f'dpad_{d}': d for d in ('up', 'down', 'left', 'right')}})
-                key = extras.get(action) or self.keys.get(action)
+                from src.live.service import pad_combo
+                combo = pad_combo(action, self.PAD_BUTTONS) if pad else None
+                key = ([f'xbox_{b}' for b in combo] if combo else extras.get(action) or self.keys.get(action))
                 if key is None:
                     raise LiveError('该动作需要手柄后台模式')
                 if pad:

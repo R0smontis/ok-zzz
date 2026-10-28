@@ -440,6 +440,125 @@ def test_new_season_intro_is_clicked_in_foreground_mode():
     op.ctx.controller.btn_press.assert_not_called()
 
 
+def menu_op(name):
+    from zzz_od.application.email_app.email_app import EmailApp
+    op=operation(EmailApp);fixture(op,name)
+    return op
+
+
+def test_keyboard_prompt_menu_reveals_the_controller_focus_before_moving():
+    from src.navigation.menus import main_menu_target
+    op=menu_op('menu-keyboard-prompts')  # User screenshot 2026-10-28: no item focused.
+    result=main_menu_target(op,'邮件')
+    assert result.result==R.WAIT and pressed_buttons(op)==['xbox_dpad_right']
+    assert main_menu_target(op,'邮件').result==R.WAIT  # Still no focus: one more reveal.
+    result=main_menu_target(op,'邮件')
+    assert result.is_fail and '手柄焦点' in result.status
+    assert 'xbox_a' not in pressed_buttons(op)
+
+
+def test_controller_menu_moves_to_and_opens_the_target():
+    from src.navigation.menus import main_menu_target
+    op=menu_op('menu-gamepad-focus')  # 邮件 focused.
+    assert main_menu_target(op,'邮件').result==R.WAIT and pressed_buttons(op)==['xbox_a']
+    op=menu_op('menu-gamepad-focus')
+    main_menu_target(op,'设置')
+    assert pressed_buttons(op)==['xbox_dpad_right']
+
+
+def test_menu_with_missing_and_unknown_items_still_navigates_directly():
+    from src.navigation.menus import main_menu_target
+    op=menu_op('menu-gamepad-focus')
+    rows=op.ctx.ocr_service.get_ocr_result_list(image=op.last_screenshot,rect=Rect(0,0,1920,1080))
+    kept=[r for r in rows if norm(r.data) not in ('勘域编队','丽都城募','商城','绳网','成就')]
+    kept.append(SimpleNamespace(data='活动中心',center=Rect(1650,1028,1730,1052).center))  # Not on the known list.
+    op.ctx.ocr_service=SimpleNamespace(get_ocr_result_list=lambda image,rect,**_: [
+        r for r in kept if rect.x1<=r.center.x<rect.x2 and rect.y1<=r.center.y<rect.y2])
+    main_menu_target(op,'代理人')
+    assert pressed_buttons(op)==['xbox_dpad_right']  # Direct way; no wrap assumed on a partial bar.
+
+
+def test_expert_entry_without_burnout_accepts_a_split_next_step_label():
+    from zzz_od.operation.compendium.expert_challenge import ExpertChallenge
+    from src.navigation.menus import NO_DOUBLE_REWARD, verified_reward_mode
+    op=operation(ExpertChallenge);fixture(op,'expert-entry-no-burnout')  # Live 征服者 page, OCR read only 「步」.
+    assert verified_reward_mode(op,op.last_screenshot,False).is_success
+    result=verified_reward_mode(op,op.last_screenshot,True)
+    assert result.is_fail and result.status==NO_DOUBLE_REWARD
+    assert not pressed_buttons(op)
+
+
+def norm(value):
+    return str(value).strip().replace(' ','')
+
+
+def store_presses(op):
+    return [c.args[0] for c in op.ctx.controller.btn_press.call_args_list]
+
+
+def test_random_promoter_accepts_shop_staff_who_are_not_agents():
+    op=store();fixture(op,'store-promoters-staff')  # 丝琪 focused; 丝琪/塔维斯/邦布18 are not agents.
+    assert op.choose_promoter().result==R.RETRY
+    assert store_presses(op)==['xbox_a'] and op._pad_promoter_name=='丝琪'
+
+
+def test_random_promoter_with_an_unreadable_name_is_still_chosen_and_verified():
+    op=store();rows=fixture(op,'store-promoters-staff')
+    rows[:]=[r for r in rows if not (r.center.x<450 and r.center.y<210)]  # Name not readable.
+    assert op.choose_promoter().result==R.RETRY
+    assert store_presses(op)==['xbox_a'] and op._pad_promoter_name is None
+    rows=fixture(op,'store-business-empty-slots')
+    assert op.choose_promoter().result==R.RETRY  # Slots still empty: not applied yet.
+    rows.append(SimpleNamespace(data='丝琪',center=Rect(940,525,990,555).center))
+    assert op.choose_promoter().is_success
+
+
+def test_configured_agent_missing_from_promoters_falls_back_after_one_sweep():
+    op=store();fixture(op,'store-promoters-staff')
+    op.config=SimpleNamespace(agent_name_1='艾莲',agent_name_2='艾莲')
+    results=[op.choose_promoter().status for _ in range(3)]  # The static frame never moves: list end.
+    assert store_presses(op)==['xbox_dpad_right','xbox_dpad_right','xbox_a']
+    assert op._pad_promoter_fallback and op._pad_promoter_name=='丝琪'
+
+
+def test_business_status_tolerates_merged_button_text():
+    op=store();rows=fixture(op,'store-business-empty-slots')
+    for r in rows:
+        if r.data=='开始营业':
+            r.data='X开始营业'
+    assert op.check_running().status=='已核验开始营业按钮'
+
+
+def test_city_fund_opens_with_its_controller_shortcut_before_the_menu(monkeypatch):
+    from onedragon.base.screen import screen_utils
+    import zzz_od.application.city_fund.city_fund_app as module
+    op=operation(CityFundApp);op.handle_init();fixture(op,'menu-gamepad-focus')
+    monkeypatch.setattr(screen_utils,'is_target_screen',lambda ctx,screen,screen_name=None,**_: screen_name=='大世界-普通')
+    menu=Mock(side_effect=AssertionError('main menu used before the shortcut'))
+    monkeypatch.setattr(module,'GotoMenu',menu)
+    assert op.open_menu().result==R.WAIT and op.open_menu().result==R.WAIT
+    assert [c.kwargs for c in op.ctx.controller.click.call_args_list]==[{'gamepad_key':'city_fund'}]*2
+    menu.side_effect=None
+    menu.return_value.execute.return_value=SimpleNamespace(success=True,status='菜单')
+    op.round_by_op_result=lambda result: op.round_success(result.status)
+    assert op.open_menu().status=='菜单'  # Two shortcut presses changed nothing: fall back to the menu.
+
+
+def test_city_fund_shortcut_step_passes_when_the_fund_or_season_page_shows():
+    op=operation(CityFundApp);op.handle_init();fixture(op,'city-task-tab')
+    assert op.open_menu().is_success
+    op=operation(CityFundApp);op.handle_init();fixture(op,'city-fund-picker-pad')
+    assert op.open_menu().is_success
+    op.ctx.controller.click.assert_not_called()
+
+
+@pytest.mark.parametrize('red',[247,152,128])
+def test_business_confirm_focus_is_seen_across_the_fill_pulse(red):
+    op=store();fixture(op,'store-business-empty-slots')
+    op.last_screenshot[600:650,990:1240]=(red,195,0)  # Yellow ... yellow-green ends of the pulse.
+    assert op._start_confirm_focused()
+
+
 def test_store_recovery_cannot_turn_failure_into_success(monkeypatch):
     op=store()
     monkeypatch.setattr(RandomPlayApp,'previous_node',property(lambda self:SimpleNamespace(name='点击宣传员入口',is_success=False,status='入口失败')))

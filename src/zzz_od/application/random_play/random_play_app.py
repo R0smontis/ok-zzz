@@ -11,6 +11,7 @@ from cv2.typing import MatLike
 
 from onedragon.base.config.config_item import get_config_item_from_enum
 from onedragon.base.geometry.point import Point
+from src.navigation.common import cjk_count
 from src.navigation.menus import pad_press, menu_words, selected_tab
 from onedragon.base.geometry.rectangle import Rect
 from onedragon.base.matcher.match_result import MatchResult
@@ -77,17 +78,39 @@ class RandomPlayApp(ZApplication):
         self._business_failure=None
         self._pad_promoter_name=None
         self._pad_promoter_confirms=0
+        self._pad_promoter_seen=[]
+        self._pad_promoter_fallback=False
         self._pad_recommended=0
         self._pad_business_confirms=0
         self._business_success_seen=False
 
+    BUSINESS_STATES=('正在营业','开始营业')
+
+    def _business_state(self):
+        """'正在营业' / '开始营业' from the bottom-right button; OCR may merge its button letter or a timer."""
+        footer=''.join(menu_words(self,Rect(1450,840,1900,1000)))
+        return next((state for state in self.BUSINESS_STATES if state in footer),None)
+
     def _business_page(self):
         tabs=menu_words(self,Rect(1200,10,1900,100))
-        footer=menu_words(self,Rect(1450,840,1900,1000))
-        return '经营状况' in tabs and any(w in footer for w in ('开始营业','正在营业'))
+        return '经营状况' in tabs and self._business_state() is not None
 
     def _business_cards(self):
         return menu_words(self,Rect(870,510,1800,570))
+
+    def _promoter_applied(self):
+        """The first promoter card shows the chosen promoter; any readable name counts when it had none."""
+        cards=[w for w in self._business_cards() if w!='选择宣传员']
+        if self._pad_promoter_name:
+            return self._pad_promoter_name in cards
+        return self._pad_promoter_confirms>0 and any(cjk_count(w)>=2 or w[-2:].isdigit() for w in cards)
+
+    def _confirm_promoter(self,name):
+        if self._pad_promoter_confirms>=3:
+            return self.round_fail('宣传员选择未生效')
+        self._pad_promoter_name=name
+        pad_press(self,'a');self._pad_promoter_confirms+=1
+        return self.round_retry('确认宣传员，等待实际经营页面',wait=1)
 
     def _business_slogan_popup(self):
         """开始营业后的口号弹窗：横幅中一行口号，正下方居中唯一的「确认」。
@@ -108,8 +131,11 @@ class RandomPlayApp(ZApplication):
     def _start_confirm_focused(self):
         """「是否准备营业?」的「确认」按钮是否带焦点（黄绿色底）。"""
         import numpy as np
+        from src.navigation.common import focus_mask
+        # The fill pulses between yellow and yellow-green; red drops to ~150 and below at its dim end
+        # (live 2026-10-28: the stricter red>150 test missed it until the node gave up).
         part=self.last_screenshot[595:655,980:1250]
-        return np.mean((part[:,:,0]>150)&(part[:,:,1]>140)&(part[:,:,2]<100))>=.3
+        return bool(part.size) and np.mean(focus_mask(part))>=.3
 
     def _promoter_page(self):
         # The full-width footer downscales the small confirm text below OCR's
@@ -121,8 +147,9 @@ class RandomPlayApp(ZApplication):
     def _business_focus(self):
         import cv2
         import numpy as np
+        from src.navigation.common import focus_mask
         part=self.last_screenshot[560:855,850:1810]
-        mask=((part[:,:,0]>150)&(part[:,:,1]>140)&(part[:,:,2]<100)).astype(np.uint8)
+        mask=focus_mask(part).astype(np.uint8)
         contours,_=cv2.findContours(mask,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
         boxes=[cv2.boundingRect(c) for c in contours]
         boxes=[b for b in boxes if b[2]>150 and b[3]>240]
@@ -216,12 +243,13 @@ class RandomPlayApp(ZApplication):
     @operation_node(name='识别营业状态')
     def check_running(self) -> OperationRoundResult:
         if getattr(self.ctx.controller,'background_mode',False):
-            words=menu_words(self,Rect(1450,840,1900,1000))
-            if '正在营业' in words:
+            state=self._business_state()
+            if state=='正在营业':
                 return self.round_success(self.STATUS_ALREADY_RUNNING)
-            if '开始营业' in words:
+            if state=='开始营业':
                 return self.round_success('已核验开始营业按钮')
-            return self.round_retry('等待实际营业状态',wait=1)
+            words='、'.join(menu_words(self,Rect(1450,840,1900,1000))) or '无文字'
+            return self.round_retry(f'等待实际营业状态（右下角：{words}）',wait=1)
         result = self.round_by_find_area(self.last_screenshot, '影像店营业', '正在营业')
         if result.is_success:
             return self.round_success(RandomPlayApp.STATUS_ALREADY_RUNNING)
@@ -280,20 +308,27 @@ class RandomPlayApp(ZApplication):
         :return:
         """
         if getattr(self.ctx.controller,'background_mode',False):
-            if self._business_page() and self._pad_promoter_name in self._business_cards():
-                return self.round_success('已核验宣传员已应用：'+self._pad_promoter_name)
+            if self._business_page() and self._promoter_applied():
+                return self.round_success('已核验宣传员已应用：'+(self._pad_promoter_name or '未识别名字的宣传员'))
             if not self._promoter_page():
                 return self.round_retry('未核验宣传员选择页，未操作',wait=1)
-            names=menu_words(self,Rect(20,100,450,210))
+            names=[w for w in menu_words(self,Rect(20,100,450,210)) if cjk_count(w)>=2 or w[-2:].isdigit()]
+            name=names[0] if names else None
             allowed=(self.config.agent_name_1,self.config.agent_name_2)
-            if names and (RANDOM_AGENT_NAME in allowed or names[0] in allowed):
-                if self._pad_promoter_confirms>=3:
-                    return self.round_fail('宣传员选择未生效')
-                self._pad_promoter_name=names[0]
-                pad_press(self,'a');self._pad_promoter_confirms+=1
-                return self.round_retry('确认宣传员，等待实际经营页面',wait=1)
+            # Promoters include shop staff that are not agents (丝琪, 塔维斯, 邦布18) and names OCR
+            # cannot read; 随机 takes the focused one, a configured agent falls back after one sweep.
+            if RANDOM_AGENT_NAME in allowed or name in allowed or self._pad_promoter_fallback:
+                return self._confirm_promoter(name)
+            seen=self._pad_promoter_seen
+            if len(seen)>=2 and seen[-1]==name and seen[-2]==name or len(seen)>=12 or name is not None and name in seen[:-1]:
+                # The strip stopped moving or wrapped: the configured agent is not a promoter here.
+                self._pad_promoter_fallback=True
+                log.info('宣传员列表中没有配置的代理人 %s，改用当前宣传员 %s', '、'.join(a for a in allowed if a),
+                         name or '（未识别名字）')
+                return self._confirm_promoter(name)
+            seen.append(name)
             pad_press(self,'dpad_right')
-            return self.round_retry('手柄查找配置宣传员，未使用其他角色兜底',wait=.6)
+            return self.round_retry('手柄查找配置宣传员',wait=.6)
         result = self.round_by_find_area(self.last_screenshot, '影像店营业', '选择宣传员')
         if not result.is_success:
             return self.round_retry(status=result.status, wait_round_time=1)

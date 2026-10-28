@@ -20,6 +20,13 @@ REVEAL_PRESSES = 2
 CONFIRM_PRESSES = 3
 
 
+def is_season_screen(op, screen):
+    """The intro or the picker is showing (reads only; presses nothing)."""
+    if any(PICKER_TITLE in norm_text(r.data) for r in ocr_rows(op, screen, PICKER_TITLE_RECT)):
+        return True
+    return any(norm_text(r.data).endswith(INTRO_BUTTON) for r in ocr_rows(op, screen, INTRO_RECT))
+
+
 def season_screen(op, screen):
     """A round result while the intro or the picker is shown; None on any other screen."""
     if any(PICKER_TITLE in norm_text(r.data) for r in ocr_rows(op, screen, PICKER_TITLE_RECT)):

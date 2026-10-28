@@ -29,6 +29,7 @@ class GamepadActionEnum(Enum):
     MINIMAP = ConfigItem('小地图', 'minimap')
     COMPENDIUM = ConfigItem('快捷手册', 'compendium')
     GUIDE = ConfigItem('功能导览', 'function_menu')
+    CITY_FUND = ConfigItem('丽都城募', 'city_fund')  # Held LT shows the HUD letters (live 2026-10-28).
 
 
 class GameKeyAction(Enum):
@@ -118,6 +119,7 @@ _ACTION_KEY_DEFAULTS: dict[str, dict[str, list[str]]] = {
         'minimap': [XboxButtonEnum.BACK.value.value],
         'compendium': [XboxButtonEnum.LT.value.value, XboxButtonEnum.A.value.value],
         'function_menu': [XboxButtonEnum.LT.value.value, XboxButtonEnum.START.value.value],
+        'city_fund': [XboxButtonEnum.LT.value.value, XboxButtonEnum.B.value.value],
     },
     'ds4_action': {
         'menu': [Ds4ButtonEnum.OPTIONS.value.value],
@@ -125,6 +127,7 @@ _ACTION_KEY_DEFAULTS: dict[str, dict[str, list[str]]] = {
         'minimap': [Ds4ButtonEnum.TOUCHPAD.value.value],
         'compendium': [Ds4ButtonEnum.L2.value.value, Ds4ButtonEnum.CROSS.value.value],
         'function_menu': [Ds4ButtonEnum.L2.value.value, Ds4ButtonEnum.OPTIONS.value.value],
+        'city_fund': [Ds4ButtonEnum.L2.value.value, Ds4ButtonEnum.CIRCLE.value.value],
     },
 }
 

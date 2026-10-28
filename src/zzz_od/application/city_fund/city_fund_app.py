@@ -14,7 +14,7 @@ from zzz_od.operation.back_to_normal_world import BackToNormalWorld
 from zzz_od.operation.goto.goto_menu import GotoMenu
 from onedragon.base.geometry.rectangle import Rect
 from src.navigation.menus import menu_words, main_menu_target, selected_tab, pad_press
-from src.navigation.city_fund import season_screen
+from src.navigation.city_fund import is_season_screen, season_screen
 
 
 class CityFundApp(ZApplication):
@@ -40,9 +40,32 @@ class CityFundApp(ZApplication):
         for counter in ('_city_fund_intro_presses','_city_fund_picker_presses',
                         '_city_fund_reveal_presses','_city_fund_clicks'):
             self.__dict__[counter]=0
+        self._fund_shortcut_tries=0
 
-    @operation_node(name='打开菜单', is_start_node=True)
+    SHORTCUT_TRIES=2
+
+    def _fund_page(self):
+        words=menu_words(self,Rect(1100,15,1850,90))
+        return '等级回馈' in words and '成长任务' in words
+
+    @operation_node(name='打开菜单', is_start_node=True, node_max_retry_times=6)
     def open_menu(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller,'background_mode',False):
+            # Held LT labels the HUD's 丽都城募 icon with B (live 2026-10-28): open it directly and
+            # keep the main menu, whose layout differs between accounts, as the fallback.
+            if self._fund_page() or is_season_screen(self,self.last_screenshot):
+                return self.round_success('已打开丽都城募')
+            if self._fund_shortcut_tries<self.SHORTCUT_TRIES:
+                from onedragon.base.screen import screen_utils
+                if not screen_utils.is_target_screen(self.ctx,self.last_screenshot,screen_name='大世界-普通'):
+                    result=BackToNormalWorld(self.ctx).execute()
+                    if not result.success:
+                        self._fund_shortcut_tries=self.SHORTCUT_TRIES
+                    return self.round_wait('返回大世界以使用丽都城募快捷键',wait=.5)
+                self._fund_shortcut_tries+=1
+                if self.ctx.controller.click(gamepad_key='city_fund'):
+                    return self.round_wait('手柄快捷键打开丽都城募，等待实际页面',wait=2)
+                self._fund_shortcut_tries=self.SHORTCUT_TRIES
         op = GotoMenu(self.ctx)
         return self.round_by_op_result(op.execute())
 
@@ -54,8 +77,7 @@ class CityFundApp(ZApplication):
         if season is not None:
             return season
         if getattr(self.ctx.controller,'background_mode',False):
-            words=menu_words(self,Rect(1100,15,1850,90))
-            if '等级回馈' in words and '成长任务' in words:
+            if self._fund_page():
                 return self.round_success('已核验丽都城募界面')
             return main_menu_target(self,'丽都城募')
         area = self.ctx.screen_loader.get_area('菜单', '底部列表')

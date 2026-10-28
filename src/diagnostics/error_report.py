@@ -25,7 +25,9 @@ MAX_FAILURES = 10
 MERGE_SECONDS = 5
 ISSUE_MESSAGE_CHARS = 300
 LOG_SOURCES = (('logs/ok-script.log', 'ok-script.log'), ('.log/log.txt', 'game-engine.log'))
-SECRET_KEY = re.compile(r'(account|password|passwd|pwd|token|secret|cookie|phone|mobile|账号|密码|手机)', re.I)
+# Keys that are, or end with, a secret word ('password', 'game_account', '账号'); not keys that merely
+# start with one, such as the daily's 「账号 01 执行计划」 (2026-10-28 report).
+SECRET_KEY = re.compile(r'(account|password|passwd|pwd|token|secret|cookie|phone|mobile|账号|密码|手机号?)$', re.I)
 SECRET_VALUE = re.compile(
     r'(?i)((?:password|passwd|pwd|token|secret|cookie|authorization|账号|密码)["\']?\s*[:=：]\s*["\']?)'
     r'(?:bearer\s+)?[^\s"\',}]+')

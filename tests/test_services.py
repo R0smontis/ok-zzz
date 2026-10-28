@@ -47,6 +47,8 @@ def test_game_config_action_keys(ctx):
     gamepad_keys = ctx.game_config.get_gamepad_action_keys('xbox')
     assert gamepad_keys['menu'] == ['xbox_start']
     assert gamepad_keys['compendium'] == ['xbox_lt', 'xbox_a']
+    assert gamepad_keys['city_fund'] == ['xbox_lt', 'xbox_b']
+    assert ctx.game_config.get_gamepad_action_keys('ds4')['city_fund'] == ['ds4_l2', 'ds4_circle']
 
 
 def test_screen_service_scale_consistency(ctx):

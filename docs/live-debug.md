@@ -59,6 +59,7 @@ python tools/live_debug.py --root D:\okzzz command @D:\okzzz\debug\command.json
 | scroll | x、y、amount（正数向下，-10～10） |
 | key | key，例如 w、space、esc、mouse_left；duration |
 | action | action 为 normal_attack、special_attack、ultimate、dodge、switch_next、switch_prev、chain_left、chain_right、move_w/a/s/d、confirm、back、menu、dpad_up/down/left/right、turn_left/right（转向需手柄） |
+| action（组合键） | 手柄后台下 `pad_lt+b` 这类写法同时按住 2～3 个手柄键（LT、RT、LB、RB、A、B、X、Y、start、back、l_thumb、r_thumb），用于探查组合快捷键 |
 | task_start / task_pause / task_resume / task_stop | task 为 status 返回的任务 class；自动任务和手动接管互斥 |
 
 所有画面坐标统一使用 1920×1080，自动映射 720P、1080P、1440P 和 4K 客户区。

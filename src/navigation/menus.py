@@ -40,7 +40,10 @@ def verified_reward_mode(op, screen, enabled):
         if empty_control and any(text(row) == '挑战奖励' for row in rows):
             header = ocr_rows(op, screen, Rect(1400, 10, 1900, 100))
             footer = ocr_rows(op, screen, Rect(1300, 980, 1850, 1070))
-            if any(text(row) == '挑战等级' for row in header) and any(text(row) == '下一步' for row in footer):
+            footer_text = ''.join(text(row) for row in sorted(footer, key=lambda r: r.center.x))
+            # OCR splits the 下一步 button (2026-10-28: only 「步」 was read); the entry's 电量消耗 counts too.
+            next_step = '下一步' in footer_text or ('电量消耗' in footer_text and footer_text.endswith('步'))
+            if any(text(row) == '挑战等级' for row in header) and next_step:
                 if enabled:
                     return op.round_fail(NO_DOUBLE_REWARD)
                 return op.round_success('已核验普通挑战入口：当前无燃竭模式')
@@ -433,22 +436,55 @@ def selected_tab(op, rect, names):
     return active[0] if len(active)==1 else None
 
 
-def main_menu_target(op, target):
-    rows=ocr_rows(op, op.last_screenshot, Rect(220,920,1730,1070), crop_first=False)
-    names=MAIN_MENU_ITEMS
-    points={norm_text(r.data):r.center for r in rows if norm_text(r.data) in names}
-    if len(points)<8 or target not in points:
-        return op.round_retry('主菜单选项不完整，未操作',wait=.5)
+MENU_BAR=Rect(220,920,1730,1070)
+MENU_REVEAL_PRESSES=2
+
+
+def menu_bar_labels(op, screen):
+    """{label: center} for every label on the main menu's bottom bar.
+
+    Accounts differ: an item can be missing (丽都城募 between seasons, 勘域编队 before it unlocks)
+    or new, so the bar is read as shown instead of being matched against a fixed list.
+    """
+    rows=ocr_rows(op, screen, MENU_BAR, crop_first=False)
+    labels={}
+    for r in rows:
+        name=norm_text(r.data).strip()
+        if 1000<r.center.y<1068 and 2<=cjk_count(name)<=5 and cjk_count(name)==len(name):
+            labels[name]=r.center
+    return labels
+
+
+def menu_bar_focus(screen, labels):
+    """Labels whose icon cell carries the controller's yellow fill."""
     active=[]
-    for name,p in points.items():
-        part=op.last_screenshot[930:1060,max(0,p.x-45):p.x+45]
-        if np.mean((part[:,:,0]>125)&(part[:,:,1]>150)&(part[:,:,2]<80))>.5:
+    for name,p in labels.items():
+        part=screen[930:1060,max(0,p.x-45):p.x+45]
+        if part.size and np.mean((part[:,:,0]>125)&(part[:,:,1]>150)&(part[:,:,2]<80))>.5:
             active.append(name)
+    return active
+
+
+def main_menu_target(op, target):
+    screen=op.last_screenshot
+    labels=menu_bar_labels(op, screen)
+    if target not in labels or len(labels)<3:
+        return op.round_retry('主菜单选项不完整，未操作',wait=.5)
+    active=menu_bar_focus(screen, labels)
+    if not active:
+        # Opened with keyboard/mouse prompts (2026-10-28 user screenshot): nothing is focused, and the
+        # game spends the first pad input on switching to controller prompts, which shows the focus.
+        reveals=getattr(op,'_pad_menu_reveals',0)
+        if reveals>=MENU_REVEAL_PRESSES:
+            return op.round_fail('主菜单未显示手柄焦点，未操作')
+        op._pad_menu_reveals=reveals+1
+        pad_press(op,'dpad_right')
+        return op.round_wait('显示主菜单手柄焦点',wait=.8)
     if len(active)!=1:
         return op.round_retry('未核验唯一主菜单焦点，未操作',wait=.5)
     current=active[0]
     count=getattr(op,'_pad_menu_steps',0)
-    if count>=16:
+    if count>=len(labels)+4:
         return op.round_fail(f'主菜单未打开目标：{target}，当前：{current}')
     op._pad_menu_steps=count+1
     if current==target:
@@ -457,10 +493,11 @@ def main_menu_target(op, target):
             return op.round_fail(f'主菜单确认未生效：{target}')
         pad_press(op,'a');op._pad_menu_confirms=confirmations+1
         return op.round_wait(f'手柄打开{target}，等待实际页面',wait=1)
-    left=points[target].x<points[current].x
-    if len(points)==len(names):
-        # The bar wraps around (live 2026-10-12: left from 更多 lands on 调频): take the short way.
-        order=sorted(points,key=lambda n:points[n].x)
+    left=labels[target].x<labels[current].x
+    if set(labels)==MAIN_MENU_ITEMS:
+        # The full bar wraps around (live 2026-10-12: left from 更多 lands on 调频): take the short way.
+        # Unknown or missing items leave the wrap unverified, so other bars move directly.
+        order=sorted(labels,key=lambda n:labels[n].x)
         steps=(order.index(target)-order.index(current))%len(order)
         left=steps*2>len(order) or (steps*2==len(order) and left)  # A tie keeps the direct way.
     pad_press(op,'dpad_left' if left else 'dpad_right')
@@ -530,8 +567,7 @@ def escape_stuck(op, screen):
             op._pad_escape_sent = True
             return op.round_wait('手柄脱离卡死，等待实际画面', wait=2)
         return result
-    rows = ocr_rows(op, screen, Rect(220, 920, 1730, 1070), crop_first=False)
-    if sum(norm_text(r.data) in MAIN_MENU_ITEMS for r in rows) >= 8:
+    if len(set(menu_bar_labels(op, screen)) & MAIN_MENU_ITEMS) >= 4:
         return main_menu_target(op, '更多')
     opens = getattr(op, '_pad_escape_menu', 0)
     if opens >= 3:

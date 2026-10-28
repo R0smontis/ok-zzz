@@ -27,6 +27,18 @@ from onedragon.base.operation import dry_run
 from src.runtime.frame_geometry import bgra_view
 
 
+def pad_combo(action, buttons):
+    """'pad_lt+b' -> ['lt', 'b'] when every part is a known pad button, else None (held together)."""
+    if not isinstance(action, str) or not action.startswith('pad_') or '+' not in action:
+        return None
+    parts = action[4:].split('+')
+    return parts if 1 < len(parts) <= 3 and all(p in buttons for p in parts) else None
+
+
+def supported_action(adapter, action):
+    return action in adapter.actions or pad_combo(action, getattr(adapter, 'PAD_BUTTONS', ())) is not None
+
+
 class LiveError(ValueError):
     pass
 
@@ -346,7 +358,7 @@ class LiveDebugService:
             from src.controls.hotkey_settings import validate_hotkey
             if not validate_hotkey('key', c.get('key'))[0]:
                 raise LiveError('按键无效')
-        if op == 'action' and c.get('action') not in self.adapter.actions:
+        if op == 'action' and not supported_action(self.adapter, c.get('action')):
             raise LiveError('不支持的游戏动作')
         if op == 'acquire' and c.get('mode', 'gamepad') not in ('messages', 'gamepad'):
             raise LiveError('操作方式必须是messages或gamepad')
