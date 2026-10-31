@@ -33,6 +33,11 @@ def log_runtime_event(kind, details):
     logging.getLogger('ok').info('执行状态:%s', message)
 
 
+def log_input(text):
+    """Navigation inputs (not combat) in the log, each press on its own line."""
+    logging.getLogger('ok').info('输入:%s', text)
+
+
 class FrameworkLogBridge(logging.Handler):
     def __init__(self):
         super().__init__(logging.INFO)

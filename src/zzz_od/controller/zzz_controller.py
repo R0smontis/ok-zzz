@@ -75,6 +75,12 @@ class ZzzController(ZPcController):
     def click(self, pos=None, press_time=0.1, pc_alt=False, gamepad_key=None):
         record_event('input_call', action='click', x=getattr(pos, 'x', None), y=getattr(pos, 'y', None),
                      duration=press_time, background=self.background_mode, gamepad_key=gamepad_key)
+        from src.runtime.logging_bridge import log_input
+        if gamepad_key and self.background_mode:
+            log_input(f'手柄 {gamepad_key}')
+        else:
+            where = f'({pos.x:.0f}, {pos.y:.0f})' if pos is not None else '当前鼠标位置'
+            log_input(f'点击 {where}' + ('（后台消息）' if getattr(self, 'is_background_input', False) else ''))
         return super().click(pos, press_time, pc_alt, gamepad_key)
 
     def click_dialogue_event(self, pos, *, expected_hwnd, allow_background=False):

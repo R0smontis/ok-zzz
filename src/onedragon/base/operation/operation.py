@@ -453,7 +453,8 @@ class Operation(OperationBase):
                         pass
                     else:
                         arrow = f"{from_node_name} -> {node_name}" if self._previous_node is not None else node_name
-                        log.info('%s 节点 %s 返回状态 %s', self.display_name, arrow, round_result_status)
+                        log.info('%s 节点 %s 返回状态 %s%s', self.display_name, arrow, round_result_status,
+                                 self._round_kind_text(round_result))
                     self._emit_debug_round_trace(
                         from_node_name=from_node_name,
                         node_name=node_name,
@@ -493,6 +494,9 @@ class Operation(OperationBase):
                 log.warning('%s 后台等待 %d 秒画面未变化，判定操作未生效：%s',
                             self.display_name, Operation.BACKGROUND_STALL_SECONDS, round_result.status)
                 round_result = self.round_fail(f'后台操作未生效，画面长时间未变化：{round_result.status}')
+
+            if round_result.result == OperationRoundResultEnum.FAIL:
+                self._log_failure_screen()
 
             # 成功或者失败的 找下一个节点
             next_node = self._get_next_node(round_result)
@@ -629,6 +633,41 @@ class Operation(OperationBase):
             self._wait_stall = (key, small, now)
             return False
         return now - stall[2] >= Operation.BACKGROUND_STALL_SECONDS
+
+    def _round_kind_text(self, round_result: OperationRoundResult | None) -> str:
+        """ok-zzz: 日志里标明本轮是重试、等待还是失败，以及重试到第几次。"""
+        if round_result is None:
+            return ''
+        if round_result.result == OperationRoundResultEnum.RETRY:
+            if self.node_retry_times >= self.node_max_retry_times:
+                return '（重试次数用尽）'
+            return f'（重试 {self.node_retry_times + 1}/{self.node_max_retry_times}）'
+        if round_result.result == OperationRoundResultEnum.WAIT:
+            return '（等待）'
+        if round_result.result == OperationRoundResultEnum.FAIL:
+            return '（失败）'
+        return ''
+
+    def _log_failure_screen(self) -> None:
+        """ok-zzz: 节点失败时记下画面上识别到的文字（不含 UID），别人机器上的失败也能从日志判断当时的画面。"""
+        screen = self.last_screenshot
+        ocr_service = getattr(self.ctx, 'ocr_service', None)
+        if not isinstance(screen, np.ndarray) or screen.ndim < 2 or ocr_service is None:
+            return
+        try:
+            rows = ocr_service.get_ocr_result_list(image=screen) or []
+            height, width = screen.shape[:2]
+            uid_x, uid_y = width * 1814 / 1920, height * 1059 / 1080
+            rows = [r for r in rows if str(r.data).strip() and 'UID' not in str(r.data).upper()
+                    and not (r.center.x >= uid_x and r.center.y >= uid_y)]
+            rows.sort(key=lambda r: (int(r.center.y * 1080 / height) // 20, r.center.x))
+            words = ' | '.join(str(r.data).strip() for r in rows)
+        except Exception:
+            log.debug('失败画面文字识别出错', exc_info=True)
+            return
+        if len(words) > 800:
+            words = words[:800] + '…'
+        log.info('%s 失败时画面文字：%s', self.display_name, words or '（未识别到文字）')
 
     def _reset_status_for_new_node(self) -> None:
         """进入新节点时重置状态。
