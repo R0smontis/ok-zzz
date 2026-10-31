@@ -9,6 +9,8 @@ from src.navigation.common import norm_text, ocr_rows
 from src.navigation.menus import label_focused
 
 SOURCES = ('储蓄电量', '以太电池')
+CARDS = SOURCES + ('菲林',)
+NO_SOURCE = '没有可用的电量来源'
 
 
 def quick_use(op):
@@ -29,24 +31,39 @@ def quick_use(op):
 
 
 def source_page(op):
+    """The restore dialog's cards, counts, card focus and button focus; None when it is not showing.
+
+    The dialog lists 储蓄电量, 以太电池 and 菲林. A source the account has none of may be shown
+    with 0 or not shown at all (以太电池 at 0 since 2026-10-25), so neither the number of cards
+    nor their positions are assumed: the title and at least one readable card are enough.
+    """
     screen = op.last_screenshot
-    rows = ocr_rows(op, screen, Rect(690, 335, 1250, 810))
+    rows = ocr_rows(op, screen, Rect(650, 335, 1270, 810))
     if not any(norm_text(row.data) == '恢复电量' for row in rows):
         return None
-    labels = {norm_text(row.data): row for row in rows
-              if norm_text(row.data) in SOURCES and 590 < row.center.y < 650}
-    if len(labels) != 2:
+    cards = {}
+    for row in rows:
+        name = norm_text(row.data)
+        if name in CARDS and 590 < row.center.y < 650 and name not in cards:
+            cards[name] = row
+    if not cards:
         return None
+    counts = {}
+    for name, card in cards.items():
+        numbers = [row for row in rows if 560 < row.center.y < 605 and abs(row.center.x - card.center.x) < 45
+                   and re.fullmatch(r'\d+', norm_text(row.data))]
+        if len(numbers) == 1:
+            counts[name] = int(norm_text(numbers[0].data))
     # Card focus is a 132px yellow rounded outline. The smaller item's colored
     # artwork is not sufficient evidence of selection.
     mask = ((screen[:, :, 0] > 75) & (screen[:, :, 1] > 75)
             & (screen[:, :, 2] < 100)
             & (screen[:, :, 1].astype('int16') - screen[:, :, 2] > 35))
-    contours, _ = cv2.findContours(mask[430:590, 710:1200].astype('uint8'),
+    contours, _ = cv2.findContours(mask[430:590, 650:1270].astype('uint8'),
                                    cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     boxes = [cv2.boundingRect(contour) for contour in contours]
-    focused = [name for name, row in labels.items() if any(
-        115 < w < 150 and 115 < h < 150 and abs(x + 710 + w / 2 - row.center.x) < 35
+    focused = [name for name, row in cards.items() if any(
+        115 < w < 150 and 115 < h < 150 and abs(x + 650 + w / 2 - row.center.x) < 35
         for x, y, w, h in boxes)]
     selected = focused[0] if len(focused) == 1 else None
     confirm = next((row for row in rows if norm_text(row.data) == '确认'
@@ -55,21 +72,36 @@ def source_page(op):
                    and 700 < row.center.x < 940 and 730 < row.center.y < 810), None)
     button = ('confirm' if confirm is not None and label_focused(screen, confirm.center, 110)
               else 'cancel' if cancel is not None and label_focused(screen, cancel.center, 110) else None)
-    return dict(labels=labels, selected=selected, button=button)
+    return dict(cards=cards, counts=counts, selected=selected, button=button)
 
 
-def choose_source(op, target):
+def usable_sources(state, targets):
+    """Configured sources, in order, that the dialog shows and that are not read as 0."""
+    return [name for name in targets if name in SOURCES and name in state['cards']
+            and state['counts'].get(name) != 0]
+
+
+def choose_source(op, targets):
+    """Focus the first usable configured source; never 菲林. Success status is the chosen source."""
     state = source_page(op)
     if state is None:
         return op.round_retry('未核验恢复电量来源页，未操作', wait=.5)
+    usable = usable_sources(state, targets)
+    if not usable:
+        shown = '、'.join(f'{name} {state["counts"].get(name, "?")}' for name in SOURCES if name in state['cards'])
+        return op.round_success(NO_SOURCE, data=shown or '无')
+    target = usable[0]
+    op._restore_source = target
     if state['button'] is not None:
         pad(op.ctx, 'dpad_up')
         return op.round_wait('返回电量来源卡片，等待焦点', wait=.5)
-    if state['selected'] is None:
+    selected = state['selected']
+    if selected is None:
         return op.round_retry('未核验电量来源卡片焦点，未操作', wait=.5)
-    if state['selected'] != target:
-        pad(op.ctx, 'dpad_left' if target == SOURCES[0] else 'dpad_right')
-        return op.round_wait('选择电量来源：' + target, wait=.5)
+    if selected != target:
+        left = state['cards'][target].center.x < state['cards'][selected].center.x
+        pad(op.ctx, 'dpad_left' if left else 'dpad_right')
+        return op.round_wait(f'选择电量来源：{selected} → {target}', wait=.5)
     return op.round_success(target)
 
 

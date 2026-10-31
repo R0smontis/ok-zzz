@@ -12,11 +12,28 @@ from test_lost_void_background_menus import operation
 from test_daily_menu_results import fixture
 
 
-def restore(name, policy='使用储蓄电量'):
+CARD_X={'储蓄电量':819,'以太电池':960,'菲林':1101}
+
+
+def edit_cards(raw, hide=(), counts=None):
+    """OCR of the same dialog with some cards absent or showing another count (label + number row)."""
+    rows=[]
+    for row in raw:
+        x,y,w,h=row['rect']
+        card=next((n for n,cx in CARD_X.items() if abs(x+w/2-cx)<45 and 560<y+h/2<650),None)
+        if card in hide:
+            continue
+        if card in (counts or {}) and 560<y+h/2<605:
+            row=dict(row,text=str(counts[card]))
+        rows.append(row)
+    return rows
+
+
+def restore(name, policy='使用储蓄电量', hide=(), counts=None):
     op = operation(RestoreCharge)
     fixture(op, name)
     data=json.loads((Path(__file__).parent/'fixtures/daily_map'/f'{name}.json').read_text(encoding='utf-8'))
-    raw=data['result']['ocr']
+    raw=edit_cards(data['result']['ocr'],hide,counts)
     unique={}
     for row in raw:
         x,y,w,h=row['rect']
@@ -45,6 +62,72 @@ def test_real_quick_use_reads_source_inventory_and_complete_exchange_number(name
 def test_real_source_cards_keep_identity_while_button_has_focus(name, source, button):
     state = source_page(restore(name))
     assert state['selected'] == source and state['button'] == button
+
+
+def test_real_cards_and_counts_are_read():
+    state = source_page(restore('restore-ether-focus'))
+    assert set(state['cards']) == {'储蓄电量','以太电池','菲林'}
+    assert state['counts'] == {'储蓄电量':501,'以太电池':28,'菲林':31}
+
+
+BOTH='同时使用储蓄电量和以太电池'
+
+
+@pytest.mark.parametrize('name,hide,counts,policy,expected', [
+    # 以太电池 hidden or at 0 (2026-10-25 onward): 储蓄电量 is still chosen.
+    ('restore-up',('以太电池',),None,BOTH,'储蓄电量'),
+    ('restore-up',(),{'以太电池':0},BOTH,'储蓄电量'),
+    # 储蓄电量 hidden or at 0: both-enabled goes straight to 以太电池.
+    ('restore-ether-focus',('储蓄电量',),None,BOTH,'以太电池'),
+    ('restore-ether-focus',(),{'储蓄电量':0},BOTH,'以太电池'),
+])
+def test_source_page_is_recognised_whichever_sources_are_missing(name, hide, counts, policy, expected):
+    op = restore(name, policy, hide, counts)
+    assert source_page(op) is not None
+    result = op.select_charge_source()
+    assert result.is_success and result.status == expected and op._restore_source == expected
+    op.ctx.controller.btn_press.assert_not_called()
+
+
+def test_missing_card_keeps_button_focus_handling_and_card_direction():
+    op = restore('restore-select', '使用储蓄电量', hide=('以太电池',))
+    assert op.select_charge_source().result == R.WAIT  # Focus is on 确认: back to the cards first.
+    op.ctx.controller.btn_press.assert_called_once_with('xbox_dpad_up',press_time=.12)
+    op = restore('restore-up', '使用以太电池')
+    assert op.select_charge_source().result == R.WAIT
+    op.ctx.controller.btn_press.assert_called_once_with('xbox_dpad_right',press_time=.12)
+
+
+@pytest.mark.parametrize('hide,counts,policy', [
+    (('以太电池',),None,'使用以太电池'), ((),{'以太电池':0},'使用以太电池'),
+    (('储蓄电量','以太电池'),None,BOTH), ((),{'储蓄电量':0,'以太电池':0},BOTH)])
+def test_no_usable_source_closes_the_popup_and_reports_charge_not_enough(hide, counts, policy):
+    from src.navigation.restore_charge import NO_SOURCE
+    op = restore('restore-up', policy, hide, counts)
+    result = op.select_charge_source()
+    assert result.is_success and result.status == NO_SOURCE
+    op.ctx.controller.btn_press.assert_not_called()
+    op._previous_round_result = result
+    op._previous_node = SimpleNamespace(cn='选择电量来源')
+    assert op.close_restore_popup().result == R.WAIT
+    op.ctx.controller.btn_press.assert_called_once_with('xbox_b',press_time=.12)
+    op.ctx.ocr_service.get_ocr_result_list = lambda **kwargs: []
+    op.round_by_find_area = lambda *args: SimpleNamespace(is_success=False)
+    closed = op.close_restore_popup()
+    assert closed.is_success and closed.status == RestoreCharge.STATUS_CHARGE_NOT_ENOUGH
+    assert op.ctx.controller.btn_press.call_count == 1
+
+
+def test_focus_on_film_moves_left_and_film_is_never_chosen(monkeypatch):
+    import src.navigation.restore_charge as module
+    card = lambda x: SimpleNamespace(center=SimpleNamespace(x=x))
+    state = dict(cards={'储蓄电量':card(890),'菲林':card(1030)}, counts={'储蓄电量':186,'菲林':31},
+                 selected='菲林', button=None)
+    monkeypatch.setattr(module, 'source_page', lambda op: state)
+    op = restore('restore-up', BOTH)
+    assert module.choose_source(op, ['储蓄电量','以太电池']).result == R.WAIT
+    op.ctx.controller.btn_press.assert_called_once_with('xbox_dpad_left',press_time=.12)
+    assert module.usable_sources(state, ['菲林']) == []
 
 
 def test_backup_only_never_confirms_ether_or_film():

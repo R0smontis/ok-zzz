@@ -20,7 +20,8 @@ from zzz_od.application.charge_plan.charge_plan_config import (
 from zzz_od.context.zzz_context import ZContext
 from zzz_od.operation.zzz_operation import ZOperation
 from src.controls.gamepad import press as pad
-from src.navigation.restore_charge import quick_use, source_page, choose_source, confirm_source
+from src.navigation.common import bump
+from src.navigation.restore_charge import NO_SOURCE, quick_use, source_page, choose_source, confirm_source, usable_sources
 
 
 class RestoreCharge(ZOperation):
@@ -61,6 +62,7 @@ class RestoreCharge(ZOperation):
         self._restore_source = None
         self._restore_before_amount = None
         self._restore_exchange_amount = None
+        self._restore_close_presses = 0
 
     def _should_confirm_restore(self, current_amount: int, exchange_amount: int) -> bool:
         return 0 < exchange_amount <= current_amount
@@ -110,7 +112,11 @@ class RestoreCharge(ZOperation):
             return self.round_fail('未启用电量恢复，未操作')
         self._restore_source = target_list[0]
         if getattr(self.ctx.controller, 'background_mode', False):
-            return choose_source(self, self._restore_source)
+            # ok-zzz: 数量为 0 的来源可能显示 0 或不显示，按弹窗里实际可用的来源选择
+            return choose_source(self, target_list)
+        state = source_page(self)
+        if state is not None and not usable_sources(state, target_list):
+            return self.round_success(NO_SOURCE)
 
         target_text_list = [gt(text, 'game') for text in target_list]
         target_area = self.ctx.screen_loader.get_area('恢复电量', '类型')
@@ -121,6 +127,23 @@ class RestoreCharge(ZOperation):
             area=target_area,
             offset=Point(0, -100)
         )
+
+    @node_from(from_name='选择电量来源', status=NO_SOURCE)
+    @operation_node(name='关闭恢复界面')
+    def close_restore_popup(self) -> OperationRoundResult:
+        """ok-zzz: 配置的来源都用完了，按电量不足结束；先关掉弹窗，调用方回到原画面后再判断。"""
+        if source_page(self) is None and not self.round_by_find_area(
+                self.last_screenshot, '恢复电量', '标题-恢复电量').is_success:
+            return self.round_success(self.STATUS_CHARGE_NOT_ENOUGH)
+        if bump(self, '_restore_close_presses', 3):
+            return self.round_fail('关闭恢复电量弹窗后画面未变化')
+        if self._restore_close_presses == 1:
+            log.info('恢复电量：没有可用的电量来源（%s），按电量不足结束', self.previous_node.data or '未显示')
+        if getattr(self.ctx.controller, 'background_mode', False):
+            pad(self.ctx, 'b')
+        else:
+            self.round_by_find_and_click_area(self.last_screenshot, '恢复电量', '取消')
+        return self.round_wait('关闭恢复电量弹窗，等待实际画面', wait=.5)
 
     @node_from(from_name='选择电量来源')
     @operation_node(name='确认电量来源')
