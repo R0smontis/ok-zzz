@@ -32,6 +32,8 @@ class ZOneDragonApp(ZApplication):
         self.current_instance_idx: int = -1  # 当前实例在实例列表中的下标
         self.current_app_idx: int = -1  # 当前应用在组列表中的下标
         self._fail_app_list: list[str] = []
+        self._fail_details: list[str] = []  # 「账号 01 体力刷本：原因」，用于结果展示
+        self._notices: list[str] = []  # 成功但需要用户注意的应用说明
         self._enabled_app_count = 0
         self._executed_app_count = 0
         self._success_app_count = 0
@@ -93,7 +95,9 @@ class ZOneDragonApp(ZApplication):
                 app_id, instance_idx=self.ctx.current_instance_idx)
             app_name = app.op_name
         except Exception as exc:
-            self._fail_app_list.append(f'账号 {self.ctx.current_instance_idx:02d} {app_id}')
+            label = f'账号 {self.ctx.current_instance_idx:02d} {app_id}'
+            self._fail_app_list.append(label)
+            self._fail_details.append(f'{label}：初始化失败：{exc}')
             log.error('一条龙应用初始化失败 %s：%s', app_id, exc, exc_info=True)
             return self.round_success(status=STATUS_NEXT)
 
@@ -115,10 +119,15 @@ class ZOneDragonApp(ZApplication):
         except Exception as exc:
             success, detail = False, str(exc)
             log.error('一条龙应用运行异常 %s', app_name, exc_info=True)
+        label = f'账号 {self.ctx.current_instance_idx:02d} {app_name}'
         if success:
             self._success_app_count += 1
+            notice = getattr(app, 'result_notice', None)
+            if notice:
+                self._notices.append(f'{label}：{notice}')
         else:
-            self._fail_app_list.append(f'账号 {self.ctx.current_instance_idx:02d} {app_name}')
+            self._fail_app_list.append(label)
+            self._fail_details.append(f'{label}：{detail or "未返回具体原因"}')
         log.info('一条龙应用结束 %s：%s；%s', app_name, '成功' if success else '失败', detail or '')
         return self.round_success(status=STATUS_NEXT)
 
@@ -128,13 +137,13 @@ class ZOneDragonApp(ZApplication):
         summary = (f'执行 {self._executed_app_count} 项，成功 {self._success_app_count} 项，'
                    f'已完成跳过 {self._skipped_done_count} 项，失败 {len(self._fail_app_list)} 项')
         if len(self._fail_app_list) > 0:
-            log.error('失败的应用 %s', self._fail_app_list)
-            return self.round_fail(summary + '；' + '、'.join(self._fail_app_list))
+            log.error('失败的应用 %s', self._fail_details)
+            return self.round_fail('；'.join([summary, *self._fail_details, *self._notices]))
         if self._enabled_app_count == 0:
             return self.round_fail('未启用任何日常应用，请先勾选要执行的项目')
         if self._executed_app_count == 0:
             return self.round_success(f'所选 {self._skipped_done_count} 项均已完成，本次无需执行')
-        return self.round_success(summary)
+        return self.round_success('；'.join([summary, *self._notices]))
 
 
 def __debug():

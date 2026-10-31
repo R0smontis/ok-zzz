@@ -301,3 +301,77 @@ def test_charge_found_short_inside_the_mission_is_named(monkeypatch):
     ended = app.skip_plan_or_finish()
     assert ended.status == app.STATUS_ROUND_FINISHED
     assert finish(app, ended).status == '实战模拟室 音擎改装：电量不足，本次未刷本；剩余电量 60'
+
+
+def test_report_failure_explains_unverified_burnout_toggle(monkeypatch):
+    # Report 2026-10-22: 「未核验燃竭模式及ON/OFF文字，未操作」 was shown verbatim.
+    world_cleanup(monkeypatch)
+    plan = ChargePlanItem(category_name='专业挑战室', mission_type_name='「征服者」')
+    app = started(plan_app([plan]))
+    app.current_plan = plan
+    app._init_network()
+    app._current_node = app._node_map['挑战完成']
+    app._previous_round_result = app.round_retry('未核验燃竭模式及ON/OFF文字，未操作')
+    failure = app.challenge_complete()
+    assert failure.status.startswith('专业挑战室 「征服者」失败：未能识别燃竭模式开关，未进入副本')
+    assert finish(app, failure).is_fail
+
+
+@pytest.mark.parametrize('stage,status,expected', [
+    ('传送', '找不到 音擎改装', '传送到 实战模拟室 音擎改装失败：找不到 音擎改装'),
+    ('打开快捷手册', '未能识别当前画面', '打开快捷手册失败：未能识别当前游戏画面'),
+    ('前往大世界', '返回大世界失败：操作超时', '返回大世界失败：操作超时'),
+])
+def test_early_stage_failure_names_the_stage(monkeypatch, stage, status, expected):
+    world_cleanup(monkeypatch)
+    plan = ChargePlanItem(category_name='实战模拟室', mission_type_name='音擎改装', plan_times=1)
+    app = started(plan_app([plan]))
+    app.current_plan = plan
+    app._init_network()
+    app._current_node = app._node_map[stage]
+    failed = app.round_fail(status)
+    next_node = app._get_next_node(failed)
+    if stage == '前往大世界':
+        assert next_node is None  # Nothing opened yet: the failure itself ends the run.
+        return
+    assert next_node.cn == '返回大世界'
+    app._previous_node = app._current_node
+    app._previous_round_result = failed
+    app._current_node = next_node
+    result = app.back_to_world()
+    assert result.is_fail and result.status == expected
+
+
+def test_every_plan_skipped_for_low_charge_is_success_with_reasons(monkeypatch):
+    world_cleanup(monkeypatch)
+    first = ChargePlanItem(category_name='实战模拟室', mission_type_name='音擎改装', plan_times=1)
+    second = ChargePlanItem(category_name='区域巡防', mission_type_name='巡防', plan_times=1)
+    app = started(plan_app([first, second]))
+    app.config.data.update(skip_plan=True, restore_charge='不使用')
+    app.battery_charge = 10
+    for _ in range(2):
+        assert app.find_next_plan().is_success
+        assert app.check_before_transport().status == app.STATUS_FIND_NEXT_PLAN
+    ended = app.find_next_plan()
+    assert ended.is_success and ended.status == app.STATUS_ROUND_FINISHED
+    result = finish(app, ended)
+    assert result.is_success
+    assert '电量不足：实战模拟室 音擎改装需要 20，已跳过' in result.status
+    assert '电量不足：区域巡防 巡防需要 ' in result.status and result.status.endswith('本次未刷本；剩余电量 10')
+    assert app.result_notice == result.status
+
+
+def test_low_charge_after_some_runs_is_still_reported(monkeypatch):
+    from zzz_od.operation.compendium.combat_simulation import CombatSimulation
+    world_cleanup(monkeypatch)
+    plan = ChargePlanItem(category_name='实战模拟室', mission_type_name='音擎改装', plan_times=3)
+    app = started(plan_app([plan]))
+    app.current_plan = plan
+    app.battery_charge = 15
+    app.challenge_count = 2
+    app._init_network()
+    app._current_node = app._node_map['实战模拟室']
+    app._previous_round_result = app.round_success(CombatSimulation.STATUS_CHARGE_NOT_ENOUGH)
+    result = finish(app, app.skip_plan_or_finish())
+    assert result.is_success and result.status == '实战模拟室 音擎改装：电量不足；剩余电量 15'
+    assert app.result_notice == result.status

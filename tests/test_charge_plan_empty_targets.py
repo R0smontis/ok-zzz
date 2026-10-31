@@ -161,6 +161,9 @@ def test_empty_target_transport_routes_to_skip_but_other_failures_do_not():
     assert next_node.cn == '跳过或结束计划'
     app._previous_round_result = empty_result
     assert next_node.op_method(app).status == app.STATUS_FIND_NEXT_PLAN
-    # A missing avatar is a recognition failure, not evidence of an empty game list.
-    assert app._get_next_node(app.round_fail('找不到 代理人方案培养')) is None
-    assert app._get_next_node(app.round_fail('异常')) is None
+    # A missing avatar is a recognition failure, not evidence of an empty game list:
+    # it must end the run as a failure (via cleanup), never skip the plan as empty.
+    for status in ('找不到 代理人方案培养', '异常'):
+        failed = app.round_fail(status)
+        assert app._get_next_node(failed).cn == '返回大世界'
+        assert app._stage_failure('传送', status).startswith('传送到 ')

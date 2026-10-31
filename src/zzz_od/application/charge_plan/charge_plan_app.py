@@ -34,6 +34,31 @@ from zzz_od.operation.compendium.tp_by_compendium import TransportByCompendium
 from zzz_od.operation.exchange_ether_battery import ExchangeEtherBattery
 
 
+# 子流程的内部状态 -> 面向用户的失败原因（按前缀匹配；未列出的状态原样显示）
+FAILURE_HINTS: tuple[tuple[str, str], ...] = (
+    ('未核验燃竭模式及ON/OFF文字', '未能识别燃竭模式开关，未进入副本；请确认游戏画面未被遮挡，并关闭 HDR 与画面滤镜'),
+    ('当前无双倍可用，未启用单倍回退', '燃竭（双倍）次数已用完，且计划未设置单倍回退'),
+    ('战斗超时', '战斗超时未结束，已退出副本；请检查配队或战斗配置'),
+    ('战斗失败：已撤退', '战斗失败，已撤退；请检查配队或战斗配置'),
+    ('战斗结果-撤退', '战斗失败，已撤退；请检查配队或战斗配置'),
+    ('战斗结果-退出', '战斗失败，已退出；请检查配队或战斗配置'),
+    ('未核验进入战斗及胜利结果', '未确认战斗胜利，本次不计完成次数'),
+    ('合成素材不足', '合成以太电池的素材不足'),
+    ('未能识别当前画面', '未能识别当前游戏画面'),
+    ('执行超时', '操作超时'),
+    ('异常', '程序异常，详见日志'),
+)
+
+
+def describe_failure(status: str | None) -> str:
+    if not status:
+        return '未知原因'
+    for prefix, hint in FAILURE_HINTS:
+        if status.startswith(prefix):
+            return hint
+    return status
+
+
 class ChargePlanApp(ZApplication):
     """体力计划:按计划消耗电量刷训练副本(实战模拟室/区域巡防/专业挑战室/恶名狩猎-深度追猎)及电量合成(合成电池),支持循环与电量不足时用储蓄电量/以太电池补体。各分类按电量消耗,无日/周次数限。"""
 
@@ -67,6 +92,8 @@ class ChargePlanApp(ZApplication):
         self.challenge_failure: str | None = None
         self.challenge_count: int = 0  # 本次实际完成的挑战（含合成电池）
         self.idle_reason: str | None = None  # 本次没有挑战时的原因
+        self.charge_notes: list[str] = []  # 因电量等原因跳过或提前结束的计划说明
+        self.result_notice: str | None = None  # 成功但有需要用户注意的情况（如电量不足未刷本）
 
     @operation_node(name='开始体力计划', is_start_node=True)
     def start_charge_plan(self) -> OperationRoundResult:
@@ -74,6 +101,8 @@ class ChargePlanApp(ZApplication):
         self.challenge_failure = None
         self.challenge_count = 0
         self.idle_reason = None
+        self.charge_notes = []
+        self.result_notice = None
         for plan in self.config.plan_list:
             plan.skipped = False
             plan._double_unavailable = False
@@ -92,7 +121,10 @@ class ChargePlanApp(ZApplication):
     @operation_node(name='前往大世界')
     def back_before_open_compendium(self) -> OperationRoundResult:
         op = BackToNormalWorld(self.ctx, ensure_normal_world=True)
-        return self.round_by_op_result(op.execute())
+        result = op.execute()
+        if not result.success:
+            return self.round_fail(f'返回大世界失败：{describe_failure(result.status)}')
+        return self.round_by_op_result(result)
 
     @node_from(from_name='前往大世界')
     @operation_node(name='打开快捷手册')
@@ -181,7 +213,8 @@ class ChargePlanApp(ZApplication):
 
         candidate_plan = self.config.get_next_plan(self.last_tried_plan)
         if candidate_plan is None:
-            if self.config.all_plan_finished():
+            if self.config.all_plan_finished() or self.charge_notes:
+                # 剩余计划都因电量不足等原因跳过：属于正常结束，原因写进结果
                 return self.round_success(ChargePlanApp.STATUS_ROUND_FINISHED)
             return self.round_fail(ChargePlanApp.STATUS_NO_PLAN)
 
@@ -204,11 +237,13 @@ class ChargePlanApp(ZApplication):
         if self._can_restore_charge(need_battery_charge - self.battery_charge):
             return self.round_success()
 
+        note = (f'电量不足：{self.current_plan.category_name} {self.current_plan.mission_type_name}'
+                f'需要 {need_battery_charge}')
         if not self.config.skip_plan:
-            self.idle_reason = (f'电量不足：{self.current_plan.category_name} {self.current_plan.mission_type_name}'
-                                f'需要 {need_battery_charge}')
+            self.charge_notes.append(note)
             return self.round_success(ChargePlanApp.STATUS_ROUND_FINISHED)
 
+        self.charge_notes.append(f'{note}，已跳过')
         self.current_plan.skipped = True
         self.last_tried_plan = self.current_plan
         return self.round_success(ChargePlanApp.STATUS_FIND_NEXT_PLAN)
@@ -295,7 +330,7 @@ class ChargePlanApp(ZApplication):
         if not self.previous_node.is_success:
             self.challenge_failure = (
                 f'{self.current_plan.category_name} {self.current_plan.mission_type_name}失败：'
-                f'{self.previous_node.status or "未知原因"}'
+                f'{describe_failure(self.previous_node.status)}'
             )
             log.error(self.challenge_failure)
             return self.round_fail(self.challenge_failure)
@@ -320,7 +355,11 @@ class ChargePlanApp(ZApplication):
         is_blocked_by_left_times = (
             self.previous_node.status == NotoriousHunt.STATUS_BLOCKED_BY_LEFT_TIMES
         )
+        note = (f'{self.current_plan.category_name} {self.current_plan.mission_type_name}：'
+                f'{self.previous_node.status or "未知原因"}')
         if self.config.skip_plan or is_agent_plan or is_blocked_by_left_times:
+            if self.previous_node.status == CombatSimulation.STATUS_CHARGE_NOT_ENOUGH:
+                self.charge_notes.append(f'{note}，已跳过')
             # 标记当前计划为跳过，继续尝试下一个
             self.current_plan.skipped = True
             self.last_tried_plan = self.current_plan
@@ -328,8 +367,7 @@ class ChargePlanApp(ZApplication):
         else:
             # 不跳过，直接结束本轮计划
             # ok-zzz: 副本内才发现的原因（如实际消耗高于预估的电量不足）也要写进结果。
-            self.idle_reason = (f'{self.current_plan.category_name} {self.current_plan.mission_type_name}：'
-                                f'{self.previous_node.status or "未知原因"}')
+            self.charge_notes.append(note)
             self.last_tried_plan = None
             return self.round_success(ChargePlanApp.STATUS_ROUND_FINISHED)
 
@@ -339,6 +377,8 @@ class ChargePlanApp(ZApplication):
     @node_from(from_name='查找候选计划', status=STATUS_NO_PLAN)
     @node_from(from_name='查找候选计划', success=False)
     @node_from(from_name='判断是否执行', status=STATUS_ROUND_FINISHED)
+    @node_from(from_name='打开快捷手册', success=False)
+    @node_from(from_name='传送', success=False)
     @node_notify(when=NotifyTiming.CURRENT_DONE, detail=True)
     @operation_node(name='返回大世界')
     def back_to_world(self) -> OperationRoundResult:
@@ -346,16 +386,28 @@ class ChargePlanApp(ZApplication):
         op_result = op.execute()
         failure = getattr(self, 'challenge_failure', None)
         if failure is None and not self.previous_node.is_success:
-            failure = self.previous_node.status or '体力计划失败'
+            failure = self._stage_failure(self.previous_node.name, self.previous_node.status)
         if failure is not None:
             if not op_result.success:
-                failure += f'；返回大世界失败：{op_result.status or "未知原因"}'
+                failure += f'；返回大世界失败：{describe_failure(op_result.status)}'
             return self.round_fail(failure)
         status = f'剩余电量 {self.battery_charge}'
+        notes = '；'.join(dict.fromkeys(getattr(self, 'charge_notes', [])))
         if getattr(self, 'challenge_count', 0) == 0:
-            reason = getattr(self, 'idle_reason', None) or '没有符合条件的计划'
+            reason = notes or getattr(self, 'idle_reason', None) or '没有符合条件的计划'
             status = f'{reason}，本次未刷本；{status}'
+            self.result_notice = status
+        elif notes:
+            status = f'{notes}；{status}'
+            self.result_notice = status
         return self.round_by_op_result(op_result, status=status)
+
+    def _stage_failure(self, stage: str | None, status: str | None) -> str:
+        if stage == '传送' and self.current_plan is not None:
+            stage = f'传送到 {self.current_plan.category_name} {self.current_plan.mission_type_name}'
+        elif stage is None or stage in ('查找候选计划', '前往大世界'):
+            return status or '体力计划失败'  # 状态本身已是完整说明
+        return f'{stage}失败：{describe_failure(status)}'
 
 
 def __debug():

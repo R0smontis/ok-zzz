@@ -21,6 +21,13 @@ class AppTaskBase(ZzzBaseTask, BaseTask):
     app_id: str = ''
     use_background_application = True
 
+    # 成功结果里含有用户需要知道的说明（如电量不足未刷本）的应用
+    SUCCESS_STATUS_APPS = frozenset({'charge_plan'})
+
+    @property
+    def report_success_status(self):
+        return self.app_id in self.SUCCESS_STATUS_APPS
+
     def post_init(self):
         super().post_init()
         from src.tasks.app_option_ui import configure_app_options
@@ -151,5 +158,10 @@ class AppTaskBase(ZzzBaseTask, BaseTask):
         else:
             label = {RunFinishReason.COMPLETED: '已完成', RunFinishReason.STOPPED: '已停止',
                      RunFinishReason.NOT_STARTED: '未能启动'}.get(reason, str(reason))
+            if reason == RunFinishReason.COMPLETED and self.report_success_status:
+                # 成功也可能有需要用户知道的情况，例如体力刷本因电量不足未刷本。
+                notice = getattr(self.ctx.run_context.last_application_result, 'status', None)
+                if notice:
+                    label = f'{label}：{notice}'
             self.info['执行结果'] = label
             self.log_info(f'{self.name}：{label}', notify=True)

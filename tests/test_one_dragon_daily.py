@@ -121,6 +121,30 @@ def test_child_failure_is_preserved_across_accounts(daily_context,failure):
     assert len(app._fail_app_list)==2 and app.finish().is_fail
 
 
+def test_summary_names_each_failure_reason_and_low_charge_notice(daily_context):
+    # Report 2026-10-22: the result only listed failed app names, so users could not tell why.
+    ctx,factories=daily_context
+    group=ctx.run_context.get_group_config(1)
+    group.set_app_enable('email',True); group.set_app_enable('coffee',True)
+    factories['email'].create_application.return_value.execute.return_value=OperationResult(False,'领取失败')
+    coffee=factories['coffee'].create_application.return_value
+    coffee.result_notice='电量不足：实战模拟室 音擎改装需要 20，本次未刷本；剩余电量 10'
+    app=queue(ctx)
+    app.switch_instance()
+    drain_account(app)
+    result=app.finish()
+    assert result.is_fail
+    assert '账号 01 邮件：领取失败' in result.status
+    assert '账号 01 咖啡店：电量不足：实战模拟室 音擎改装需要 20' in result.status
+    # A successful app's notice alone does not turn the run into a failure.
+    factories['email'].create_application.return_value.execute.return_value=OperationResult(True,'已核验')
+    app=queue(ctx)
+    app.switch_instance()
+    drain_account(app)
+    result=app.finish()
+    assert result.is_success and '电量不足' in result.status and '领取失败' not in result.status
+
+
 @pytest.mark.parametrize('current_only',[False,True])
 def test_daily_start_syncs_exactly_selected_accounts(daily_context,task_factory,monkeypatch,current_only):
     ctx,_=daily_context
