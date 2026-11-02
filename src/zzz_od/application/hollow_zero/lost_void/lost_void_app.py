@@ -29,6 +29,8 @@ from zzz_od.application.hollow_zero.lost_void.lost_void_challenge_config import 
 )
 from zzz_od.application.hollow_zero.lost_void.lost_void_config import LostVoidConfig
 from zzz_od.application.hollow_zero.lost_void.matrix_team import custom_matrix_agents, resolve_agent_ids
+from zzz_od.application.hollow_zero.lost_void import matrix_pad_agents, matrix_pad_menu
+from zzz_od.application.hollow_zero.lost_void.matrix_screen import detail_visible, read_team_page, main_agents
 from zzz_od.application.hollow_zero.lost_void.lost_void_run_record import (
     LostVoidRunRecord,
 )
@@ -77,6 +79,8 @@ class LostVoidApp(ZApplication):
 
         self.use_priority_agent: bool = False  # 本次挑战是否使用了UP代理人
         self._matrix_selection = None
+        self._matrix_pad_selection = None
+        self._matrix_pad_menu = {}
         self._mission_returned_from = None
         self._mission_recoveries = 0
         self._regular_switch_requests = 0
@@ -95,6 +99,8 @@ class LostVoidApp(ZApplication):
         except ValueError as exc:
             return self.round_fail(str(exc))
         self._matrix_selection = None
+        self._matrix_pad_selection = None
+        self._matrix_pad_menu = {}
         self._mission_returned_from = None
         self._mission_recoveries = 0
         self._regular_switch_requests = 0
@@ -148,6 +154,9 @@ class LostVoidApp(ZApplication):
         if self._entry_header() is not None:
             return self.round_success('已在迷失之地入口')
         mission_name = self.config.mission_name
+        if background and mission_name == '矩阵行动':
+            if detail_visible(self) or read_team_page(self) is not None:
+                return self.round_success('已在矩阵编队流程')
         if detail_mission(self.ctx, self.last_screenshot) == mission_name:
             return self.round_success('已在目标副本详情')
         if len(menu_matches(self.ctx, self.last_screenshot)) >= 2:
@@ -220,10 +229,6 @@ class LostVoidApp(ZApplication):
             return self.round_success(entry)
         if len(menu_matches(self.ctx, self.last_screenshot)) >= 2:
             return self.round_success('迷失之地-入口-常规')
-        result = self.round_by_find_and_click_area(self.last_screenshot, '迷失之地-入口', '按钮-更新弹窗-关闭')
-        if result.is_success:
-            return self.round_retry(result.status, wait=0.5)
-
         screen_name_list = ['迷失之地-入口-周期', '迷失之地-入口-常规']
         screen_name = self.check_and_update_current_screen(self.last_screenshot, screen_name_list=screen_name_list)
         if screen_name not in screen_name_list:
@@ -293,8 +298,11 @@ class LostVoidApp(ZApplication):
     # ========== 矩阵行动入口流程节点 ==========
 
     @node_from(from_name='识别悬赏委托完成进度', status=STATUS_AGAIN_MATRIX)
+    @node_from(from_name='识别初始画面', status='已在矩阵编队流程')
     @operation_node(name='矩阵行动-前往入口')
     def matrix_goto_entry(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            return matrix_pad_menu.goto_entry(self)
         # 排除因为ocr太慢导致的错误信息
         error = self.round_by_find_and_click_area(self.last_screenshot, '迷失之地-矩阵行动-编队选择', '确认', success_wait=1)
         if error.is_success:
@@ -313,10 +321,13 @@ class LostVoidApp(ZApplication):
         except ValueError as exc:
             return self.round_fail(str(exc))
         self._matrix_selection = None
+        self._matrix_pad_selection = None
         if custom is not None or self.ctx.lost_void.challenge_config.manually_choose_agent:
             # 自定义队伍不能继承上轮的预备编队战斗配置。
             self.ctx.lost_void.predefined_team_idx = -1
             return self.round_success('手动选取角色')
+        if getattr(self.ctx.controller, 'background_mode', False):
+            return matrix_pad_menu.open_preset(self)
         area = self.ctx.screen_loader.get_area('迷失之地-矩阵行动-编队选择', '预备编队')
         if area is not None:
             part = cv2_utils.crop_image_only(self.last_screenshot, area.rect)
@@ -339,6 +350,8 @@ class LostVoidApp(ZApplication):
     @node_from(from_name='矩阵行动-点击预备编队')
     @operation_node(name='矩阵行动-选择预备编队', node_max_retry_times=7)
     def matrix_select_team(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            return matrix_pad_menu.select_preset(self)
         # 初始为较高的匹配阈值，如果超过5次匹配失败则改用0.5的阈值兜底
         lcs_percent = 0.7 if self.node_retry_times < 5 else 0.5
 
@@ -399,7 +412,8 @@ class LostVoidApp(ZApplication):
             return self.round_fail(str(exc))
         agent_area = self.ctx.screen_loader.get_area('迷失之地-矩阵行动-编队选择', '代理人列表')
         main_area = self.ctx.screen_loader.get_area('迷失之地-矩阵行动-编队选择', '主战编队槽')
-        if self._matrix_selection is None:
+        background = getattr(self.ctx.controller, 'background_mode', False)
+        if self._matrix_selection is None and (not background or getattr(self, '_matrix_pad_selection', None) is None):
             # 模板缺失时先报错，避免清空用户的现有队伍后才发现不能识别。
             agents = {item.value.agent_id: item.value for item in AgentEnum}
             for agent_id in target:
@@ -407,6 +421,9 @@ class LostVoidApp(ZApplication):
                 if not any(self.ctx.template_loader.get_template('predefined_team', f'avatar_{tid}')
                            is not None for tid in agent.template_id_list):
                     return self.round_fail(f'缺少角色识别模板：{agent.agent_name}')
+        if background:
+            return matrix_pad_agents.select_agents(self, target)
+        if self._matrix_selection is None:
             self._matrix_selection = {'target': target, 'phase': 'open', 'index': 0,
                                       'clear_times': 0, 'rewind': 8, 'page': 0, 'verify_times': 0}
         state = self._matrix_selection
@@ -486,6 +503,8 @@ class LostVoidApp(ZApplication):
     @operation_node(name='矩阵行动-点击协战代理人')
     def matrix_click_support_agent(self) -> OperationRoundResult:
         """在矩阵行动页面点击协战代理人。"""
+        if getattr(self.ctx.controller, 'background_mode', False):
+            return matrix_pad_menu.open_support(self)
         return self.round_by_find_and_click_area(
             self.last_screenshot,
             '迷失之地-矩阵行动-编队选择',
@@ -497,6 +516,8 @@ class LostVoidApp(ZApplication):
     @node_from(from_name='矩阵行动-点击协战代理人')
     @operation_node(name='矩阵行动-等待代理人列表', node_max_retry_times=300)
     def matrix_wait_support_panel(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            return matrix_pad_menu.wait_support(self)
         ocr_result_map = self.ctx.ocr.run_ocr(self.last_screenshot)
         if self._find_ocr_text_mr(ocr_result_map, '代理人') is not None:
             return self.round_success('已出现代理人列表')
@@ -505,6 +526,8 @@ class LostVoidApp(ZApplication):
     @node_from(from_name='矩阵行动-等待代理人列表')
     @operation_node(name='矩阵行动-选择协战代理人')
     def matrix_select_support_agent(self) -> OperationRoundResult:
+        if getattr(self.ctx.controller, 'background_mode', False):
+            return matrix_pad_menu.select_support(self)
         area = self.ctx.screen_loader.get_area('迷失之地-矩阵行动-编队选择', '代理人列表')
         support_team_area = self.ctx.screen_loader.get_area('迷失之地-矩阵行动-编队选择', '协战编队槽')
         support_team_property = self.ctx.screen_loader.get_area('迷失之地-矩阵行动-编队选择', '协战代理人属性')
@@ -565,6 +588,11 @@ class LostVoidApp(ZApplication):
                 target = resolve_agent_ids(self.ctx.lost_void.challenge_config.team_info)
         except ValueError as exc:
             return self.round_fail(str(exc))
+        if getattr(self.ctx.controller, 'background_mode', False):
+            page = read_team_page(self) if target is not None else None
+            if page is not None and main_agents(self, page) != target:
+                return self.round_fail('挑战前主战编队校验失败，未开始挑战')
+            return matrix_pad_menu.start_challenge(self)
         if target is not None:
             area = self.ctx.screen_loader.get_area('迷失之地-矩阵行动-编队选择', '主战编队槽')
             if self._matrix_roster(area) != target:
