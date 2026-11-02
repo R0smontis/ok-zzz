@@ -50,7 +50,9 @@ def restore(name, policy='使用储蓄电量', hide=(), counts=None):
 
 
 @pytest.mark.parametrize('name,expected', [('restore-quick', ('储蓄电量',501,60)),
-                                          ('restore-ether-use', ('以太电池',28,1))])
+                                          ('restore-ether-use', ('以太电池',28,1)),
+                                          # 2026-11-01: OCR read 「儲蓄电量×24」 and 体力刷本 failed daily.
+                                          ('restore-quick-traditional', ('储蓄电量',24,24))])
 def test_real_quick_use_reads_source_inventory_and_complete_exchange_number(name, expected):
     assert quick_use(restore(name)) == expected
 

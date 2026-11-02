@@ -111,6 +111,11 @@ class ZContext(ContextEventBus):
             return service
         return self._get_or_create('map_service', create)
 
+    def dismiss_info_popup(self, operation):
+        """Close a game notice covering the screen; Operation calls this before every node round."""
+        from src.navigation.popups import dismiss_info_popup
+        return dismiss_info_popup(operation)
+
     def navigate_background_screen(self, operation, screen, target, current=None):
         from src.navigation.menus import MAIN_MENU_ITEMS, compendium_tab, main_menu_target
         if current in ('仓库-音擎仓库', '仓库-材料道具', '仓库-驱动仓库'):

@@ -552,6 +552,12 @@ class Operation(OperationBase):
         if self._current_node.op_method is not None:
             if self._current_node.screenshot_before_round:
                 self.screenshot()
+                # ok-zzz: notices (e.g. 「迷失之地」内容更新) can cover any screen; close them before
+                # the node acts so no task needs its own handling for each new popup.
+                dismiss = getattr(self.ctx, 'dismiss_info_popup', None)
+                popup_result = dismiss(self) if callable(dismiss) else None
+                if popup_result is not None:
+                    return popup_result
             current_round_result: OperationRoundResult = self._current_node.op_method(self)
         elif self._current_node.op is not None:
             op_result = self._current_node.op.execute()

@@ -13,18 +13,22 @@ CARDS = SOURCES + ('菲林',)
 NO_SOURCE = '没有可用的电量来源'
 
 
+def text(row):
+    return norm_text(row.data, 'restore_charge')
+
+
 def quick_use(op):
     screen = op.last_screenshot
     titles = ocr_rows(op, screen, Rect(570, 290, 780, 365))
-    if not any(norm_text(row.data) == '快捷使用' for row in titles):
+    if not any(text(row) == '快捷使用' for row in titles):
         return None
     title_rows = ocr_rows(op, screen, Rect(775, 420, 1190, 480))
-    title = ''.join(norm_text(row.data) for row in sorted(title_rows, key=lambda row: row.center.x))
+    title = ''.join(text(row) for row in sorted(title_rows, key=lambda row: row.center.x))
     match = re.fullmatch(r'(储蓄电量|以太电池)[xX×*](\d+)', title)
     if match is None:
         return None
     numbers = ocr_rows(op, screen, Rect(940, 595, 1090, 650))
-    value = ''.join(norm_text(row.data) for row in sorted(numbers, key=lambda row: row.center.x))
+    value = ''.join(text(row) for row in sorted(numbers, key=lambda row: row.center.x))
     if not re.fullmatch(r'\d+', value):
         return None
     return match.group(1), int(match.group(2)), int(value)
@@ -39,11 +43,11 @@ def source_page(op):
     """
     screen = op.last_screenshot
     rows = ocr_rows(op, screen, Rect(650, 335, 1270, 810))
-    if not any(norm_text(row.data) == '恢复电量' for row in rows):
+    if not any(text(row) == '恢复电量' for row in rows):
         return None
     cards = {}
     for row in rows:
-        name = norm_text(row.data)
+        name = text(row)
         if name in CARDS and 590 < row.center.y < 650 and name not in cards:
             cards[name] = row
     if not cards:
@@ -51,9 +55,9 @@ def source_page(op):
     counts = {}
     for name, card in cards.items():
         numbers = [row for row in rows if 560 < row.center.y < 605 and abs(row.center.x - card.center.x) < 45
-                   and re.fullmatch(r'\d+', norm_text(row.data))]
+                   and re.fullmatch(r'\d+', text(row))]
         if len(numbers) == 1:
-            counts[name] = int(norm_text(numbers[0].data))
+            counts[name] = int(text(numbers[0]))
     # Card focus is a 132px yellow rounded outline. The smaller item's colored
     # artwork is not sufficient evidence of selection.
     mask = ((screen[:, :, 0] > 75) & (screen[:, :, 1] > 75)
@@ -66,9 +70,9 @@ def source_page(op):
         115 < w < 150 and 115 < h < 150 and abs(x + 650 + w / 2 - row.center.x) < 35
         for x, y, w, h in boxes)]
     selected = focused[0] if len(focused) == 1 else None
-    confirm = next((row for row in rows if norm_text(row.data) == '确认'
+    confirm = next((row for row in rows if text(row) == '确认'
                     and 1000 < row.center.x < 1240 and 730 < row.center.y < 810), None)
-    cancel = next((row for row in rows if norm_text(row.data) == '取消'
+    cancel = next((row for row in rows if text(row) == '取消'
                    and 700 < row.center.x < 940 and 730 < row.center.y < 810), None)
     button = ('confirm' if confirm is not None and label_focused(screen, confirm.center, 110)
               else 'cancel' if cancel is not None and label_focused(screen, cancel.center, 110) else None)
