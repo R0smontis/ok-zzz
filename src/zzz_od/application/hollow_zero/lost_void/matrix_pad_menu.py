@@ -147,6 +147,14 @@ def select_preset(op) -> OperationRoundResult:
         if page.focus is None or len(wanted) != 1 or not in_rect(wanted[0].center, page.focus):
             return _wait(op, state, '等待目标预备编队应用后的焦点核验')
         if not _preset_checked(op, page.focus) or not main_labels(page):
+            # 2026-11-08 实机：第一次 A 被吞掉（画面未勾选、主战槽仍为空），再按一次 A 立即应用。
+            # 只在画面确实没有任何变化（无勾选、无主战标签）时补按一次，勾选后的 A 不会再发送。
+            if (state.get('apply_waits', 0) >= 2 and not state.get('reapplied')
+                    and not _preset_checked(op, page.focus) and not main_labels(page)):
+                state['reapplied'] = True
+                return _press(op, state, 'a', f'应用未生效，再次应用预备编队：{names[idx]}',
+                              maximum=request_limit)
+            state['apply_waits'] = state.get('apply_waits', 0) + 1
             return _wait(op, state, '等待目标预备编队勾选与主战槽更新')
         roster = main_agents(op, page)
         if not roster:

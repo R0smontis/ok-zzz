@@ -74,7 +74,7 @@ class LostVoidContext:
         self.dynamic_abandon_list = []
         self.had_interacted_ophelia_on_current_level = False
         self.completed_npc_names = set()
-        self.in_start_room = False
+        # 中断后继续同一局仍可能在准备区；只在实际离开第一层后清除此标志。
         self.init_lost_void_det_model()
         self.load_artifact_data()
         self.load_challenge_config()
@@ -236,12 +236,14 @@ class LostVoidContext:
         @param screenshot_time: 截图时间
         @return: 是否进入了战斗
         """
+        if self.in_start_room:
+            return False
         battle = self.ctx.auto_battle_context
         # 战斗标志和目标扫描都必须以当前帧的攻击按钮为前提。
         if not battle.is_normal_attack_btn_available(screen):
             return False
         from zzz_od.auto_battle.battle_presence import detect_battle_presence
-        evidence = None if self.in_start_room else detect_battle_presence(screen, battle)
+        evidence = detect_battle_presence(screen, battle)
         if evidence is not None:
             log.info('迷失之地遭遇战斗：%s', evidence)
             return True

@@ -119,8 +119,21 @@ class OneDragonDailyTask(ZzzBaseTask, BaseTask):
         ctx = self.ctx
         ctx.init_for_application()
 
-        run_result = ctx.run_context.run_application(
-            'one_dragon', instance_idx=ctx.current_instance_idx)
+        # 任务信息表实时显示当前账号、应用、节点状态及每项结果；结束后只保留结果与失败画面。
+        # 直接写信息表而不用 info_set：节点状态已在日志中，info_set 会每轮再记一行重复日志。
+        ctx.run_context.progress_listener = self.info.__setitem__
+        # 先占位实时行，使它们固定在计划之后、各应用结果之前，不随首次写入时机跳动。
+        for key in ('当前账号', '当前应用', '当前步骤', '步骤状态', '进度', '失败画面'):
+            self.info.setdefault(key, '')
+        try:
+            run_result = ctx.run_context.run_application(
+                'one_dragon', instance_idx=ctx.current_instance_idx)
+        finally:
+            ctx.run_context.progress_listener = None
+            for key in ('当前应用', '当前步骤', '步骤状态'):
+                self.info.pop(key, None)
+            for key in [key for key, value in self.info.items() if value == '']:
+                del self.info[key]
 
         from onedragon.base.operation.application.application_run_context import RunFinishReason
         result = ctx.run_context.last_application_result

@@ -72,6 +72,7 @@ class AutoDialogueTriggerTask(ZzzBaseTask, TriggerTask):
         self._pad = None
         self._pad_next = 0.0
         self._input_mode_synced = None
+        self._click_fallback = None
 
     def validate_config(self, key, value):
         error = super().validate_config(key, value)
@@ -95,6 +96,7 @@ class AutoDialogueTriggerTask(ZzzBaseTask, TriggerTask):
         self._pad = None
         self._pad_next = 0.0
         self._input_mode_synced = None
+        self._click_fallback = None
         self.info['助手状态'] = '等待对话'
 
     def enable(self):
@@ -212,6 +214,7 @@ class AutoDialogueTriggerTask(ZzzBaseTask, TriggerTask):
                 return
             if action is None:
                 self._pad = None
+                self._click_fallback = None
                 self.info['助手状态'] = '等待对话'
                 return
             self.info['助手状态'] = f'检测到：{action.text}'
@@ -230,9 +233,15 @@ class AutoDialogueTriggerTask(ZzzBaseTask, TriggerTask):
                 if action.kind not in STORY_BUTTONS or result.result != OperationRoundResultEnum.RETRY:
                     self.info['助手状态'] = result.status
                     return
-                # No controller letter is printed next to this story button: keep the window message.
+                # Only 菜单/自动 can reach here (跳过 always uses the pad's menu button): no controller
+                # glyph beside the button. Window-message clicks are often ignored by the game in
+                # background mode, so send one and wait for the screen to change instead of repeating.
+                if self._click_fallback == (action.kind, action.text):
+                    self.info['助手状态'] = '剧情按钮点击后画面未变化，等待手柄提示'
+                    return
             if controller.click_dialogue_event(action.point, expected_hwnd=hwnd,
                                                allow_background=settings[3]):
+                self._click_fallback = (action.kind, action.text) if action.kind in STORY_BUTTONS else None
                 self._sent(action, f'已执行{action.text}')
             else:
                 self.info['助手状态'] = '点击未发送，等待有效窗口或游戏前台'

@@ -101,7 +101,7 @@ class LostVoidRunRecord(AppRunRecord):
             # 需要刷业绩 就看空业绩点出来没有
             return self.eval_point_complete
         elif self.config.extra_task == LostVoidTaskEnum.PERIOD_REWARD.value.value:
-            return self.period_reward_complete
+            return self.bounty_commission_complete
         elif self.config.extra_task == LostVoidTaskEnum.WEEKLY_PLAN_TIMES.value.value:
             return self.weekly_run_times >= self.config.weekly_plan_times
         else:
@@ -114,6 +114,9 @@ class LostVoidRunRecord(AppRunRecord):
         """
         if self.is_finished_by_week:
             return True
+        if self.config.extra_task == LostVoidTaskEnum.PERIOD_REWARD.value.value:
+            # 刷满周期奖励以实际奖励耗尽为终点，计划次数只记录统计，不作为停止条件。
+            return False
         # 当周未完成的情况下，按照每天上限次数判断当天是否完成
         return self.daily_run_times >= self.config.daily_plan_times
 

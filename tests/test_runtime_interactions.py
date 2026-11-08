@@ -925,22 +925,33 @@ def test_background_dialogue_advances_with_controller_a_once_per_sentence(pad_di
     ctx.controller.click_dialogue_event.assert_not_called()
 
 
-def test_background_story_skip_uses_its_printed_button_or_falls_back_to_window_message(pad_dialogue):
+def _story_frame(name):
+    import json
+    from pathlib import Path
+    import cv2
+    from onedragon.base.geometry.rectangle import Rect
+    folder = Path(__file__).parent / 'fixtures' / 'dialogue'
+    screen = cv2.cvtColor(cv2.imread(str(folder / f'{name}.png')), cv2.COLOR_BGR2RGB)
+    rows = []
+    for item in json.loads((folder / f'{name}.json').read_text(encoding='utf-8'))['result']['ocr']:
+        x, y, w, h = item['rect']
+        rows.append(SimpleNamespace(data=item['text'], center=Rect(x, y, x + w, y + h).center))
+    return screen, rows
+
+
+@pytest.mark.parametrize('name', ['story-skip-mouse-prompts', 'story-skip-pad-prompts'])
+def test_background_story_skip_presses_menu_button_with_or_without_pad_prompt(pad_dialogue, dialogue_task, name):
+    # 2026-11-04: 跳过 was "executed" by window message every 0.6 s for minutes and the game never
+    # reacted. 跳过 is the pad's menu button whatever prompt the frame shows, so no prompt is required
+    # and no window message is sent.
     from zzz_od.application.commission_assistant.dialogue_detector import DialogueAction
     from onedragon.base.geometry.point import Point
     task, ctx, rows, clock = pad_dialogue
-    skip = DialogueAction('skip', Point(1750, 80), '跳过剧情')
-    task._detector.detect.return_value = skip
-    rows.append(ocr_row('跳过', 1750, 80))
-    task.run()  # No controller letter beside 跳过: the window message is still sent.
-    assert not pad_presses(ctx)
-    ctx.controller.click_dialogue_event.assert_called_once_with(skip.point, expected_hwnd=101,
-                                                                allow_background=True)
-    clock[0] += 1
-    rows.insert(0, ocr_row('X', 1690, 80))
+    task._detector.detect.return_value = DialogueAction('skip', Point(1755, 61), '跳过剧情')
+    dialogue_task[2][0], rows[:] = _story_frame(name)
     task.run()
-    assert pad_presses(ctx) == ['xbox_x']
-    assert ctx.controller.click_dialogue_event.call_count == 1
+    assert pad_presses(ctx) == ['xbox_start']
+    ctx.controller.click_dialogue_event.assert_not_called()
 
 
 def test_background_dialogue_never_answers_a_purchase_option(pad_dialogue):

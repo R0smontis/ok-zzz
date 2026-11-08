@@ -13,7 +13,7 @@ class LostVoidTaskEnum(Enum):
 
     BOUNTY_COMMISSION = ConfigItem('完成悬赏委托', desc='按游戏显示的当前悬赏目标领取奖励')
     EVAL_POINT = ConfigItem('刷满业绩点', desc='刷满每周业绩点')
-    PERIOD_REWARD = ConfigItem('刷满周期奖励', desc='刷满每周丁尼')
+    PERIOD_REWARD = ConfigItem('刷满周期奖励', desc='按当期悬赏进度刷满并领取奖励，不受计划次数限制')
     WEEKLY_PLAN_TIMES = ConfigItem('完成周计划次数', desc='完成配置的每周计划次数')
 
 
@@ -58,7 +58,8 @@ class LostVoidConfig(ApplicationConfig):
 
     @property
     def is_bounty_commission_mode(self) -> bool:
-        return self.extra_task == LostVoidTaskEnum.BOUNTY_COMMISSION.value.value
+        return self.extra_task in (LostVoidTaskEnum.BOUNTY_COMMISSION.value.value,
+                                   LostVoidTaskEnum.PERIOD_REWARD.value.value)
 
     @property
     def mission_name(self) -> str:

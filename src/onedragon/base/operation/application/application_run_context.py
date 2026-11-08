@@ -11,7 +11,7 @@ import threading
 import time
 from dataclasses import dataclass
 from enum import Enum, StrEnum
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, Callable, TypeVar
 
 from onedragon.base.operation.application.application_config import ApplicationConfig
 from onedragon.base.operation.application.application_group_config import (
@@ -110,8 +110,24 @@ class ApplicationRunContext:
 
         self.last_run_result: ApplicationRunResult | None = None
         self.last_application_result = None
-
+        # ok-zzz: 运行中的界面任务订阅进度（当前应用、节点状态），None 时不推送。
+        self.progress_listener: Callable[[str, str], None] | None = None
+        self._progress_values: dict[str, str] = {}
         self.default_group_apps: list[ApplicationFactory] = []
+
+    def report_progress(self, key: str, value: str) -> None:
+        """把运行进度写给界面任务信息表；监听方异常不得中断自动化。"""
+        self._progress_values[key] = value
+        listener = self.progress_listener
+        if listener is None:
+            return
+        try:
+            listener(key, value)
+        except Exception:
+            log.debug('进度推送失败', exc_info=True)
+
+    def progress_value(self, key: str) -> str:
+        return self._progress_values.get(key, '')
 
     # ------------------------------------------------------------------ #
     # 注册
@@ -219,6 +235,7 @@ class ApplicationRunContext:
         if controller is not None and hasattr(controller, 'init_before_context_run'):
             controller.init_before_context_run()
         self._run_state = ApplicationRunStateEnum.RUNNING
+        self._progress_values.clear()
         self.event_bus.dispatch_event(ApplicationRunContextStateEventEnum.START.value)
         return True
 

@@ -220,6 +220,27 @@ def test_start_room_training_dummy_never_counts_as_an_encounter(encounter):
     assert lost.check_battle_encounter(screen, 100)
 
 
+def test_start_room_does_not_consult_flash_or_battle_text(encounter):
+    lost, battle, detect, ocr = encounter
+    lost.in_start_room = True
+    ocr.return_value = True
+    assert not lost.check_battle_encounter(np.zeros((1080, 1920, 3), np.uint8), 100)
+    detect.assert_not_called()
+    battle.dodge_context.check_dodge_flash.assert_not_called()
+    battle.is_normal_attack_btn_available.assert_not_called()
+    ocr.assert_not_called()
+
+
+def test_start_room_stops_an_already_running_battle_without_reading_combat_hud():
+    op = object.__new__(LostVoidRunLevel)
+    battle = SimpleNamespace(stop_auto_battle=Mock(), check_battle_state=Mock())
+    op.ctx = SimpleNamespace(lost_void=SimpleNamespace(in_start_room=True), auto_battle_context=battle)
+    op._after_round_wait = lambda **_: None
+    assert op.in_battle().status == '识别需移动交互'
+    battle.stop_auto_battle.assert_called_once()
+    battle.check_battle_state.assert_not_called()
+
+
 @pytest.mark.parametrize('status,cleared', [(LostVoidRunLevel.STATUS_NEXT_LEVEL, True),
                                             (LostVoidRunLevel.STATUS_COMPLETE, True),
                                             ('代理人阵亡', False)])

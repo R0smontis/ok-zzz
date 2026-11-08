@@ -30,11 +30,15 @@ from zzz_od.application.hollow_zero.lost_void.mission_screen import focused_gear
 from src.controls.gamepad import press as pad
 
 
+# The equipped header uses a different font than the preview; OCR reads some of its glyphs as their
+# traditional or variant forms. One character each, so identity (which gear) is preserved.
+_HEADER_GLYPHS = str.maketrans({'強': '强', '攜': '携', '遊': '游'})
+
+
 def normalize_gear_name(text):
-    value=re.sub(r'\s+','',text).replace('【','[').replace('】',']')
-    # The equipped header uses a different font than the preview. Preserve
-    # exact identity while correcting the variants observed in that header.
-    value=value.replace('攜游','携游').replace('携遊','携游')
+    value=re.sub(r'\s+','',text).replace('【','[').replace('】',']').translate(_HEADER_GLYPHS)
+    # 2026-11-08: 「[克拉蕾]裂铸强袭」 was equipped but the header read 「裂铸強袭」, so the
+    # check failed and the run stopped. 救令 is a whole-word misread seen only for this gear.
     return value.replace('[携游]救令玄幡','[携游]敕令玄幡')
 
 
@@ -517,6 +521,9 @@ class LostVoidChooseGear(ZOperation):
                 return self.round_retry('等待目标武备焦点，未操作', wait=.5)
             availability = self._gear_availability(focus)
             if availability is None:
+                if self._equip_requests:
+                    # 已按过携带却既不是目标标题、也不是可点击/解锁状态：记下实际读到的标题。
+                    log.info('携带后顶部武备标题未匹配：目标=%s，读到=%s', expected, normalize(text) or '（空）')
                 return self.round_retry('等待武备按钮状态，未操作', wait=.5)
             if not availability['usable']:
                 log.warning('武备不可携带：%s，解锁需要=%s，当前资源=%s',

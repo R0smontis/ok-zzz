@@ -455,6 +455,7 @@ class Operation(OperationBase):
                         arrow = f"{from_node_name} -> {node_name}" if self._previous_node is not None else node_name
                         log.info('%s 节点 %s 返回状态 %s%s', self.display_name, arrow, round_result_status,
                                  self._round_kind_text(round_result))
+                        self._report_round_progress(node_name, round_result_status, round_result)
                     self._emit_debug_round_trace(
                         from_node_name=from_node_name,
                         node_name=node_name,
@@ -654,6 +655,14 @@ class Operation(OperationBase):
             return '（失败）'
         return ''
 
+    def _report_round_progress(self, node_name: str, status: str, round_result: OperationRoundResult | None) -> None:
+        """ok-zzz: 运行中的任务信息表显示最内层指令、节点和本轮状态，不必打开日志文件。"""
+        run_context = getattr(self.ctx, 'run_context', None)
+        if run_context is None or not hasattr(run_context, 'report_progress'):
+            return
+        run_context.report_progress('当前步骤', f'{self.op_name} · {node_name}')
+        run_context.report_progress('步骤状态', f'{status}{self._round_kind_text(round_result)}')
+
     def _log_failure_screen(self) -> None:
         """ok-zzz: 节点失败时记下画面上识别到的文字（不含 UID），别人机器上的失败也能从日志判断当时的画面。"""
         screen = self.last_screenshot
@@ -674,6 +683,10 @@ class Operation(OperationBase):
         if len(words) > 800:
             words = words[:800] + '…'
         log.info('%s 失败时画面文字：%s', self.display_name, words or '（未识别到文字）')
+        run_context = getattr(self.ctx, 'run_context', None)
+        if run_context is not None and hasattr(run_context, 'report_progress'):
+            shown = words if len(words) <= 160 else words[:160] + '…'
+            run_context.report_progress('失败画面', f'{self.op_name}：{shown or "（未识别到文字）"}')
 
     def _reset_status_for_new_node(self) -> None:
         """进入新节点时重置状态。

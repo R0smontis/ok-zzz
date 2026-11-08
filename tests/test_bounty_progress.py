@@ -42,7 +42,7 @@ def test_different_rows_and_distant_boxes_are_not_joined():
 @pytest.fixture
 def app():
     task = object.__new__(LostVoidApp)
-    task.config = SimpleNamespace(is_bounty_commission_mode=True, mission_name='特遣调查')
+    task.config = SimpleNamespace(is_bounty_commission_mode=True, mission_name='特遣调查', extra_task='完成悬赏委托')
     task.run_record = SimpleNamespace(bounty_commission_complete=False, is_finished_by_day=False)
     task.last_screenshot = np.zeros((1080, 1920, 3), np.uint8)
     task.node_retry_times, task.node_max_retry_times = 0, 5
@@ -61,6 +61,18 @@ def test_completed_progress_routes_to_reward_claim_without_another_run(app, scor
     assert result.is_success and result.status == app.STATUS_ENOUGH_TIMES
     assert app.run_record.bounty_commission_complete
     app.ctx.ocr.ocr.assert_called_once()
+
+
+@pytest.mark.parametrize('score,expected', [('7999/8000', LostVoidApp.STATUS_AGAIN_MATRIX),
+                                          ('8000/8000', LostVoidApp.STATUS_ENOUGH_TIMES)])
+def test_period_reward_uses_bounty_progress_even_after_daily_cap(app, score, expected):
+    app.config.extra_task = '刷满周期奖励'
+    app.config.mission_name = '矩阵行动'
+    app.run_record.is_finished_by_day = True
+    app.run_record.period_reward_complete = False
+    app.ctx.ocr.ocr.return_value = [word(score)]
+    assert app.check_bounty_commission_before().status == expected
+    assert app.run_record.period_reward_complete is (score == '8000/8000')
 
 
 @pytest.mark.parametrize('mission,expected', [('特遣调查', LostVoidApp.STATUS_AGAIN),

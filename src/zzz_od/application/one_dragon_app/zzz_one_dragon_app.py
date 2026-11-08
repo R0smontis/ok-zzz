@@ -39,6 +39,15 @@ class ZOneDragonApp(ZApplication):
         self._success_app_count = 0
         self._skipped_done_count = 0
 
+    def _progress(self, key: str, value: str) -> None:
+        self.ctx.run_context.report_progress(key, value)
+
+    def _record_result(self, app_name: str, outcome: str) -> None:
+        # 每个应用一行（键为「账号 01 邮件」），不必翻日志就能看到前面每项的结果。
+        self._progress(f'账号 {self.ctx.current_instance_idx:02d} {app_name}', outcome)
+        self._progress('进度', f'执行 {self._executed_app_count}，成功 {self._success_app_count}，'
+                             f'跳过 {self._skipped_done_count}，失败 {len(self._fail_app_list)}')
+
     def _instance_list(self):
         """本轮需要运行的实例列表（一条龙配置决定全部/当前）。"""
         from onedragon.base.config.one_dragon_config import InstanceRun
@@ -73,9 +82,9 @@ class ZOneDragonApp(ZApplication):
 
         self.ctx.switch_instance(instance.idx)
         self.current_app_idx = -1
-        log.info('一条龙账号 %02d 执行队列：%s', instance.idx,
-                 ' → '.join(app_id for app_id, enabled in self._group_app_list() if enabled)
-                 or '未启用任何应用')
+        queue = [app_id for app_id, enabled in self._group_app_list() if enabled]
+        log.info('一条龙账号 %02d 执行队列：%s', instance.idx, ' → '.join(queue) or '未启用任何应用')
+        self._progress('当前账号', f'{instance.idx:02d}（第 {self.current_instance_idx + 1}/{len(instance_list)} 个）')
         return self.round_success(status=STATUS_INSTANCE_NEXT)
 
     @node_from(from_name='切换到下一个实例', status=STATUS_INSTANCE_NEXT)
@@ -99,6 +108,7 @@ class ZOneDragonApp(ZApplication):
             self._fail_app_list.append(label)
             self._fail_details.append(f'{label}：初始化失败：{exc}')
             log.error('一条龙应用初始化失败 %s：%s', app_id, exc, exc_info=True)
+            self._record_result(app_id, f'初始化失败：{exc}')
             return self.round_success(status=STATUS_NEXT)
 
         run_record = self.ctx.run_context.get_run_record(
@@ -108,10 +118,16 @@ class ZOneDragonApp(ZApplication):
             if run_record.is_done:
                 self._skipped_done_count += 1
                 log.info(f'跳过已完成应用 {app_name}')
+                self._record_result(app_name, '今日已完成，跳过')
                 return self.round_success(status=STATUS_NEXT)
 
         self._executed_app_count += 1
         log.info('一条龙开始执行 %s（账号 %02d）', app_name, self.ctx.current_instance_idx)
+        position = sum(1 for _, on in app_list[:self.current_app_idx + 1] if on)
+        total = sum(1 for _, on in app_list if on)
+        self._progress('当前应用', f'{app_name}（第 {position}/{total} 项）')
+        failure_screen_before = self.ctx.run_context.progress_value('失败画面')
+        started = time.time()
         try:
             app_result = app.execute()
             success = getattr(app_result, 'success', False)
@@ -129,6 +145,12 @@ class ZOneDragonApp(ZApplication):
             self._fail_app_list.append(label)
             self._fail_details.append(f'{label}：{detail or "未返回具体原因"}')
         log.info('一条龙应用结束 %s：%s；%s', app_name, '成功' if success else '失败', detail or '')
+        elapsed = int(time.time() - started)
+        outcome = '成功' if success else f'失败：{detail or "未返回具体原因"}'
+        self._record_result(app_name, f'{outcome}（{elapsed // 60} 分 {elapsed % 60} 秒）')
+        if success:
+            # 成功应用中途节点重试失败留下的画面不代表最终问题，恢复为此前失败应用的画面。
+            self._progress('失败画面', failure_screen_before)
         return self.round_success(status=STATUS_NEXT)
 
     @node_from(from_name='切换到下一个实例', status=STATUS_INSTANCE_ALL_DONE)

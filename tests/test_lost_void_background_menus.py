@@ -833,6 +833,33 @@ def test_equipped_header_font_variants_preserve_gear_identity(header,accepted):
     op.ctx.controller.btn_press.assert_not_called()
 
 
+def test_real_equipped_header_read_with_traditional_glyph_confirms_the_gear():
+    # 2026-11-08: 「[克拉蕾]裂铸强袭」 was equipped (green check, header shows it) but the header ROI
+    # OCR returned 「裂铸強袭」 (row text in the fixture is that crop's real read); the run failed.
+    import json
+    path = Path(__file__).parent/'fixtures/lost_void/gear-equipped-traditional-header'
+    rows = [SimpleNamespace(data=r['text'], center=Rect(r['rect'][0], r['rect'][1], r['rect'][0]+r['rect'][2],
+                                                        r['rect'][1]+r['rect'][3]).center)
+            for r in json.loads(path.with_suffix('.json').read_text(encoding='utf-8'))['result']['ocr']]
+    op=operation(LostVoidChooseGear)
+    op.last_screenshot=cv2.cvtColor(cv2.imread(str(path.with_suffix('.png'))),cv2.COLOR_BGR2RGB)
+    op.ctx.ocr_service=SimpleNamespace(get_ocr_result_list=lambda image, rect, **_: [
+        r for r in rows if rect.x1 <= r.center.x < rect.x2 and rect.y1 <= r.center.y < rect.y2])
+    op._pad_scan={'chosen':SimpleNamespace(ocr_text='[克拉蕾]裂铸强袭',
+        artifact=SimpleNamespace(display_name='[克拉蕾]裂铸强袭', category='克拉蕾'))}
+    op._equip_requests=1
+    op._equip_confirmed=False
+    assert op.click_equip().is_success and op._equip_confirmed
+    op.ctx.controller.btn_press.assert_not_called()
+
+
+@pytest.mark.parametrize('read,target',[('[克拉蕾]裂铸强袭','[克拉蕾]裂铸强袭'),('[克拉蕾]裂铸袭','[克拉蕾]裂铸强袭'),
+                                        ('[洛克茜]提灯夜客','[克拉蕾]裂铸强袭')])
+def test_header_glyph_folding_never_merges_different_gears(read,target):
+    from zzz_od.application.hollow_zero.lost_void.operation.interact.lost_void_choose_gear import normalize_gear_name
+    assert (normalize_gear_name(read)==normalize_gear_name(target)) is (read==target)
+
+
 def test_real_dark_gear_card_with_protruding_icon_has_correct_focus():
     path=Path(__file__).parent/'fixtures/lost_void/dark_gear_card_focus.png'
     screen=cv2.cvtColor(cv2.imread(str(path)),cv2.COLOR_BGR2RGB)

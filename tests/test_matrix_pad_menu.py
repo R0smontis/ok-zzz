@@ -231,14 +231,32 @@ def test_empty_or_ambiguous_configured_preset_fails_clearly(op):
 def test_preset_apply_requires_checkmark_and_expected_roster(op):
     op.frame('matrix-preset-focused')
     assert menu.select_preset(op).result == R.WAIT
-    # 同一张未选中的实测卡片不能因其角色图片/已有主战配置而被误报成功。
+    # 同一张未选中的实测卡片不能因其角色图片/已有主战配置而被误报成功；无变化时最多补按一次 A。
+    assert finish_unchanged(menu.select_preset, op).is_fail
+    assert op.buttons == ['xbox_a', 'xbox_a']
+    op.ctx.lost_void.challenge_config.predefined_team_idx = 0
+    op._matrix_pad_menu = {}
+    op.frame('matrix-preset-focused')
     assert menu.select_preset(op).result == R.WAIT
-    assert op.buttons == ['xbox_a']
     op.frame('matrix-preset-selected')
     menu.main_agents.return_value = ['rina', 'claret', 'roxy']
     assert finish_unchanged(menu.select_preset, op).is_fail
-    assert op.buttons == ['xbox_a']
+    # Checked card and main labels present: the order mismatch is never answered with another A.
+    assert op.buttons == ['xbox_a', 'xbox_a', 'xbox_a']
     assert op.ctx.lost_void.predefined_team_idx == 7
+
+
+def test_ignored_preset_apply_is_pressed_again_once_then_verified(op):
+    # 2026-11-08 实机：A 后编队 1 仍未勾选、主战槽全空，任务等满轮次失败；再按一次 A 立即应用。
+    op.frame('matrix-preset-focused')
+    assert menu.select_preset(op).result == R.WAIT
+    op.frame('matrix-preset-apply-ignored')
+    for _ in range(3):
+        assert menu.select_preset(op).result == R.WAIT
+    assert op.buttons == ['xbox_a', 'xbox_a']
+    op.frame('matrix-preset-selected')
+    assert menu.select_preset(op).is_success
+    assert op.buttons == ['xbox_a', 'xbox_a']
 
 
 def test_recreated_pad_reveals_focus_before_entering_and_applying_preset(op):

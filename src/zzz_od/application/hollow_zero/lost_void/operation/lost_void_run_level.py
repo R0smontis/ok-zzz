@@ -139,7 +139,6 @@ class LostVoidRunLevel(ZOperation):
         self.last_check_finish_time: float = 0  # 上一次识别结束的时间
         self.talk_opt_idx = 0  # 交互选择的选项
         self.reward_eval_found: bool = False  # 挑战结果中可以识别到业绩点
-        self.reward_dn_found: bool = False  # 挑战结果中可以识别到丁尼
         self.click_challenge_confirm: bool = False  # 点击了挑战确认
         self.boss_pre_battle: bool = self.region_type == LostVoidRegionType.BOSS  # 终结之役正式开战前的交互阶段
 
@@ -1261,6 +1260,9 @@ class LostVoidRunLevel(ZOperation):
     @node_from(from_name='准备自动战斗')
     @operation_node(name='战斗中', mute=True, timeout_seconds=600)
     def in_battle(self) -> OperationRoundResult:
+        if getattr(self.ctx.lost_void, 'in_start_room', False):
+            self.ctx.auto_battle_context.stop_auto_battle()
+            return self.round_success('识别需移动交互')
         self.last_frame_in_battle = self.current_frame_in_battle
         self.current_frame_in_battle = self.ctx.auto_battle_context.check_battle_state(self.last_screenshot, self.last_screenshot_time)
 
@@ -1413,25 +1415,13 @@ class LostVoidRunLevel(ZOperation):
         result = self.round_by_find_area(self.last_screenshot, '迷失之地-挑战结果', '奖励-零号业绩')
         if result.is_success:
             self.reward_eval_found = True
-        result = self.round_by_find_area(self.last_screenshot, '迷失之地-挑战结果', '奖励-丁尼')
-        if result.is_success:
-            self.reward_dn_found = True
 
         result = self._background_result_ack('完成') if getattr(self.ctx.controller, 'background_mode', False) else self.round_by_find_and_click_area(screen=self.last_screenshot, screen_name='迷失之地-挑战结果', area_name='按钮-完成',
                                                    until_not_find_all=[('迷失之地-挑战结果', '按钮-完成')],
                                                    success_wait=1, retry_wait=1)
         if result.is_success:
-            if self.reward_eval_found:
-                # 有业绩点 说明两个都没达成
-                self.run_record.eval_point_complete = False
-                self.run_record.period_reward_complete = False
-            else:
-                self.run_record.eval_point_complete = True
-                self.run_record.period_reward_complete = not self.reward_dn_found
-
-            if self.run_record.period_reward_complete:
-                if self.ctx.env_config.is_debug:
-                    self.save_screenshot(prefix='period_reward_complete')
+            self.run_record.eval_point_complete = not self.reward_eval_found
+            # 周期奖励在入口以悬赏进度核验；结算丁尼是否出现不代表悬赏是否满额。
 
             return self.round_success(LostVoidRunLevel.STATUS_COMPLETE, data=LostVoidRegionType.FRIENDLY_TALK.value.value)
         else:

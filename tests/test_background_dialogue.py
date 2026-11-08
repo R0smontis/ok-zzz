@@ -79,24 +79,39 @@ def test_option_navigation_requires_the_visible_target_and_unique_focus():
     assert len(pressed(op)) == 2
 
 
-def test_skip_confirmation_needs_the_confirm_button_focus():
+def test_skip_confirmation_shows_pad_focus_before_pressing_a():
     op, screen = setup()
     action = DialogueAction('confirm_skip', Point(1120, 620), '确认跳过')
+    # Mouse prompts: no focus drawn. RIGHT brings the pad focus onto 确认; A only once it is verified.
+    assert dialogue_action(op, screen, action).result == R.WAIT
+    assert dialogue_action(op, screen, action).result == R.WAIT
     assert dialogue_action(op, screen, action).result == R.RETRY
-    assert not pressed(op)
+    assert pressed(op) == ['xbox_dpad_right', 'xbox_dpad_right']
     screen[592:648, 1000:1240] = [240, 230, 0]
     assert dialogue_action(op, screen, action).result == R.WAIT
-    assert pressed(op) == ['xbox_a']
+    assert pressed(op) == ['xbox_dpad_right', 'xbox_dpad_right', 'xbox_a']
 
 
-def test_skip_button_requires_its_printed_controller_glyph():
-    rows = [row('跳过', 1750, 80)]
-    op, screen = setup(rows)
+def test_skip_uses_the_menu_button_without_any_printed_prompt():
+    # The story corner shows only the 跳过 label: no letter, no ≡ icon (mouse prompts or none).
+    op, screen = setup([row('跳过', 1750, 80)])
     action = DialogueAction('skip', Point(1750, 80), '跳过剧情')
-    assert dialogue_action(op, screen, action).result == R.RETRY and not pressed(op)
-    rows.insert(0, row('X', 1690, 80))
-    assert dialogue_action(op, screen, action).result == R.WAIT
-    assert pressed(op) == ['xbox_x']
+    results = [dialogue_action(op, screen, action).result for _ in range(8)]
+    # One START, one re-press if the first only switched the prompt scheme, then bounded waiting.
+    assert pressed(op) == ['xbox_start', 'xbox_start']
+    assert results[-1] == R.FAIL
+
+
+@pytest.mark.parametrize('name, glyph', [('story-skip-pad-prompts', True), ('story-skip-mouse-prompts', False),
+                                         ('story-skip-confirm-pad', False)])
+def test_menu_glyph_left_of_story_button_is_read_from_the_real_frame(name, glyph):
+    import cv2
+    from pathlib import Path
+    from src.navigation.dialogue import _menu_glyph
+    path = Path(__file__).parent / 'fixtures' / 'dialogue' / f'{name}.png'
+    screen = cv2.cvtColor(cv2.imread(str(path)), cv2.COLOR_BGR2RGB)
+    # Controller ≡ in the circle; mouse UI has a filled orange icon; the dimmed confirm overlay has neither.
+    assert _menu_glyph(screen, Point(1755, 61)) is glyph
 
 
 def test_menu_state_is_kept_only_after_a_verified_menu_press():
