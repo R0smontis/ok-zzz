@@ -67,6 +67,7 @@ def test_tutorial_skip_is_not_story_dialogue(dialogue_scene):
 def test_current_dialogue_has_a_fixed_game_coordinate(dialogue_scene):
     detector, _, texts, _, frame = dialogue_scene
     texts['对话框内容'] = [word('你好，绳匠。')]
+    texts['对话框标题'] = [word('妮可', 960, 800)]
     action = detector.detect(frame, mode='自动点击')
     assert action.kind == 'advance'
     assert action.point.tuple() == (959, 905)
@@ -74,10 +75,25 @@ def test_current_dialogue_has_a_fixed_game_coordinate(dialogue_scene):
     assert detector.detect(frame, mode='自动点击') is None
 
 
+@pytest.mark.parametrize('words', [['材料不足', '确定', '2351209/135000'], ['确认', '取消'], ['升级', '材料不足']])
+def test_ui_labels_are_not_dialogue_body(dialogue_scene, words):
+    detector, _, texts, _, frame = dialogue_scene
+    texts['对话框内容'] = [word(text) for text in words]
+    assert detector.detect(frame) is None
+
+
+def test_actual_dialogue_may_mention_upgrade_materials(dialogue_scene):
+    detector, _, texts, _, frame = dialogue_scene
+    texts['对话框内容'] = [word('材料不足的话，等明天再来强化吧。')]
+    texts['对话框标题'] = [word('妮可', 960, 800)]
+    assert detector.detect(frame).kind == 'advance'
+
+
 @pytest.mark.parametrize('option, expected', [('第一个', '选项甲'), ('最后一个', '选项乙')])
 def test_choices_require_current_dialogue_evidence(dialogue_scene, option, expected):
     detector, _, texts, _, frame = dialogue_scene
     texts['对话框内容'] = [word('请选择你的回答')]
+    texts['对话框标题'] = [word('妮可', 960, 800)]
     texts['右侧选项区域'] = [word('选项乙', 1600, 700), word('选项甲', 1600, 600)]
     action = detector.detect(frame, option=option)
     assert action.kind == 'option' and action.text == expected
@@ -85,7 +101,7 @@ def test_choices_require_current_dialogue_evidence(dialogue_scene, option, expec
 
 def test_skip_button_and_confirmation_are_separate_frames(dialogue_scene):
     detector, _, texts, _, frame = dialogue_scene
-    texts['文本-剧情右上角'] = [word('跳过', 1750, 70)]
+    texts['文本-剧情右上角'] = [word('跳过', 1750, 70), word('自动', 1750, 120)]
     assert detector.detect(frame).kind == 'skip'
     texts.clear()
     texts['对话框确认'] = [word('确认', 1120, 650)]
@@ -98,11 +114,32 @@ def test_auto_play_menu_is_not_toggled_again(dialogue_scene):
     detector, _, texts, _, frame = dialogue_scene
     texts['文本-剧情右上角'] = [word('菜单', 1750, 70)]
     texts['按钮-自动'] = [word('自动', 1750, 210)]
+    texts['对话框标题'] = [word('妮可', 960, 800)]
+    texts['对话框内容'] = [word('你好，绳匠。')]
     assert detector.detect(frame, mode='等待剧情自动播放').kind == 'menu'
     assert detector.detect(frame, mode='等待剧情自动播放', menu_opened=True).kind == 'auto'
     texts['文本-剧情右上角'] = [word('自动', 1750, 70)]
     texts['对话框内容'] = [word('当前正在自动播放')]
     assert detector.detect(frame, mode='等待剧情自动播放') is None
+
+
+@pytest.mark.parametrize('text', ['是否花费160菲林购买？', '是否进行十次调频？', '材料不足', '确定', '跳过动画需要购买'])
+def test_generic_purchase_gacha_confirmation_never_enters_story_whitelist(dialogue_scene, text):
+    detector, _, texts, found, frame = dialogue_scene
+    texts['skip_prompt'] = [word(text, 960, 400)]
+    texts['对话框内容'] = [word(text)]
+    texts['对话框确认'] = [word('确认', 1120, 650)]
+    texts['中间选项区域'] = [word('确认购买', 1120, 650)]
+    found.add(('委托助手', '中间选项区域'))
+    for mode in ('跳过剧情', '自动点击', '等待剧情自动播放'):
+        assert detector.detect(frame, mode=mode) is None
+
+
+def test_isolated_skip_or_menu_label_is_not_story_evidence(dialogue_scene):
+    detector, _, texts, _, frame = dialogue_scene
+    for label in ('跳过', '菜单', '自动'):
+        texts['文本-剧情右上角'] = [word(label, 1750, 70)]
+        assert detector.detect(frame) is None
 
 
 def test_legacy_commission_no_longer_clicks_after_dialogue_disappears(dialogue_scene):
@@ -129,7 +166,7 @@ def test_commission_settings_use_the_commission_file(tmp_path, monkeypatch):
     assert Path(config.file_path).name == 'commission_assistant.yml'
 
 
-@pytest.mark.parametrize('name', ['coffee-no-order', 'world-no-dialogue', 'title-keyboard-prompt', 'launch-health-advisory', 'title-login-prompt'])
+@pytest.mark.parametrize('name', ['coffee-no-order', 'world-no-dialogue', 'title-keyboard-prompt', 'launch-health-advisory', 'title-login-prompt', 'skill-upgrade-insufficient'])
 def test_real_non_dialogue_screens_do_not_generate_actions(dialogue_scene, name):
     import json
     import cv2
@@ -145,3 +182,20 @@ def test_real_non_dialogue_screens_do_not_generate_actions(dialogue_scene, name)
     for mode in ('自动点击', '跳过剧情', '等待剧情自动播放'):
         assert detector.detect(image, mode=mode) is None
     ctx.controller.click.assert_not_called()
+
+
+@pytest.mark.parametrize('name,kind', [('story-skip-mouse-prompts', 'skip'),
+                                     ('story-skip-pad-prompts', 'skip'),
+                                     ('story-skip-confirm-pad', 'confirm_skip')])
+def test_real_story_whitelist_keeps_skip_and_skip_confirmation(dialogue_scene, name, kind):
+    import json
+    import cv2
+    detector, ctx, _, _, _ = dialogue_scene
+    base = Path(__file__).parent / 'fixtures/dialogue'
+    image = cv2.cvtColor(cv2.imread(str(base / f'{name}.png')), cv2.COLOR_BGR2RGB)
+    rows = [SimpleNamespace(data=r['text'], center=Point(r['rect'][0]+r['rect'][2]//2,
+                                                      r['rect'][1]+r['rect'][3]//2))
+            for r in json.loads((base / f'{name}.json').read_text(encoding='utf-8'))['result']['ocr']]
+    ctx.ocr_service = SimpleNamespace(get_ocr_result_list=lambda image, rect, **_: [
+        r for r in rows if rect.x1 <= r.center.x < rect.x2 and rect.y1 <= r.center.y < rect.y2])
+    assert detector.detect(image).kind == kind

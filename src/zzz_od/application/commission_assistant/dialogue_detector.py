@@ -1,5 +1,6 @@
 """Recognize one dialogue action from the current frame, without sending input."""
 from dataclasses import dataclass
+import re
 
 from onedragon.base.geometry.point import Point
 from onedragon.base.geometry.rectangle import Rect
@@ -44,14 +45,18 @@ class DialogueDetector:
         if any(startup_word(word) for word in words):
             # The title's 「点击进入游戏」 slot and the launch splash's health advisory sit where dialogue text goes.
             return False
-        return any(str_utils.with_chinese(word) for word in words)
+        # 剧情正文必须配对固定位置的说话人；灰底中文、确认按钮或材料说明都不是剧情证据。
+        speakers = [self._text(record) for record in self._ocr(screen, '对话框标题')]
+        return (any(str_utils.with_chinese(name) and len(name) <= 20 for name in speakers)
+                and any(str_utils.with_chinese(word) for word in words))
 
     def skip_confirmation(self, screen):
         # A generic "确认" can belong to purchases or other menus. Require
         # an explicit skip prompt, even after we clicked a skip button.
         prompt = self.ctx.ocr_service.get_ocr_result_list(
             image=screen, rect=Rect(600, 300, 1320, 780))
-        if not any('跳过' in self._text(record) for record in prompt):
+        if not any(re.fullmatch(r'是否跳过(?:当前|本段|这段)?(?:剧情|对话|动画)[？?]?', self._text(record))
+                   for record in prompt):
             return None
         for record in self._ocr(screen, '对话框确认'):
             if self._text(record) == '确认':
@@ -69,11 +74,14 @@ class DialogueDetector:
         if any(self._text(record) in ('玩法引导', '战斗引导')
                for record in self._ocr(screen, '玩法引导')):
             return None
+        with_dialog = self.has_dialogue(screen)
+        # 无台词的过场也允许跳过，但必须同时具有剧情专用控件，不能仅凭一个“跳过”字样。
+        story_controls = '跳过' in controls and ('菜单' in controls or '自动' in controls)
         if mode == '跳过剧情':
             confirmation = self.skip_confirmation(screen)
             if confirmation is not None:
                 return confirmation
-            if '跳过' in controls:
+            if (with_dialog or story_controls) and '跳过' in controls:
                 record = controls['跳过']
                 return DialogueAction('skip', record.center, '跳过剧情')
         # Dialogue screens and story menus differ from general secondary menus.
@@ -81,21 +89,17 @@ class DialogueDetector:
                 ('委托助手', '左上角返回'), ('大世界-勘域', '勘域-菜单'),
                 ('委托助手', '战斗-菜单'), ('委托助手', '标题-短信'))):
             return None
-        if mode == '等待剧情自动播放' and menu_opened:
+        if (with_dialog or story_controls) and mode == '等待剧情自动播放' and menu_opened:
             for record in self._ocr(screen, '按钮-自动', white=True):
                 if self._text(record) == '自动':
                     return DialogueAction('auto', record.center, '开启剧情自动播放')
-        if mode in ('跳过剧情', '等待剧情自动播放') and '菜单' in controls:
+        if with_dialog and mode in ('跳过剧情', '等待剧情自动播放') and '菜单' in controls:
             record = controls['菜单']
             return DialogueAction('menu', record.center, '展开剧情菜单')
 
-        with_dialog = self.has_dialogue(screen)
-        center_choice = self._found(screen, '委托助手', '中间选项区域')
         # Text in an option ROI alone can be a quest tracker or other HUD text.
-        if with_dialog or controls or center_choice:
-            areas = ['右侧选项区域']
-            if controls or center_choice:
-                areas.append('中间选项区域')
+        if with_dialog:
+            areas = ['右侧选项区域', '中间选项区域']
             for name in areas:
                 # A controller-focused option is black on yellow; the white-only mask loses it.
                 background = bool(getattr(self.ctx.controller, 'background_mode', False))

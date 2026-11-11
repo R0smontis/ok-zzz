@@ -39,6 +39,12 @@ class WitheredDomainApp(ZApplication):
     STATUS_TIMES_FINISHED: ClassVar[str] = '已完成基本次数'
     STATUS_NO_EVAL_POINT: ClassVar[str] = '已完成刷取业绩'
 
+    @property
+    def resumes_pending_activity(self) -> bool:
+        # 「下一步」打开的「当前正在处理…是否继续？」要由 next_step 确认续打，通用弹窗检查不能取消它。
+        node = getattr(self, '_current_node', None)
+        return node is not None and node.cn == '下一步'
+
     def __init__(self, ctx: ZContext):
         ZApplication.__init__(
             self,

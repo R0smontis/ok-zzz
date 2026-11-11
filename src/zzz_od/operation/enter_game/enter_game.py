@@ -467,13 +467,11 @@ class EnterGame(ZOperation):
                 self.interact_ignore_word_list.append(match_word)
 
             if getattr(self.ctx.controller, 'background_mode', False) and match_word in ('今日到账', '惊喜补给'):
-                # Monthly card: the reward is credited when it shows; B closes it. Clicks are ignored, and with
-                # keyboard prompts the first press only switches to controller prompts, so this round repeats.
-                presses = getattr(self, '_pad_monthly_card_presses', 0)
-                if presses < 6:
-                    self._pad_monthly_card_presses = presses + 1
-                    pad(self.ctx, 'b')
-                    return self.round_wait(status=f'手柄关闭月卡：{match_word}', wait=1.5)
+                # 每轮弹窗检查已按色块识别月卡；这里兜底整屏 OCR 命中、色块未覆盖的月卡样式。
+                # 独立计数：色块未命中时通用检查会清零自己的计数，兜底仍须有界。
+                from src.navigation.popups import close_monthly_card
+                return close_monthly_card(self, match_word_mrl.max.center, '_login_card_presses')
+            # 「当前正在处理…是否继续？」由每轮通用弹窗检查（src/navigation/popups.py）处理。
             time.sleep(0.5)  # 等待画面稳定
             self.ctx.controller.click(match_word_mrl.max.center)
             return self.round_wait(status=match_word, wait=1)

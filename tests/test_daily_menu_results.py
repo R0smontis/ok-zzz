@@ -598,6 +598,24 @@ def test_weekly_scrolls_offscreen_entry_without_confirming_other_daily_card():
     assert op.ctx.controller.btn_press.call_count==12
 
 
+# 2026-11-11: the focused 丽都周纪 button showed the yellow-green phase of the focus pulse (≈146,188,0); a
+# yellow-only test missed it, so 12 left presses wrapped the list past the entry and the app failed.
+def test_weekly_confirms_entry_focused_in_yellow_green_phase():
+    op=operation(RiduWeeklyApp);op.handle_init();fixture(op,'weekly-entry-green-focus')
+    assert op.click_schedule().result==R.RETRY
+    op.ctx.controller.btn_press.assert_called_once_with('xbox_a',press_time=.12)
+
+
+def test_weekly_visible_but_unfocused_entry_keeps_moving_left():
+    op=operation(RiduWeeklyApp);op.handle_init();fixture(op,'weekly-entry-visible-unfocused')
+    assert op.click_schedule().result==R.WAIT
+    op.ctx.controller.btn_press.assert_called_once_with('xbox_dpad_left',press_time=.12)
+
+
+def test_weekly_grid_focus_in_yellow_green_phase_is_recognised():
+    op=operation(RiduWeeklyApp);op.handle_init();fixture(op,'weekly-grid-green-focus')
+    assert op.claim_score().status!='未核验周纪格子焦点，未操作'
+
 def test_business_success_message_is_confirmed_but_not_counted_as_running():
     op=store();fixture(op,'store-business-success-popup')
     assert op.confirm().result==R.RETRY

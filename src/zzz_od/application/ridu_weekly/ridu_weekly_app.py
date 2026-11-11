@@ -7,6 +7,7 @@ from cv2.typing import MatLike
 import cv2
 import numpy as np
 from onedragon.base.geometry.rectangle import Rect
+from src.navigation.common import focus_mask
 from src.navigation.menus import menu_words, pad_press, compendium_tab
 
 from onedragon.base.operation.operation_edge import node_from
@@ -69,7 +70,9 @@ class RiduWeeklyApp(ZApplication):
             if entries:
                 p=entries[0].center
                 part=self.last_screenshot[max(0,p.y-28):p.y+28,max(0,p.x-120):p.x+120]
-                selected=part.size and np.mean((part[:,:,0]>150)&(part[:,:,1]>140)&(part[:,:,2]<100))>.2
+                # Focus fill pulses from yellow to yellow-green (≈146,188,0 live 2026-11-11); a yellow-only
+                # test missed the focused entry and kept pressing left until the list wrapped past it.
+                selected=bool(part.size) and np.mean(focus_mask(part))>.2
             if not selected:
                 if '今日最大活跃度' not in menu_words(self,Rect(400,220,650,330)):
                     return self.round_retry('未核验日常任务卡片，未操作',wait=1)
@@ -99,7 +102,7 @@ class RiduWeeklyApp(ZApplication):
                 if np.mean(yellow)>.3:
                     candidates.append(i)
                 part=self.last_screenshot[y:y+228,x:x+312]
-                mask=((part[:,:,0]>150)&(part[:,:,1]>140)&(part[:,:,2]<100)).astype(np.uint8)
+                mask=focus_mask(part).astype(np.uint8)  # The focus border pulses yellow ↔ yellow-green too.
                 contours,_=cv2.findContours(mask,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
                 if any(cv2.boundingRect(c)[2]>280 and cv2.boundingRect(c)[3]>205 for c in contours):
                     focus.append(i)
