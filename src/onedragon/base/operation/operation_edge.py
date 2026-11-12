@@ -3,7 +3,6 @@
 # 来源: https://github.com/OneDragon-Anything/ZenlessZoneZero-OneDragon
 # 路径: one_dragon/base/operation/operation_edge.py
 # 本文件随 ok-zzz 以 GPL-3.0 继续分发。
-from functools import wraps
 
 from typing import Optional
 

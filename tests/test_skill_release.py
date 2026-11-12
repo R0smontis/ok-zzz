@@ -4,7 +4,6 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import cv2
-import numpy as np
 import pytest
 
 from onedragon.base.conditional_operation.operation_def import OperationDef

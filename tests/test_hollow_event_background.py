@@ -6,7 +6,6 @@ from types import SimpleNamespace
 import cv2
 import pytest
 
-from onedragon.base.geometry.rectangle import Rect
 from onedragon.base.matcher.match_result import MatchResult
 from onedragon.base.operation.operation_round_result import OperationRoundResultEnum as R
 from src.navigation.hollow_events import advance_dialogue, event_option, free_resonium, pending_option

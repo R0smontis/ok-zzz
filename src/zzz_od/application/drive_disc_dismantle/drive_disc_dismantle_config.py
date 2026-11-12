@@ -4,10 +4,8 @@
 # 路径: zzz_od/application/drive_disc_dismantle/drive_disc_dismantle_config.py
 # 本文件随 ok-zzz 以 GPL-3.0 继续分发。
 from enum import Enum
-from typing import Optional
 
 from onedragon.base.config.config_item import ConfigItem
-from onedragon.base.config.yaml_config import YamlConfig
 from onedragon.base.operation.application.application_config import ApplicationConfig
 
 

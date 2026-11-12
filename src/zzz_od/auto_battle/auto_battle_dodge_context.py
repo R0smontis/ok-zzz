@@ -300,7 +300,10 @@ class AutoBattleDodgeContext:
                 gh_proxy=self.ctx.env_config.is_gh_proxy,
                 gh_proxy_url=self.ctx.env_config.gh_proxy_url if self.ctx.env_config.is_gh_proxy else None,
                 personal_proxy=self.ctx.env_config.personal_proxy if self.ctx.env_config.is_personal_proxy else None,
-                gpu=use_gpu
+                gpu=use_gpu,
+                # 闪避识别逐帧调用（间隔可低至 20ms）。保留历史会按 2 秒窗口挂住整帧，
+                # 战斗期间常驻数百 MB，而闪避结果只被本帧使用，故不保留历史。
+                keep_result_seconds=0
             )
             self._flash_model_settings = model_settings
 
@@ -367,7 +370,6 @@ class AutoBattleDodgeContext:
                 if audio_result:
                     state_name = YoloStateEventEnum.DODGE_AUDIO.value
 
-            should_dodge = state_name is not None
             from src.diagnostics.recorder import record_event
             record_event('dodge_detection', event=state_name, class_idx=int(result.class_idx),
                          confidence=getattr(result, 'confidence', None),

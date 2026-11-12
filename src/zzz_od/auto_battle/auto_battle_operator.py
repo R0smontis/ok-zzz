@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING, Any
 from onedragon.base.conditional_operation.atomic_op import AtomicOp
 from onedragon.base.conditional_operation.loader import ConditionalOperatorLoader
 from onedragon.base.conditional_operation.operation_def import OperationDef
-from onedragon.base.conditional_operation.state_handler import StateHandler
 from onedragon.base.conditional_operation.scene import Scene
 from onedragon.base.conditional_operation.operator import ConditionalOperator
 from onedragon.base.controller.input_guard import execution_input_guard

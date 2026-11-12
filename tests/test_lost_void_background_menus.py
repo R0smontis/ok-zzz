@@ -1605,3 +1605,21 @@ def test_background_gear_first_slot_name_marks_screen_repeated():
     assert op._repeated_screen('[携游]敕令玄幡')
     assert not op._repeated_screen('[通用]另一个武备')
     assert not op._repeated_screen(None)
+
+
+def test_gear_level_flags_stay_with_their_own_gear(monkeypatch):
+    """名称识别失败的槽位会被跳过 等级标记必须跟着对应武备 不能按下标错位。"""
+    import zzz_od.application.hollow_zero.lost_void.operation.interact.lost_void_choose_gear as source
+    op=operation(LostVoidChooseGear)
+    op.ctx.screen_loader=SimpleNamespace(get_area=lambda *_: SimpleNamespace(rect=Rect(0,0,10,10)))
+    op.ctx.controller=Mock()
+    op.ctx.controller.screenshot=Mock(return_value=(None,np.zeros((200,300,3),np.uint8)))
+    op.ctx.ocr_service=SimpleNamespace(get_ocr_result_map=lambda **_: {})
+    monkeypatch.setattr(source.time,'sleep',lambda *_:None)
+    monkeypatch.setattr(op,'_gear_rect_pairs',lambda _ctx:[(None,(0,0,10,10)),(None,(100,0,110,10)),(None,(200,0,210,10))])
+    monkeypatch.setattr(op,'_extract_names_from_stitched_ocr',lambda *a,**k:['甲','','丙'])
+    monkeypatch.setattr(op,'_build_artifact_from_ocr_name',lambda text:(SimpleNamespace(display_name=text),False))
+    contours=[np.array([[[x,0]],[[x+6,0]],[[x+6,6]]],np.int32) for x in (0,100,200)]
+    gears,levels=op.get_gear_pos_by_click_ocr([(c,l) for c,l in zip(contours,[True,False,True])],SimpleNamespace())
+    assert [g.rect.x1 for g in gears] == [0,200]
+    assert levels == [True,True]

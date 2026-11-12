@@ -7,7 +7,6 @@ from cv2.typing import MatLike
 from typing import Optional, List
 
 from onedragon.base.geometry.point import Point
-from onedragon.utils import cal_utils
 from zzz_od.hollow_zero.hollow_map.hollow_map_utils import is_same_node
 from zzz_od.hollow_zero.hollow_map.hollow_zero_map import HollowZeroMapNode, HollowZeroMap
 
@@ -28,7 +27,7 @@ def search_map(current_map: HollowZeroMap, avoid_entry_list: set[str], visited_n
         return
 
     # 先避开部分节点进行搜索 例如战斗的节点
-    result_1 = _bfs_search_map(current_map, [current_map.current_idx], avoid_entry_list, visited_nodes)
+    _bfs_search_map(current_map, [current_map.current_idx], avoid_entry_list, visited_nodes)
 
     # 可能存在部分节点 一定要经过[避免途经点]才能到达
     # 因此 在上述搜索结果上 继续搜索剩余节点的路径

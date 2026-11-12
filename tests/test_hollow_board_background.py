@@ -217,7 +217,6 @@ def test_blank_only_loop_is_bounded():
 
 
 def test_repeated_target_still_heads_for_its_step_cell_not_upstream_first_hop():
-    from zzz_od.hollow_zero.hollow_zero_data_service import HallowZeroDataService
     grid = _recorded_grid([497, 425, 671, 571])
     goal = grid.nodes[7]  # 临时拍档
     goal.path_first_need_step_node = goal

@@ -231,7 +231,7 @@ def draw_text(image: np.ndarray, text: str, result: DetectObjectResult,
     # opencv不支持中文 需要把中文字符置空
     import re
     text = re.sub(r'[\u4e00-\u9fa5]', '', text)
-    x1, y1, x2, y2 = result.x1, result.y1, result.x2, result.y2
+    x1, y1 = result.x1, result.y1
     color = _COLORS[result.detect_class.class_id]
     (tw, th), _ = cv2.getTextSize(text=text, fontFace=cv2.FONT_HERSHEY_SIMPLEX,
                                   fontScale=font_size, thickness=text_thickness)

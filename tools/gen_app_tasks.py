@@ -176,7 +176,7 @@ MANUAL_CHOICES = {
 
 def collect_apps():
     """扫描全部应用：元数据 + 工厂 + 配置选项。"""
-    import importlib, pkgutil
+    import importlib
     apps = []
     const_mods = []
     base = os.path.join(ROOT, 'src', 'zzz_od', 'application')
@@ -322,6 +322,13 @@ TARGETS = (('src/zzz_od/application/app_options_data.py', build_options_text),
 
 def main(check=False):
     apps = collect_apps()
+    failed = [a for a in apps if 'error' in a]
+    if failed:
+        # 元数据读取失败的应用会被静默跳过，生成的文本不完整：先中止，不写文件
+        print('以下应用元数据读取失败，未生成文件：')
+        for app in failed:
+            print(f"  {app['app_id']}: {app['error']}")
+        return 1
     drift = []
     for relative, build in TARGETS:
         text = build(apps)

@@ -74,6 +74,8 @@ class YamlOperator:
             self.data = read_cache_or_load(self.file_path)
         except Exception:
             log.error(f'文件读取失败 将使用默认值 {self.file_path}', exc_info=True)
+            # 解析失败时内存里是空数据，再落盘会把用户配置整体覆盖掉
+            self._load_failed = True
             return
 
         if self.data is None:
@@ -112,6 +114,10 @@ class YamlOperator:
         return self._write_file_path if self._write_file_path is not None else self.file_path
 
     def save(self) -> None:
+        if getattr(self, '_load_failed', False):
+            # 原文件解析失败，内存里只有空数据，写下去等于清空用户配置
+            log.error(f'配置解析失败 拒绝覆盖写入 {self.file_path}')
+            return
         if not self._ensure_write_path_ready():
             return
         write_path = self._get_write_path()
@@ -131,8 +137,7 @@ class YamlOperator:
         # 读取报错/内容不一致时写入
         if old_content == new_content:
             return
-        with open(write_path, 'w', encoding='utf-8') as file:
-            file.write(new_content)
+        self._write_atomically(write_path, new_content)
         invalidate_cache(write_path)
 
         if self.file_path != write_path:
@@ -146,6 +151,9 @@ class YamlOperator:
         :param text: 自定义的文本
         :return:
         """
+        if getattr(self, '_load_failed', False):
+            log.error(f'配置解析失败 拒绝覆盖写入 {self.file_path}')
+            return
         if not self._ensure_write_path_ready():
             return
 
@@ -153,14 +161,33 @@ class YamlOperator:
         if write_path is None:
             return
 
-        with open(write_path, "w", encoding="utf-8") as file:
-            file.write(text)
+        self._write_atomically(write_path, text)
         invalidate_cache(write_path)
 
         if self.file_path != write_path:
             self.file_path = write_path
             if hasattr(self, 'old_file_path'):
                 self.old_file_path = write_path
+
+    def _write_atomically(self, write_path: str, content: str) -> None:
+        """先写临时文件再替换，避免崩溃/断电把配置截断成半个文件。"""
+        tmp_path = write_path + '.tmp'
+        try:
+            with open(tmp_path, 'w', encoding='utf-8') as file:
+                file.write(content)
+                file.flush()
+                os.fsync(file.fileno())
+            os.replace(tmp_path, write_path)
+        except OSError:
+            # 目标被占用等情况下退回直接写入，配置仍然要能保存
+            log.warning(f'配置原子写入失败 改为直接写入 {write_path}', exc_info=True)
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+            with open(write_path, 'w', encoding='utf-8') as file:
+                file.write(content)
+
 
     def get(self, prop: str, value=None):
         if not isinstance(self.data, dict):
@@ -176,22 +203,3 @@ class YamlOperator:
         self.data[key] = value
         if save:
             self.save()
-
-    def delete(self):
-        """
-        删除配置文件
-        :return:
-        """
-        if self.file_path is None:
-            return
-        if os.path.exists(self.file_path):
-            os.remove(self.file_path)
-            invalidate_cache(self.file_path)
-
-    @property
-    def is_file_exists(self) -> bool:
-        """
-        配置文件是否存在
-        :return:
-        """
-        return bool(self.file_path) and os.path.exists(self.file_path)

@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import threading
-import time
 from collections.abc import Callable
 from enum import IntEnum, StrEnum
 from typing import TYPE_CHECKING

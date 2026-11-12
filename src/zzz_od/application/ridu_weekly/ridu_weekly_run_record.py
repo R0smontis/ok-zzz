@@ -5,7 +5,7 @@
 # 本文件随 ok-zzz 以 GPL-3.0 继续分发。
 from typing import Optional
 
-from onedragon.base.operation.application_run_record import AppRunRecord, AppRunRecordPeriod
+from onedragon.base.operation.application_run_record import AppRunRecord
 
 
 class RiduWeeklyRunRecord(AppRunRecord):

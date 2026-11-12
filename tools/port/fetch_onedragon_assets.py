@@ -12,7 +12,6 @@
 import argparse
 import os
 import shutil
-import sys
 
 # 资产清单与一条龙仓库保持一致（路径即运行时解析路径，勿改）：
 #   assets/game_data/screen_info/        画面定义 YAML（80 个）
@@ -89,7 +88,6 @@ def list_remote_dir(github_api: str):
 
 def fetch_from_github(spec_src: str, dst_dir: str, template_subs=None):
     """按目录遍历从 raw 源下载（速度慢，仅作无本地克隆时的兜底）。"""
-    import urllib.request
     api = 'https://api.github.com/repos/OneDragon-Anything/ZenlessZoneZero-OneDragon/contents/'
     n = 0
     stack = [spec_src]

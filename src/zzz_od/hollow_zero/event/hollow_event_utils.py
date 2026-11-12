@@ -156,7 +156,6 @@ def check_event_text_and_run(op: ZOperation, screen: MatLike, handlers: List[Eve
     target_mrl: Optional[MatchResultList] = None
 
     event_mark_handler: Optional[EventOcrResultHandler] = None
-    event_mark_mrl: Optional[MatchResultList] = None
 
     ocr_result_list: List[str] = []
     mrl_list: List[MatchResultList] = []
@@ -198,7 +197,6 @@ def check_event_text_and_run(op: ZOperation, screen: MatLike, handlers: List[Eve
         if handler.is_event_mark:
             if event_mark_handler is None:
                 event_mark_handler = handler
-                event_mark_mrl = mrl
         elif target_handler is None:
             target_handler = handler
             target_mrl = mrl

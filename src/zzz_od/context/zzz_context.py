@@ -6,7 +6,8 @@
 区别于原版 OneDragonContext：环境管理（envs）、代码自更新、
 推送服务等由 ok-script / 后续阶段承担。
 """
-from onedragon.base.config.custom_config import CustomConfig
+from types import SimpleNamespace
+
 from onedragon.base.config.game_account_config import GameAccountConfig
 from onedragon.base.config.notify_config import NotifyConfig
 from onedragon.base.config.one_dragon_config import OneDragonConfig
@@ -184,17 +185,12 @@ class ZContext(ContextEventBus):
             'env_config', lambda: EnvConfig(RepoConfig()))
 
     @property
-    def project_config(self) -> 'SimpleNamespace':
+    def project_config(self) -> SimpleNamespace:
         """标准分辨率（原版 project_config 中被引用的字段子集）。"""
-        from types import SimpleNamespace
         return self._get_or_create(
             'project_config',
             lambda: SimpleNamespace(screen_standard_width=1920,
                                     screen_standard_height=1080))
-
-    @property
-    def custom_config(self) -> CustomConfig:
-        return self._get_or_create('custom_config', lambda: CustomConfig())
 
     @property
     def notify_config(self) -> NotifyConfig:

@@ -1,5 +1,4 @@
 """Recorded missed starts, partial parties and bounded generic attacks."""
-import json
 import time
 from pathlib import Path
 from unittest.mock import Mock
@@ -195,3 +194,67 @@ def test_unknown_role_basic_attack_respects_combat_gate(ctx, stubbed_controller,
     finally:
         op.stop_running()
         op.dispose()
+
+
+def _stub_battle_operator(monkeypatch, battle):
+    """Replace the real operator factory so the reload path can be observed."""
+    from zzz_od.auto_battle import auto_battle_context as battle_context_module
+
+    created = []
+
+    class StubOperator:
+        check_chain_interval = 0
+        check_quick_interval = 0
+        check_end_interval = 5
+
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.init_before_running = Mock(return_value=(True, ''))
+            self.stop_running = Mock()
+            self.dispose = Mock()
+            created.append(self)
+
+    monkeypatch.setattr(battle_context_module, 'AutoBattleOperator', StubOperator)
+    monkeypatch.setattr(battle, 'agent_context', Mock())
+    monkeypatch.setattr(battle, 'dodge_context', Mock())
+    monkeypatch.setattr(battle, 'target_context', Mock())
+    return created
+
+
+def test_switching_battle_template_stops_and_disposes_the_replaced_operator(ctx, monkeypatch):
+    """换成别的模板时必须处理旧操作器，否则它一直留在状态记录服务里继续发指令。"""
+    battle = AutoBattleContext(ctx)
+    created = _stub_battle_operator(monkeypatch, battle)
+    monkeypatch.setattr(type(ctx.battle_assistant_config), 'use_merged_file', property(lambda _: False))
+
+    battle.init_auto_op('模板一')
+    battle.init_auto_op('模板二')
+
+    assert [op.kwargs['template_name'] for op in created] == ['模板一', '模板二']
+    assert battle.auto_op is created[1]
+    created[0].dispose.assert_called_once()
+    created[0].stop_running.assert_not_called()
+    created[1].dispose.assert_not_called()
+
+
+def test_reloading_a_cached_battle_template_keeps_the_same_operator_running(ctx, monkeypatch):
+    """模板已缓存时复用同一个操作器：切走会停掉它，切回和重复加载不再重复处理。"""
+    battle = AutoBattleContext(ctx)
+    created = _stub_battle_operator(monkeypatch, battle)
+
+    battle.init_auto_op('模板一')
+    battle.init_auto_op('模板一')
+    assert len(created) == 1
+    created[0].stop_running.assert_not_called()
+    created[0].dispose.assert_not_called()
+
+    battle.init_auto_op('模板二')
+    assert len(created) == 2
+    created[0].stop_running.assert_called_once()
+    created[0].dispose.assert_not_called()
+
+    battle.init_auto_op('模板一')
+    assert battle.auto_op is created[0]
+    created[0].stop_running.assert_called_once()
+    created[1].stop_running.assert_called_once()
+    created[1].dispose.assert_not_called()

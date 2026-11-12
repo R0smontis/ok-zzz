@@ -9,7 +9,6 @@ import pytest
 from onedragon.base.geometry.point import Point
 from onedragon.base.operation.operation_base import OperationResult
 from onedragon.base.operation.operation_round_result import OperationRoundResultEnum
-from zzz_od.application.charge_plan.charge_plan_app import ChargePlanApp
 from zzz_od.application.charge_plan.charge_plan_config import ChargePlanItem
 from zzz_od.operation.compendium.expert_challenge import ExpertChallenge
 from src.navigation import menus

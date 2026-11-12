@@ -6,7 +6,6 @@
 避免 vendor 一条龙的 onnxocr 包（ok-script[ocr] 已内置同源实现）。
 """
 import threading
-from typing import Optional
 
 import cv2
 import numpy as np

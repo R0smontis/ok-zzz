@@ -11,7 +11,7 @@ from onedragon.base.operation.operation_base import OperationResult
 from onedragon.utils import os_utils
 from src.tasks.daily_task import OneDragonDailyTask
 from zzz_od.application.one_dragon_app.zzz_one_dragon_app import ZOneDragonApp, STATUS_ALL_DONE
-from test_runtime_interactions import task_factory
+from test_runtime_interactions import task_factory  # noqa: F401 (pytest fixture)
 
 
 @pytest.fixture

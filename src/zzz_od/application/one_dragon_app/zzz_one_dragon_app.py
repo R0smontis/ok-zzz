@@ -75,7 +75,6 @@ class ZOneDragonApp(ZApplication):
 
         # 游戏路径不同则先关闭游戏再切（沿用原版语义）
         if self.current_instance_idx > 0:
-            game_account_config = self.ctx.game_account_config
             if GameAccountConfig.is_different_game_path(
                     self.ctx.current_instance_idx, instance.idx):
                 self.ctx.controller.close_game()

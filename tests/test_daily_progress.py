@@ -1,5 +1,4 @@
 """一条龙运行中，任务信息表要显示当前账号、应用、节点状态和每项结果，不必翻日志文件。"""
-from contextlib import nullcontext
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -9,7 +8,6 @@ from onedragon.base.geometry.point import Point
 from onedragon.base.operation.operation import Operation
 from onedragon.base.operation.operation_base import OperationResult
 from onedragon.base.operation.operation_node import operation_node
-from onedragon.base.operation.operation_round_result import OperationRoundResult, OperationRoundResultEnum
 from src.tasks.daily_task import OneDragonDailyTask
 from test_one_dragon_daily import daily_context, drain_account, queue  # noqa: F401 (pytest fixture)
 from test_runtime_interactions import task_factory  # noqa: F401 (pytest fixture)

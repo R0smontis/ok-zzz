@@ -6,7 +6,6 @@
 from enum import Enum
 from typing import Optional, Union
 
-from onedragon.base.config.config_item import ConfigItem
 from onedragon.utils import str_utils
 from onedragon.utils.i18_utils import gt
 from zzz_od.application.hollow_zero.lost_void.lost_void_challenge_config import LostVoidRegionType

@@ -4,7 +4,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import cv2
-import pytest
 
 from onedragon.base.geometry.rectangle import Rect
 from onedragon.base.operation.operation_round_result import OperationRoundResultEnum as R

@@ -211,7 +211,13 @@ class LostVoidContext:
             return frame
         # The exclamation mark remains after talking. Associate a visible NPC
         # name with its own mark rather than ignoring all marks of that class.
-        rows = ocr.get_ocr_result_list(image=screen, rect=Rect(0,100,1920,850))
+        # 只有标记下方 20~110 像素带内的文本行才可能被关联 因此只识别这一带
+        # 上下各留足余量 保证任何可能命中的行都不会被裁断(与整帧识别结果一致)
+        band_top = int(max(100, min(r.y2 for r in interactions) - 80))
+        band_bottom = int(min(850, max(r.y2 for r in interactions) + 170))
+        if band_bottom <= band_top:
+            return frame
+        rows = ocr.get_ocr_result_list(image=screen, rect=Rect(0, band_top, 1920, band_bottom))
         ignored = set()
         for row in rows:
             text = str(row.data).replace(' ', '')
@@ -243,7 +249,7 @@ class LostVoidContext:
         if not battle.is_normal_attack_btn_available(screen):
             return False
         from zzz_od.auto_battle.battle_presence import detect_battle_presence
-        evidence = detect_battle_presence(screen, battle)
+        evidence = detect_battle_presence(screen, battle, attack_hud_visible=True)
         if evidence is not None:
             log.info('迷失之地遭遇战斗：%s', evidence)
             return True

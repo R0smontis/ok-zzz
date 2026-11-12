@@ -3,7 +3,6 @@ import re
 
 import numpy as np
 
-from onedragon.base.geometry.rectangle import Rect
 from src.controls.gamepad import press as pad
 from src.navigation.common import bump, norm_text, ocr_rows
 from src.navigation.menus import focus_mask

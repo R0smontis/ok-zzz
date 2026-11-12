@@ -86,11 +86,7 @@ class HollowBattle(ZOperation):
     @node_from(from_name='识别特殊移动', status=STATUS_NEED_SPECIAL_MOVE)
     @operation_node(name='副本特殊移动')
     def special_move(self):
-        if (self.ctx.withered_domain.level_info.is_mission_type('旧都列车', 2)
-            and self.ctx.withered_domain.level_info.level == 2):
-            self.ctx.controller.move_w(press=True, press_time=1.5)
-        else:
-            self.ctx.controller.move_w(press=True, press_time=1.5)
+        self.ctx.controller.move_w(press=True, press_time=1.5)
 
         return self.round_success()
 

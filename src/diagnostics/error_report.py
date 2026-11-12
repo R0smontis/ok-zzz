@@ -28,9 +28,20 @@ LOG_SOURCES = (('logs/ok-script.log', 'ok-script.log'), ('.log/log.txt', 'game-e
 # Keys that are, or end with, a secret word ('password', 'game_account', '账号'); not keys that merely
 # start with one, such as the daily's 「账号 01 执行计划」 (2026-10-28 report).
 SECRET_KEY = re.compile(r'(account|password|passwd|pwd|token|secret|cookie|phone|mobile|账号|密码|手机号?)$', re.I)
+# 也覆盖把密钥塞进路径/查询串的推送地址（Telegram /bot<id>:<token>/、access_token=、key=）
 SECRET_VALUE = re.compile(
     r'(?i)((?:password|passwd|pwd|token|secret|cookie|authorization|账号|密码)["\']?\s*[:=：]\s*["\']?)'
-    r'(?:bearer\s+)?[^\s"\',}]+')
+    r'(?:bearer\s+)?[^\s"\',}]+'
+    r'|(/bot\d+:[A-Za-z0-9_-]+)'
+    r'|((?:access_token|api[_-]?key|apikey|key)=)[^\s"\'&,}]+')
+
+
+def _mask_secret(match) -> str:
+    """整段命中的密钥（如 /bot123:AA...）用 *** 顶掉，带前缀的只保留前缀。"""
+    for group in match.groups():
+        if group:
+            return group + '***' if not group.startswith('/bot') else '***'
+    return '***'
 
 
 @dataclass
@@ -113,7 +124,7 @@ def sanitize_text(text: str, secrets=()) -> str:
     for secret in secrets:
         if secret and len(secret) >= 8:
             text = text.replace(secret, '***')
-    return SECRET_VALUE.sub(lambda m: m.group(1) + '***', text)
+    return SECRET_VALUE.sub(_mask_secret, text)
 
 
 def sanitize_config(value):

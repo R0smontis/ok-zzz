@@ -5,7 +5,6 @@
 # 本文件随 ok-zzz 以 GPL-3.0 继续分发。
 # coding: utf-8
 from typing import List
-import cv2
 from onedragon.base.cv_process.cv_step import CvStep
 from onedragon.base.cv_process.steps import (
     CvStepFilterByRGB, CvStepFilterByHSV, CvErodeStep, CvDilateStep,

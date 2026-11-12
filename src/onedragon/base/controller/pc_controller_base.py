@@ -10,7 +10,6 @@ import time
 from functools import lru_cache
 
 import pyautogui
-import win32api
 import win32con
 import win32gui
 from cv2.typing import MatLike

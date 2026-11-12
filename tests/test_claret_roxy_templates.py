@@ -6,9 +6,7 @@ from unittest.mock import Mock
 import cv2
 import numpy as np
 import pytest
-import yaml
 
-from onedragon.base.conditional_operation.loader import ConditionalOperatorLoader
 from onedragon.base.conditional_operation.operation_executor import OperationExecutor
 from onedragon.base.conditional_operation.state_recorder import StateRecord
 from zzz_od.auto_battle.auto_battle_context import AutoBattleContext

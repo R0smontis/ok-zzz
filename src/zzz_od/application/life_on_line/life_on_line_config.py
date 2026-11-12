@@ -5,7 +5,6 @@
 # 本文件随 ok-zzz 以 GPL-3.0 继续分发。
 
 from onedragon.base.operation.application.application_config import ApplicationConfig
-from onedragon.base.config.yaml_config_adapter import YamlConfigAdapter
 
 
 class LifeOnLineConfig(ApplicationConfig):

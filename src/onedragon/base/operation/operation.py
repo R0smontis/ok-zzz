@@ -424,7 +424,10 @@ class Operation(OperationBase):
             self._init_before_execute()
         except Exception:
             log.error('初始化失败', exc_info=True)
-            return self.op_fail('初始化失败')
+            op_result = self.op_fail('初始化失败')
+            # 初始化失败也要走完成流程，否则应用状态/运行记录/通知都收不到结束
+            self.after_operation_done(op_result)
+            return op_result
 
         op_result: OperationResult | None = None
         while True:
@@ -441,21 +444,14 @@ class Operation(OperationBase):
 
             try:
                 round_result: OperationRoundResult = self._execute_one_round()
-                if (self._current_node is None
-                        or (self._current_node is not None and not self._current_node.mute)
-                ):
+                if self._current_node is None or not self._current_node.mute:
                     node_name = 'none' if self._current_node is None else self._current_node.cn
                     from_node_name = 'none' if self._previous_node is None else self._previous_node.cn
                     round_result_status = 'none' if round_result is None else coalesce_gt(round_result.status, round_result.status_display, model='ui')
-                    if (self._current_node is not None
-                            and self._current_node.mute
-                        and (round_result.result == OperationRoundResultEnum.WAIT or round_result.result == OperationRoundResultEnum.RETRY)):
-                        pass
-                    else:
-                        arrow = f"{from_node_name} -> {node_name}" if self._previous_node is not None else node_name
-                        log.info('%s 节点 %s 返回状态 %s%s', self.display_name, arrow, round_result_status,
-                                 self._round_kind_text(round_result))
-                        self._report_round_progress(node_name, round_result_status, round_result)
+                    arrow = f"{from_node_name} -> {node_name}" if self._previous_node is not None else node_name
+                    log.info('%s 节点 %s 返回状态 %s%s', self.display_name, arrow, round_result_status,
+                             self._round_kind_text(round_result))
+                    self._report_round_progress(node_name, round_result_status, round_result)
                     self._emit_debug_round_trace(
                         from_node_name=from_node_name,
                         node_name=node_name,
@@ -796,6 +792,8 @@ class Operation(OperationBase):
         Args:
             result: 最终操作结果。
         """
+        # 注销必须发生在注册时使用的总线上，否则每个执行过的指令都会被永久持有（连同截图）
+        self.ctx.run_context.event_bus.unlisten_all_event(self)
         self.ctx.unlisten_all_event(self)
         if result.success:
             log.info('%s 执行成功 返回状态 %s', self.display_name, coalesce_gt(result.status, '成功', model='ui'))

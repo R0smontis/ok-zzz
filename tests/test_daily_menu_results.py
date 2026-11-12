@@ -516,7 +516,8 @@ def test_random_promoter_with_an_unreadable_name_is_still_chosen_and_verified():
 def test_configured_agent_missing_from_promoters_falls_back_after_one_sweep():
     op=store();fixture(op,'store-promoters-staff')
     op.config=SimpleNamespace(agent_name_1='艾莲',agent_name_2='艾莲')
-    results=[op.choose_promoter().status for _ in range(3)]  # The static frame never moves: list end.
+    for _ in range(3):  # The static frame never moves: list end.
+        op.choose_promoter()
     assert store_presses(op)==['xbox_dpad_right','xbox_dpad_right','xbox_a']
     assert op._pad_promoter_fallback and op._pad_promoter_name=='丝琪'
 
@@ -799,13 +800,13 @@ def test_background_world_return_leaves_battle_result_with_b():
 
 
 def test_obtained_popup_confirms_only_verified_focus():
-    op=operation(BackToNormalWorld);rows=fixture(op,'combat-sim-after-result')  # 确认 focused, 前往 not.
+    op=operation(BackToNormalWorld);fixture(op,'combat-sim-after-result')  # 确认 focused, 前往 not.
     op.check_and_update_current_screen=Mock(return_value=None)
     op.round_by_find_area=Mock(return_value=SimpleNamespace(is_success=False))
     op._background_menu_back=0
     assert op.check_screen_and_run().result==R.RETRY
     op.ctx.controller.btn_press.assert_called_once_with('xbox_a',press_time=.12)
-    op=operation(BackToNormalWorld);rows=fixture(op,'combat-sim-after-result')
+    op=operation(BackToNormalWorld);fixture(op,'combat-sim-after-result')
     op.check_and_update_current_screen=Mock(return_value=None)
     op.round_by_find_area=Mock(return_value=SimpleNamespace(is_success=False))
     op._background_menu_back=0

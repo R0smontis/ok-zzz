@@ -519,7 +519,8 @@ class WorldPatrolService:
         for icon_template_id in lm_icon_set:
             template = self.ctx.template_loader.get_template('map', icon_template_id)
             if template is None:
-                break
+                log.warning(f'缺少地图图标模板 {icon_template_id} 跳过该图标')
+                continue
 
             mrl = cv2_utils.match_template(
                 source=mini_map.rgb,
@@ -576,14 +577,19 @@ class WorldPatrolService:
             return max_confidence_list[0].center
 
         # 多个候选结果时 比较和原图的相似度
+        mask_h = mini_map.road_mask.shape[0]
+        mask_w = mini_map.road_mask.shape[1]
+        large_h = large_map.road_mask.shape[0]
+        large_w = large_map.road_mask.shape[1]
         for mr in max_confidence_list:
-            source_part = large_map.road_mask[
-                          mr.left_top.y:mr.left_top.y + mini_map.road_mask.shape[0],
-                          mr.left_top.x:mr.left_top.x + mini_map.road_mask.shape[1]
-                          ]
-            # 置信度=相同的数量
-            same = cv2.bitwise_and(source_part, mini_map.road_mask)
-            mr.confidence = float(np.sum(np.where(same > 0)))
+            # 候选位置可能部分落在贴图外，先夹进边界，避免裁剪尺寸与掩膜不一致导致 bitwise_and 报错
+            pos_x = max(0, min(int(mr.left_top.x), large_w - mask_w))
+            pos_y = max(0, min(int(mr.left_top.y), large_h - mask_h))
+            source_part = large_map.road_mask[pos_y:pos_y + mask_h, pos_x:pos_x + mask_w]
+            mask_part = mini_map.road_mask[:source_part.shape[0], :source_part.shape[1]]
+            # 置信度=匹配到的像素数量（不能用坐标和：坐标和会让更靠右下的候选胜出）
+            same = cv2.bitwise_and(source_part, mask_part)
+            mr.confidence = float(np.count_nonzero(same))
 
         # 返回置信度最高的
         return max(max_confidence_list, key=lambda x: x.confidence).center

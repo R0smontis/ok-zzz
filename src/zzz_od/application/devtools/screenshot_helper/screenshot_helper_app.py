@@ -20,7 +20,6 @@ from zzz_od.application.devtools.screenshot_helper.screenshot_helper_config impo
     ScreenshotHelperConfig,
 )
 from zzz_od.application.zzz_application import ZApplication
-from zzz_od.auto_battle import auto_battle_utils
 from zzz_od.context.zzz_context import ZContext
 
 
@@ -141,14 +140,22 @@ class ScreenshotHelperApp(ZApplication):
             self.to_save_screenshot = False
             self.last_save_screenshot_time = time.time()
         else:
-            # 清空缓存并开始保存按键后的截图
+            if self.is_saving_after_key:
+                # 已等待一个截图周期 保存按键后的截图并清空标记 否则本节点会被反复执行
+                debug_utils.save_debug_image(self.last_screenshot, prefix='switch')
+                self.is_saving_after_key = False
+                self.to_save_screenshot = False
+                self.last_save_screenshot_time = time.time()
+                return self.round_success()
+
+            # 清空缓存 等待一个截图周期 再保存按键后的截图
             self.screenshot_cache = []
             self.cache_start_time = time.time()
             self.is_saving_after_key = True
-            # 等待一个截图周期后再关闭保存标志，以确保能够捕获按键后的截图
-            next_time = self.config.frequency_second
-            return self.round_wait(wait_round_time=next_time)
-        return self.round_success()
+            self.to_save_screenshot = False
+            self.last_save_screenshot_time = time.time()
+
+            return self.round_wait(wait_round_time=self.config.frequency_second)
 
     def after_operation_done(self, result: OperationResult):
         ZApplication.after_operation_done(self, result)

@@ -8,7 +8,7 @@ import win32con
 
 from onedragon.base.geometry.point import Point
 from src.controls.window_input import WindowMessageInput
-from test_runtime_interactions import task_factory
+from test_runtime_interactions import task_factory  # noqa: F401 (pytest fixture)
 
 
 @pytest.fixture

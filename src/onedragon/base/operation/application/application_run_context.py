@@ -8,7 +8,6 @@
 from __future__ import annotations
 
 import threading
-import time
 from dataclasses import dataclass
 from enum import Enum, StrEnum
 from typing import TYPE_CHECKING, Callable, TypeVar
@@ -275,7 +274,6 @@ class ApplicationRunContext:
                         group_id: str = DEFAULT_GROUP_ID,
                         init_timeout: int = 60) -> ApplicationRunResult:
         """同步运行单个应用（含状态机与运行记录更新）。"""
-        start_time = time.time()
         if instance_idx is None:
             instance_idx = getattr(self.ctx, 'current_instance_idx', 0)
 

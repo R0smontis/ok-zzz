@@ -123,7 +123,6 @@ class AppTaskBase(ZzzBaseTask, BaseTask):
                           f'悬赏已满额：{"是" if record.bounty_commission_complete else "否"}')
 
     def run(self):
-        ctx = self.ctx
         try:
             self.apply_options()
         except Exception as exc:

@@ -8,7 +8,7 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
-from ok import BaseTask, TriggerTask, og
+from ok import BaseTask, og
 from src.tasks.auto_combat_task import AutoCombatTask, DodgeAssistantTriggerTask
 from src.tasks.daily_task import OneDragonDailyTask
 
@@ -689,6 +689,26 @@ def test_app_json_invalid_input_leaves_config_intact(task_factory):
         task._parse_option('pawnshop_crest_priority', '{}')
 
 
+def test_unparsable_config_is_never_overwritten(tmp_path):
+    from onedragon.base.config.yaml_operator import YamlOperator
+    path = tmp_path / 'cfg.yml'
+    path.write_text('key: [1, 2\n', encoding='utf-8')  # 手工编辑损坏的 YAML
+    cfg = YamlOperator(str(path))
+    cfg.update('key', 'value')
+    assert path.read_text(encoding='utf-8') == 'key: [1, 2\n'
+
+
+def test_config_atomic_write_falls_back_when_replace_is_blocked(tmp_path, monkeypatch):
+    import onedragon.base.config.yaml_operator as module
+    path = tmp_path / 'cfg.yml'
+    cfg = module.YamlOperator(str(path))
+    monkeypatch.setattr(module.os, 'replace', Mock(side_effect=OSError('文件被占用')))
+    cfg.update('key', 'value')
+    assert cfg.get('key') == 'value'
+    assert 'key: value' in path.read_text(encoding='utf-8')
+    assert not (tmp_path / 'cfg.yml.tmp').exists()
+
+
 def test_app_options_commit_once(task_factory):
     from src.tasks.app_tasks import App_CommissionAssistant
     from onedragon.base.config.yaml_operator import YamlOperator
@@ -757,6 +777,18 @@ def test_injected_frame_uses_standard_coordinates(shape):
     assert timestamp == 123 and normalized.shape == (1080, 1920, 3)
     assert tuple(normalized[200, 200]) == (230, 40, 10)
     assert tuple(frame[0, 0]) == (10, 40, 230)  # Source remains BGR.
+
+
+def test_injected_frame_is_uid_masked_like_the_captured_path():
+    from zzz_od.controller.zzz_controller import ZzzController
+    controller = ZzzController.__new__(ZzzController)
+    controller.standard_width, controller.standard_height = 1920, 1080
+    frame = np.full((1080, 1920, 3), 255, np.uint8)
+    controller.frame_provider = lambda: (123, frame)
+    _, masked = controller.screenshot()
+    assert tuple(masked[1070, 1850]) == (114, 114, 114)  # UID 区域涂黑
+    assert tuple(masked[200, 200]) == (255, 255, 255)  # 其余画面不受影响
+    assert tuple(frame[1070, 1850]) == (255, 255, 255)  # 原始帧不被修改
 
 
 def test_empty_selected_frame_stops_input_and_independent_skips_provider(monkeypatch):
@@ -963,3 +995,27 @@ def test_background_dialogue_never_answers_a_purchase_option(pad_dialogue):
     assert not pad_presses(ctx)
     ctx.controller.click_dialogue_event.assert_not_called()
     assert '人工' in task.info['助手状态']
+
+
+def test_battle_demo_task_prepares_controller_and_screen_areas(task_factory, monkeypatch):
+    """单场演示任务不经过应用装配流程，必须自行补齐控制器与识别区域。"""
+    from src.tasks.battle_demo_task import BattleDemoTask
+    ctx = battle_context()
+    controller = ctx.controller
+    ctx.controller = None
+    prepared = []
+
+    def init_for_application(activate=True):
+        prepared.append(activate)
+        ctx.controller = controller
+
+    ctx.init_for_application = init_for_application
+    # 演示任务按模板名加载，不带子目录；替身加载器只接受显式 sub_dir。
+    ctx.auto_battle_context.init_auto_op = Mock()
+    monkeypatch.setattr(BaseTask, 'frame', property(lambda self: np.zeros((1080, 1920, 3), np.uint8)))
+    task = task_factory(BattleDemoTask, ctx)
+    task.run()
+    assert task._running
+    assert prepared == [False], '演示任务必须先补齐上下文再启动引擎'
+    ctx.auto_battle_context.check_battle_state.assert_called_once()
+    ctx.auto_battle_context.init_auto_op.assert_called_once_with('全配队通用')

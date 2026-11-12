@@ -3,7 +3,6 @@ import json
 import os
 import zipfile
 from types import SimpleNamespace
-from unittest.mock import Mock
 from urllib.parse import parse_qs, urlparse
 
 import numpy as np
@@ -61,6 +60,18 @@ def test_report_masks_uid_and_strips_secrets(tmp_path):
     assert image[500, 500].mean() > 60
     assert not any('session.json' in n or 'game_account' in n for n in names)
     assert failure.frame[1070, 1900].max() == 255  # The recorded frame itself is untouched.
+
+
+@pytest.mark.parametrize('line, hidden', [
+    ("Telegram 请求异常: HTTPSConnectionPool(host='api.telegram.org'): Max retries exceeded with url: "
+     "/bot8382019384:AAHsecretTOKEN/sendMessage (Caused by ConnectTimeoutError)", 'AAHsecretTOKEN'),
+    ('https://oapi.dingtalk.com/robot/send?access_token=DINGSECRETTOKEN1', 'DINGSECRETTOKEN1'),
+    ('https://push.example.com/message?apikey=APISECRET12345', 'APISECRET12345'),
+    ('https://push.example.com/message?key=PLAINKEY987654', 'PLAINKEY987654'),
+])
+def test_url_embedded_push_secrets_are_masked(line, hidden):
+    assert hidden not in error_report.sanitize_text(line)
+    assert '***' in error_report.sanitize_text(line)
 
 
 def test_issue_link_is_prefilled_and_short(tmp_path):

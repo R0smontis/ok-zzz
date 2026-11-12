@@ -3,7 +3,6 @@
 # 来源: https://github.com/OneDragon-Anything/ZenlessZoneZero-OneDragon
 # 路径: one_dragon/base/push/channel/push_plus.py
 # 本文件随 ok-zzz 以 GPL-3.0 继续分发。
-import json
 import requests
 from cv2.typing import MatLike
 

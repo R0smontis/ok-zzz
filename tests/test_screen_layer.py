@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
 """画面/模板识别层移植验证。"""
-import cv2
 import numpy as np
 
-from onedragon.utils import os_utils
 
 
 def test_screen_data_loaded(ctx):

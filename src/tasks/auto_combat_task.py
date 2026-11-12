@@ -481,7 +481,7 @@ class BattleTriggerTask(ZzzBaseTask, TriggerTask):
         evidence = None
         if scan_enemy:
             from zzz_od.auto_battle.battle_presence import detect_battle_presence
-            evidence = detect_battle_presence(frame, battle_ctx)
+            evidence = detect_battle_presence(frame, battle_ctx, attack_hud_visible=attack_hud)
         elif chain_ui:
             evidence = '连携技'
         with self._engine_lock:

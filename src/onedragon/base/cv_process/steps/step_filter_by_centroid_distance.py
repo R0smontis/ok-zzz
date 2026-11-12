@@ -6,7 +6,6 @@
 # coding: utf-8
 from typing import Dict, Any
 import cv2
-import numpy as np
 from onedragon.base.cv_process.cv_step import CvStep, CvPipelineContext
 
 

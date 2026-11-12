@@ -20,7 +20,7 @@ def test_wgc_does_not_require_optional_border_suppression(monkeypatch, build, ex
     monkeypatch.setattr(window, 'WINDOWS_BUILD_NUMBER', build)
     factory = Mock()
     monkeypatch.setattr(roapi, 'GetActivationFactory', factory)
-    import ok.rotypes.Windows.Graphics.Capture  # Import may initialize runtime factories.
+    import ok.rotypes.Windows.Graphics.Capture  # noqa: F401 (Import may initialize runtime factories.)
     factory.reset_mock()
     install_windows_graphics_compat()
     assert update.windows_graphics_available() is expected

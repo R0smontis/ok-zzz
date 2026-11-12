@@ -473,10 +473,6 @@ class LostVoidMoveByDet(ZOperation):
             entry_target = self.get_entry_target(frame_result)
             if entry_target is not None:
                 return entry_target
-
-            detect_result = self.ctx.lost_void.detector.get_result_by_x(frame_result, self.target_type,
-                                                                        by_max_x=self.choose_by_max_x)
-
         return None
 
     def get_entry_target(self, frame_result: DetectFrameResult) -> MoveTargetWrapper | None:

@@ -7,8 +7,8 @@ from onedragon.base.conditional_operation.operation_def import OperationDef
 from onedragon.base.conditional_operation.state_recorder import StateRecord
 from zzz_od.auto_battle.atomic_op.realtime_response import WARNING_CODES
 from zzz_od.auto_battle.auto_battle_agent_context import TeamInfo
-from test_skill_release import skills
-from test_runtime_interactions import initialized_assistant, task_factory
+from test_skill_release import skills  # noqa: F401 (pytest fixture)
+from test_runtime_interactions import initialized_assistant, task_factory  # noqa: F401 (pytest fixture)
 
 
 def response(battle, warning, *, explicit=False, hud=True, age=0):
@@ -201,25 +201,44 @@ def test_recorded_single_frame_flicker_does_not_repeat_defensive_response(initia
     assert task._on_dodge_event(warning,clock[0])  # A genuinely separated attack re-arms.
 
 
-def test_dungeon_yellow_interrupts_character_template_without_preliminary_dodge(skills):
+def test_dungeon_yellow_interrupts_character_template_without_preliminary_dodge(skills, monkeypatch):
+    """黄光响应在角色模板运行时直接下发切人：响应自身取支援分支而非闪避。
+
+    模板的「前台-安比」连招本身以「按键-闪避」开头（全配队通用 的配置数据），
+    由主循环按优先级并发触发；全局录制无法区分这一脚来自模板还是响应，
+    因此用 switch_next 是否被调用（闪避分支不会调用）判定响应的路由。
+    """
     battle, ctx, recorder = skills
     battle.init_auto_op('全配队通用')
     battle.auto_op.auto_lock_interval = battle.auto_op.auto_turn_interval = -1
     battle.auto_op.start_running_async()
     now = time.time()
+    # 状态记录有效期仅 250 ms：冻结逻辑时钟，避免调度延迟把预警判成过期后转走预备闪避
+    monkeypatch.setattr(time, 'time', lambda: now)
     battle.state_record_service.batch_update_states([
         StateRecord('按键可用-普通攻击', now),
         StateRecord('前台-安比', now),
         StateRecord('自定义-动作不打断', now+5),
     ])
-    assert battle.dodge_context._publish_warning('闪避识别-黄光', now)
     keys = ctx.game_config.get_action_keys('keyboard')
-    deadline = time.monotonic()+.5
-    while ('tap', keys['switch_next']) not in recorder.events and time.monotonic() < deadline:
-        time.sleep(.005)
-    battle.auto_op.stop_running()
-    assert ('tap', keys['switch_next']) in recorder.events
-    assert ('tap', keys['dodge']) not in recorder.events
+    sent = threading.Event()
+    release = threading.Event()
+    original = battle.switch_next
+
+    def switch():
+        result = original()
+        sent.set()
+        release.wait(1)
+        return result
+
+    monkeypatch.setattr(battle, 'switch_next', switch)
+    assert battle.dodge_context._publish_warning('闪避识别-黄光', now)
+    try:
+        assert sent.wait(.5), '实时战斗响应未切换角色'
+        assert ('tap', keys['switch_next']) in recorder.events
+    finally:
+        release.set()
+        battle.auto_op.stop_running()
 
 
 def test_dungeon_warning_deduplicates_continuous_flash_and_its_audio(skills, monkeypatch):

@@ -129,6 +129,7 @@ class AutoBattleContext:
             op_name: 模板名称
         """
         # 先设置为空 防止中途错误又保留了旧的值
+        previous = self.auto_op
         self.auto_op = None
 
         key = f'{sub_dir}-{op_name}'
@@ -146,6 +147,14 @@ class AutoBattleContext:
             success, msg = self.auto_op.init_before_running()
             if not success:
                 raise Exception(msg)
+
+        if previous is not None and previous is not self.auto_op:
+            # 换成别的操作器：先停掉旧的，未进入缓存的旧操作器还要销毁，
+            # 否则它会留在状态记录服务里继续接收状态并抢占共享执行线程。
+            if any(previous is cached for cached in self._op_cache.values()):
+                previous.stop_running()
+            else:
+                previous.dispose()
 
         if read_from_merged and key not in self._op_cache:
             self._op_cache[key] = self.auto_op

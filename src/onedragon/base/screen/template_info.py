@@ -208,8 +208,6 @@ class TemplateInfo(YamlOperator):
         if mask is not None:
             cv2_utils.save_image(mask, get_template_mask_path(self.sub_dir, self.template_id))
 
-    def delete(self) -> None:
-        pass
 
     def get_template_rect_by_point(self) -> Optional[Rect]:
         """
@@ -521,14 +519,6 @@ class TemplateInfo(YamlOperator):
             Point(max_x, min_y)
         ]
         self.point_updated = True
-
-    @lru_cache
-    def get_template_features(self):
-        """
-        获取特征
-        :return:
-        """
-        return cv2_utils.feature_detect_and_compute(self.raw, self.mask)
 
     def copy_new(self) -> None:
         """

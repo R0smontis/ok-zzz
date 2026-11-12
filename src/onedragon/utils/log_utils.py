@@ -180,6 +180,8 @@ def mask_text(text: str) -> str:
     :param text: 需要脱敏的文本
     :return: 脱敏后的文本
     """
+    if not text:
+        return ''
     if len(text) < 5:
         return text[0] + '*' * (len(text) - 1)
     else:

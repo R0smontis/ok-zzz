@@ -1,8 +1,7 @@
 import time
 from unittest.mock import Mock
+from test_runtime_interactions import initialized_assistant, task_factory  # noqa: F401 (pytest fixture)
 
-import pytest
-from test_runtime_interactions import initialized_assistant, task_factory
 from src.tasks.auto_combat_task import DodgeAssistantTriggerTask
 
 
@@ -111,7 +110,7 @@ def test_enemy_scan_does_not_block_fresh_warning_callback(initialized_assistant)
         done.set()
     worker=threading.Thread(target=warn)
     worker.start()
-    def detect(*args):
+    def detect(*args, **kwargs):
         entered.set()
         assert done.wait(.3), 'enemy scan held the lifecycle lock'
         return None

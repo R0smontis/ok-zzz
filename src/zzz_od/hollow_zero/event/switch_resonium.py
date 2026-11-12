@@ -66,7 +66,7 @@ def __debug():
     ctx.init_by_config()
     ctx.run_context.start_running()
     ctx.init_ocr()
-    op = ChooseResonium(ctx)
+    op = SwitchResonium(ctx)
     op.execute()
 
 

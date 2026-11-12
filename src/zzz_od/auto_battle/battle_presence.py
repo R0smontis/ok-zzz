@@ -264,10 +264,12 @@ def has_chain_timer(screen):
     return bool(np.max(np.mean(grey, axis=1)) >= .7)
 
 
-def detect_battle_presence(screen, battle_ctx):
+def detect_battle_presence(screen, battle_ctx, attack_hud_visible: bool | None = None):
     if screen is None or screen.shape[:2] != (1080, 1920):
         return None
-    if battle_ctx.is_normal_attack_btn_available(screen):
+    if attack_hud_visible is None:
+        attack_hud_visible = battle_ctx.is_normal_attack_btn_available(screen)
+    if attack_hud_visible:
         panel = find_enemy_health_bar(screen)
         if panel:
             from src.diagnostics.recorder import record_event

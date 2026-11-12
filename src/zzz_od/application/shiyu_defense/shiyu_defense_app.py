@@ -436,9 +436,6 @@ def __debug():
     ctx.init_by_config()
     ctx.init_ocr()
 
-    from onedragon.utils import debug_utils
-    screen = debug_utils.get_debug_image('_1728799789929')
-
     app = ShiyuDefenseApp(ctx)
     app.execute()
 

@@ -11,7 +11,6 @@ from typing import Optional
 from onedragon.utils import cv2_utils
 from zzz_od.context.zzz_context import ZContext
 from zzz_od.game_data.agent import AgentStateDef
-from onedragon.utils.log_utils import log
 
 def get_template(ctx: ZContext, state_def: AgentStateDef,
                  total: Optional[int] = None, pos: Optional[int] = None):

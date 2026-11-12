@@ -7,7 +7,6 @@ its icon; the mission list outlines the selected row in yellow; 下一步 is the
 import cv2
 import numpy as np
 
-from onedragon.base.geometry.rectangle import Rect
 from src.controls.gamepad import press as pad
 from src.navigation.common import bump, norm_text, ocr_rows
 from src.navigation.menus import focus_mask

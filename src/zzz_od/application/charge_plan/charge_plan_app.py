@@ -10,7 +10,7 @@ from onedragon.base.operation.operation_edge import node_from
 from onedragon.base.operation.operation_node import operation_node
 from onedragon.base.operation.operation_notify import NotifyTiming, node_notify
 from onedragon.base.operation.operation_round_result import OperationRoundResult
-from onedragon.utils import cv2_utils, str_utils
+from onedragon.utils import str_utils
 from onedragon.utils.log_utils import log
 from zzz_od.application.charge_plan import charge_plan_const
 from zzz_od.application.charge_plan.charge_plan_config import (

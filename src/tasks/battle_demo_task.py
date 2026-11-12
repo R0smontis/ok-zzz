@@ -37,13 +37,16 @@ class BattleDemoTask(ZzzBaseTask, BaseTask):
         config_name = str(self.config.get('战斗配置', '全配队通用'))
 
         if not self._running:
+            # 单场演示不经过应用装配流程，需自行补齐控制器与识别区域，
+            # 否则 check_battle_state 缺少区域、引擎输入缺少控制器。
+            self.ctx.init_for_application(activate=False)
             battle_ctx.init_auto_op(config_name)
             battle_ctx.start_auto_battle()
             self._running = True
             self._started_at = time.time()
             log.info(f'战斗演示开始: {config_name}')
 
-        frame = self.frame
+        frame = self.ctx.controller.normalize_frame(self.frame)
         if frame is None:
             return
         in_battle = battle_ctx.check_battle_state(frame, time.time())

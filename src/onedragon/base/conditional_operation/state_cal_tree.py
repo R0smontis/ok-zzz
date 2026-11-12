@@ -10,7 +10,6 @@ from functools import cached_property
 from typing import Callable, Optional
 
 from onedragon.base.conditional_operation.state_recorder import StateRecorder
-from onedragon.utils.log_utils import log
 
 
 class StateCalNodeType(IntEnum):

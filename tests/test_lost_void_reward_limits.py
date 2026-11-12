@@ -4,7 +4,6 @@ from types import SimpleNamespace
 import pytest
 
 from onedragon.base.operation.application_run_record import AppRunRecord
-from zzz_od.application.hollow_zero.lost_void.lost_void_app import LostVoidApp
 from zzz_od.application.hollow_zero.lost_void.lost_void_config import LostVoidTaskEnum
 from zzz_od.application.hollow_zero.lost_void.lost_void_run_record import LostVoidRunRecord
 

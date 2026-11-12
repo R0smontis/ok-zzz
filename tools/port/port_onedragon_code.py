@@ -8,7 +8,6 @@
 """
 import ast
 import os
-import sys
 
 SRC_REPO = r"D:\Temp\ref\ZenlessZoneZero-OneDragon"
 SRC = os.path.join(SRC_REPO, 'src')

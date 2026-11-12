@@ -183,11 +183,12 @@ class GameConfig(BasicGameConfig):
 
     def __init__(self, instance_idx: int):
         BasicGameConfig.__init__(self, instance_idx)
-        # TODO 迁移旧配置 2026-9 删除
+        # 旧数字格式按键只在这里迁移一次，迁移完成后不再改写
         self._migrate_legacy_gamepad_keys()
 
     def _migrate_legacy_gamepad_keys(self) -> None:
         """初始化时一次性迁移所有旧数字格式的手柄按键配置。"""
+        migrated_any = False
         for prefix in ('xbox_key', 'ds4_key'):
             for action in GameKeyAction:
                 prop = f'{prefix}_{action.value.value}'
@@ -198,7 +199,11 @@ class GameConfig(BasicGameConfig):
                     self._LEGACY_GAMEPAD_KEYS.get(p, p) for p in value.split('+')
                 )
                 if migrated != value:
-                    self.update(prop, migrated)
+                    # 迁移只改内存，一次初始化最多触发一次整文件写入
+                    self.update(prop, migrated, save=False)
+                    migrated_any = True
+        if migrated_any:
+            self.save()
 
     @property
     def xbox_key_press_time(self) -> float:

@@ -269,7 +269,7 @@ class CallForSupport(ZOperation):
                 continue
             opt = opts[target_list.index(results[0])]
             if str_utils.find_by_lcs(results[0], ocr_result, percent=opt.lcs_percent):
-                click = self.ctx.controller.click(mrl.max.center + area.left_top)
+                self.ctx.controller.click(mrl.max.center + area.left_top)
                 return self.round_success(wait=1)
 
         return self.round_retry('未配置对应的代理人选项', wait=1)

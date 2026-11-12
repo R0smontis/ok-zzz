@@ -13,6 +13,7 @@ from onedragon.utils import cv2_utils
 
 if TYPE_CHECKING:
     from onedragon.base.cv_process.cv_service import CvService
+    OneDragonContext = Any  # ok-zzz: 鸭子类型，不引入总上下文
 
 
 class CvPipelineContext:

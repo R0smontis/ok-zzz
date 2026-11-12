@@ -96,20 +96,14 @@ class Yolov8Classifier(OnnxModelLoader):
         :param conf: 置信度阈值
         :return: 识别结果
         """
-        t1 = time.time()
         context = RunContext(image, run_time)
         context.conf = conf
 
         input_tensor = self.prepare_input(context)
-        t2 = time.time()
 
         outputs = self.inference(input_tensor)
-        t3 = time.time()
 
         result = self.process_output(outputs, context)
-        t4 = time.time()
-
-        # log.info(f'识别完毕 预处理耗时 {t2 - t1:.3f}s, 推理耗时 {t3 - t2:.3f}s, 后处理耗时 {t4 - t3:.3f}s')
 
         self.record_result(context, result)
         return result
@@ -156,6 +150,9 @@ class Yolov8Classifier(OnnxModelLoader):
         :param result: 识别结果
         :return: 组合结果
         """
+        if self.keep_result_seconds <= 0:
+            # 不保留任何历史：每条历史都持有 raw_image（整帧），逐帧识别时会常驻数百 MB。
+            return
         self.run_result_history.append(result)
         self.run_result_history = [i for i in self.run_result_history
                                    if 0 <= context.run_time - i.run_time <= self.keep_result_seconds]

@@ -8,7 +8,7 @@ from cv2.typing import MatLike
 from onedragon.base.operation.operation_edge import node_from
 from onedragon.base.operation.operation_node import operation_node
 from onedragon.base.operation.operation_round_result import OperationRoundResult
-from onedragon.utils import cv2_utils, str_utils
+from onedragon.utils import str_utils
 from onedragon.utils.i18_utils import gt
 from zzz_od.context.zzz_context import ZContext
 from zzz_od.game_data.agent import AgentEnum

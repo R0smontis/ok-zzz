@@ -370,6 +370,7 @@ class LostVoidChooseGear(ZOperation):
         """
         逐个点击武备，等待1秒截图，裁剪“武备名称”区域，按实际数量纵向拼图后统一OCR。
         按从上到下的OCR结果回填到从左到右的武备槽位。
+        返回的等级标记与返回的武备列表一一对应(名称未识别出的槽位会被跳过)。
         """
         if len(gear_with_status) == 0:
             return [], []
@@ -408,6 +409,7 @@ class LostVoidChooseGear(ZOperation):
         self._update_first_slot_gear_name(name_list)
 
         result_list: list[LostVoidArtifactPos] = []
+        result_has_level: list[bool] = []
         total_cnt = min(len(click_rect_list), len(name_list))
         for i in range(total_cnt):
             ocr_text = name_list[i]
@@ -426,10 +428,11 @@ class LostVoidChooseGear(ZOperation):
                     is_primary_name=is_primary,
                 )
             )
+            result_has_level.append(has_level_list[i] if i < len(has_level_list) else True)
 
         display_text = ','.join([i.artifact.display_name for i in result_list]) if len(result_list) > 0 else '无'
         log.info(f'当前识别武备 {display_text}')
-        return result_list, has_level_list
+        return result_list, result_has_level
 
     def _update_first_slot_gear_name(self, name_list: list[str]) -> None:
         """

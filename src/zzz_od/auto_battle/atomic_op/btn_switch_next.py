@@ -5,9 +5,10 @@
 # 本文件随 ok-zzz 以 GPL-3.0 继续分发。
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from onedragon.base.conditional_operation.atomic_op import AtomicOp
+from zzz_od.auto_battle.auto_battle_state import BattleStateEnum
 
 if TYPE_CHECKING:
     from zzz_od.auto_battle.auto_battle_context import AutoBattleContext

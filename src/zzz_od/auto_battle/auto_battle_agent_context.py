@@ -8,7 +8,7 @@ from __future__ import annotations
 import threading
 import cv2
 from concurrent.futures import ThreadPoolExecutor, Future
-from typing import Optional, List, Union, Tuple, Callable, TYPE_CHECKING
+from typing import Optional, List, Tuple, Callable, TYPE_CHECKING
 
 from cv2.typing import MatLike
 

@@ -7,7 +7,6 @@ what it contains, and only on confirmation opens the GitHub issue form and the r
 import functools
 import os
 import subprocess
-import time
 from datetime import datetime
 
 from PySide6.QtCore import QUrl

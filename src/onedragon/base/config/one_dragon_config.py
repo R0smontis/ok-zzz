@@ -13,12 +13,6 @@ from onedragon.base.config.yaml_config import YamlConfig
 from onedragon.utils import os_utils
 
 
-class RunInOneDragonApp(Enum):
-
-    RUN = ConfigItem('一条龙中运行', value=True)
-    DONT_RUN = ConfigItem('一条龙中不运行', value=False)
-
-
 class OneDragonInstance:
 
     def __init__(self, idx: int, name: str, active: bool, active_in_od: bool, force_login_before_run: bool = False):

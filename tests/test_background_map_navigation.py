@@ -2,7 +2,6 @@
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
 import cv2
 import numpy as np
 import pytest

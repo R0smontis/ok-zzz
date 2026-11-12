@@ -6,7 +6,6 @@ import numpy as np
 import pytest
 
 from onedragon.base.geometry.point import Point
-from onedragon.base.geometry.rectangle import Rect
 from onedragon.base.operation.operation_round_result import OperationRoundResultEnum as R
 from src.navigation.dialogue import dialogue_action
 from zzz_od.application.commission_assistant.dialogue_detector import DialogueAction

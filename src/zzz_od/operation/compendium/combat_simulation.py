@@ -16,7 +16,6 @@ from onedragon.base.operation.operation_round_result import OperationRoundResult
 from onedragon.utils import cv2_utils, str_utils
 from onedragon.utils.i18_utils import gt
 from onedragon.utils.log_utils import log
-from src.controls.gamepad import press as pad
 from zzz_od.application.charge_plan import charge_plan_const
 from zzz_od.application.charge_plan.charge_plan_config import (
     CardNumEnum,

@@ -409,10 +409,13 @@ class RandomPlayApp(ZApplication):
         for template_id in agent.template_id_list:
             mr = self.ctx.tm.match_one_by_feature(part, 'predefined_team', f'avatar_{template_id}')
             if mr is None:
-                return None
+                # 有皮肤的代理人模板 id 不止一个，必须继续尝试下一个
+                continue
 
             mr.add_offset(area.left_top)
             return mr
+
+        return None
 
     @node_from(from_name='选择宣传员')
     @operation_node(name='识别录像带主题')
