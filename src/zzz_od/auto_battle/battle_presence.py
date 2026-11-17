@@ -148,27 +148,40 @@ def _world_panel_contours(mask, kernel_size):
 
 
 def _find_world_panel(hsv, contours, seed_kind, small_only=False, shapes=None, threshold=.74):
+    # Same-height contours use the same ordered templates within this call.
+    templates_by_height = {}
+    is_health = seed_kind == 'health'
+    min_width = 3 if small_only else 18
+    pad_x, pad_y = (16, 12) if is_health else (40, 24)
+    seed_x, seed_y = (4, 5) if is_health else (32, 14)
+    row_height = 17 if is_health else 7
+    width = hsv.shape[1]
     for contour in contours:
         x, y, w, h = cv2.boundingRect(contour)
-        min_width = 3 if small_only else 18
         if small_only and w >= 18:
             continue
         if not (min_width <= w <= 350 and 2 <= h <= 28 and (w/h >= 1.3 or small_only)):
             continue
-        is_health = seed_kind == 'health'
-        x0, y0 = max(0, x-(16 if is_health else 40)), max(0, y-(12 if is_health else 24))
-        patch = (255-hsv[y0:y+h+16, x0:min(x+90, hsv.shape[1]), 2]).astype(np.float32)
-        for scale, template in (_health_shapes() if shapes is None else shapes):
-            if not .7 <= h / ((17 if is_health else 7)*scale) <= 1.35:
-                continue
-            th, tw = template.shape
-            if patch.shape[0] < th or patch.shape[1] < tw:
+        templates = templates_by_height.get(h)
+        if templates is None:
+            templates = templates_by_height[h] = [
+                (template, template.shape[0], template.shape[1], seed_x*scale, seed_y*scale)
+                for scale, template in (_health_shapes() if shapes is None else shapes)
+                if .7 <= h / (row_height*scale) <= 1.35
+            ]
+        if not templates:
+            continue
+        x0, y0 = max(0, x-pad_x), max(0, y-pad_y)
+        patch = (255-hsv[y0:y+h+16, x0:min(x+90, width), 2]).astype(np.float32)
+        patch_height, patch_width = patch.shape
+        for template, th, tw, offset_x, offset_y in templates:
+            if patch_height < th or patch_width < tw:
                 continue
             # The color seed must start in the cap, rather than elsewhere in
             # scenery beside a vaguely similar edge.
-            sx, sy = x-x0-(4 if is_health else 32)*scale, y-y0-(5 if is_health else 14)*scale
-            lx, rx = max(0, int(sx-4)), min(patch.shape[1]-tw+1, int(sx+5))
-            ty, by = max(0, int(sy-3)), min(patch.shape[0]-th+1, int(sy+4))
+            sx, sy = x-x0-offset_x, y-y0-offset_y
+            lx, rx = max(0, int(sx-4)), min(patch_width-tw+1, int(sx+5))
+            ty, by = max(0, int(sy-3)), min(patch_height-th+1, int(sy+4))
             if lx >= rx or ty >= by:
                 continue
             scores = cv2.matchTemplate(patch[ty:by+th-1, lx:rx+tw-1], template,

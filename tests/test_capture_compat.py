@@ -207,6 +207,27 @@ def test_wgc_close_releases_textures_after_a_pending_frame_callback(monkeypatch)
     assert method.cputex is None and method.capture_hwnd == 0 and method.capture_target_signature is None
 
 
+def test_wgc_resized_target_is_closed_without_holding_the_capture_lock(monkeypatch):
+    from src.controls.capture_compat import install_wgc_close_outside_lock
+    module, method, seen, released = wgc_closing_with_pending_frame(monkeypatch)
+    method._hwnd_window = SimpleNamespace(capture_target_signature=('resized',))
+    restarted = []
+
+    def framework_start_or_stop(self, *args, **kwargs):  # Holds the lock, as the framework does.
+        with self.lock:
+            if self.frame_pool is not None and self.capture_target_signature != ('resized',):
+                self.close()
+            restarted.append(self.frame_pool is None)
+            return True
+
+    monkeypatch.setattr(module.WindowsGraphicsCaptureMethod, 'close', module.WindowsGraphicsCaptureMethod.close)
+    monkeypatch.setattr(module.WindowsGraphicsCaptureMethod, 'start_or_stop', framework_start_or_stop)
+    install_wgc_close_outside_lock()
+    assert module.WindowsGraphicsCaptureMethod.start_or_stop(method) is True
+    assert released == [True]  # Closing inside start_or_stop's lock hung on the texture Release.
+    assert seen == [None] and restarted == [True]
+
+
 def test_wgc_close_patch_is_idempotent(monkeypatch):
     from ok.device.capture_methods import windows_graphics as module
     from src.controls.capture_compat import install_wgc_close_outside_lock

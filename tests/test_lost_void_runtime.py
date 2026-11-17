@@ -53,7 +53,7 @@ def test_context_lost_void_is_lazy_and_cached():
 def test_init_error_keeps_diagnostic_reason():
     app = object.__new__(LostVoidApp)
     app.config = SimpleNamespace(mission_name='战线肃清', challenge_config='默认-成就模式')
-    app.run_record = SimpleNamespace(is_finished_by_day=False)
+    app.run_record = SimpleNamespace(is_finished_by_day=False, should_skip_start=False)
     app.ctx = SimpleNamespace(lost_void=SimpleNamespace(
         init_before_run=Mock(side_effect=FileNotFoundError('测试：缺少迷失之地模型'))))
     app._after_round_wait = lambda **_kwargs: None

@@ -121,6 +121,30 @@ class LostVoidRunRecord(AppRunRecord):
         return self.daily_run_times >= self.config.daily_plan_times
 
     @property
+    def is_reward_verification_pending(self) -> bool:
+        """悬赏/周期奖励必须以游戏入口读数为准，本地完成标记不能单独作为依据。"""
+        return self.config.extra_task in (LostVoidTaskEnum.BOUNTY_COMMISSION.value.value,
+                                          LostVoidTaskEnum.PERIOD_REWARD.value.value)
+
+    @property
+    def should_skip_start(self) -> bool:
+        """启动时是否无需进入游戏。"""
+        if not self.is_reward_verification_pending:
+            return self.is_finished_by_day
+        if self.config.extra_task == LostVoidTaskEnum.PERIOD_REWARD.value.value:
+            # 周期奖励以实际奖励耗尽为终点，计划次数只记录统计。
+            return False
+        # 悬赏模式保留每日计划次数上限；满额标记本身不阻止进入游戏核验。
+        return self.daily_run_times >= self.config.daily_plan_times
+
+    @property
+    def is_done(self) -> bool:
+        """一条龙是否可直接跳过本应用。奖励模式需进游戏核验并领取后才结束。"""
+        if self.is_reward_verification_pending:
+            return self.should_skip_start
+        return super().is_done
+
+    @property
     def run_status_under_now(self):
         """
         基于当前时间显示的运行状态

@@ -339,7 +339,7 @@ class IntelBoardApp(ZApplication):
             check_battle_end_normal_result=True,
         )
 
-        return self.round_wait(wait=self.ctx.battle_assistant_config.screenshot_interval)
+        return self.round_wait(wait_round_time=self.ctx.battle_assistant_config.screenshot_interval)
 
     @node_from(from_name='战斗中')
     @node_from(from_name='点击结算按钮')

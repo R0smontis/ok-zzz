@@ -94,3 +94,38 @@ def test_chain_ui_counts_as_battle_without_publishing_or_input():
     assert detect_battle_presence(frame(), battle) is None
     match.side_effect = [None, object()]
     assert detect_battle_presence(frame(), battle) == '连携技'
+
+
+@pytest.mark.parametrize('seed_kind,height,seed_x,seed_y', [
+    ('health', 17, 4, 5),
+    ('daze', 7, 32, 14),
+])
+def test_same_height_candidates_preserve_first_matching_template_and_geometry(seed_kind, height, seed_x, seed_y):
+    from zzz_od.auto_battle.battle_presence import _find_world_panel
+
+    # Two candidates share a height; only the second contains a panel.
+    hsv = np.full((120, 380, 3), 255, np.uint8)
+    x, y = 200, 40
+    large = np.random.default_rng(37).integers(0, 256, (12, 22), dtype=np.uint8)
+    hsv[y-seed_y:y-seed_y+12, x-seed_x:x-seed_x+22, 2] = 255-large
+    small = large[1:11, 1:21].astype(np.float32)
+    large = large.astype(np.float32)
+    contours = [np.array([[[left, y]], [[left+29, y]], [[left+29, y+height-1]],
+                          [[left, y+height-1]]], np.int32) for left in (60, x)]
+    panel = _find_world_panel(hsv, contours, seed_kind, shapes=[(1., small), (1., large)])
+    assert panel == {'panel_kind': 'world', 'seed_kind': seed_kind, 'confidence': 1.,
+                     'rect': [90+x-seed_x+1, 180+y-seed_y+1, 20, 10]}
+
+    # A later call must use its own templates, even for the same height.
+    panel = _find_world_panel(hsv, contours, seed_kind, shapes=[(1., large)])
+    assert panel == {'panel_kind': 'world', 'seed_kind': seed_kind, 'confidence': 1.,
+                     'rect': [90+x-seed_x, 180+y-seed_y, 22, 12]}
+
+
+def test_height_without_eligible_templates_is_not_enemy_evidence():
+    from zzz_od.auto_battle.battle_presence import _find_world_panel
+
+    hsv = np.zeros((100, 200, 3), np.uint8)
+    contour = np.array([[[40, 30]], [[89, 30]], [[89, 57]], [[40, 57]]], np.int32)
+    template = np.arange(200, dtype=np.float32).reshape(10, 20)
+    assert _find_world_panel(hsv, [contour], 'health', shapes=[(1., template)]) is None

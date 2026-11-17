@@ -554,6 +554,7 @@ def quick_nav(op, screen):
             op._quick_nav_pending_area = None
             return op.round_wait('点位列表不属于目标区域，返回区域选择', wait=.8)
         op._quick_nav_pending_area = op.area_name
+        op._quick_nav_pending_waits = 0
         current = focused_points[0]
         if _match(current[0], op.tp_name):
             _press(op, 'confirm')
@@ -581,10 +582,27 @@ def quick_nav(op, screen):
     current = lit_tiles[0]
     if current is target_tile:
         if getattr(op, '_quick_nav_pending_area', None) == op.area_name:
-            return op.round_wait('等待目标区域点位焦点核验，未重复确认区域', wait=.6)
+            waits = getattr(op, '_quick_nav_pending_waits', 0) + 1
+            op._quick_nav_pending_waits = waits
+            if waits < 3:
+                return op.round_wait('等待目标区域点位焦点核验，未重复确认区域', wait=.6)
+            refocuses = getattr(op, '_quick_nav_refocuses', 0)
+            if refocuses >= 3:
+                return op.round_fail(f'{op.area_name} 选择后未核验传送点焦点')
+            # A can be consumed by a page/input-mode transition. Move focus
+            # instead of confirming a point whose outline is unreadable.
+            _press(op, 'dpad_right')
+            op._quick_nav_refocuses = refocuses + 1
+            op._quick_nav_pending_waits = 0
+            return op.round_wait('区域选择未切换到点位，重新核验快捷导航焦点', wait=.6)
         _press(op, 'confirm')
         op._quick_nav_pending_area = op.area_name
+        op._quick_nav_pending_waits = 0
         return op.round_wait(f'手柄选择区域 {op.area_name}，等待传送点列表', wait=1.2)
+    # A fresh, uniquely focused different region proves that the previous
+    # region confirmation no longer describes the current input focus.
+    op._quick_nav_pending_area = None
+    op._quick_nav_pending_waits = 0
     dx, dy = target_tile[1].x - current[1].x, target_tile[1].y - current[1].y
     direction = ('down' if dy > 0 else 'up') if abs(dy) > 140 else ('right' if dx > 0 else 'left')
     _press(op, 'dpad_' + direction)

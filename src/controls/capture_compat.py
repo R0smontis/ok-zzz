@@ -189,10 +189,16 @@ def install_wgc_close_outside_lock():
     then never returns (2026-10-19: the device thread hung there, so a restarted game was never
     rebound and trigger tasks had no frames). Detach under the lock, release after it: a blocked
     callback then finds no frame pool and returns.
+
+    start_or_stop() closes a changed target (resized window or new hwnd) while already holding the
+    same RLock, so close() alone cannot drop it (2026-11-17: every live resize froze capture).
+    Close a changed target before entering start_or_stop instead.
     """
     from ok.device.capture_methods import windows_graphics as module
     original = module.WindowsGraphicsCaptureMethod.close
-    if getattr(original, '_zzz_release_outside_lock', False) is True:
+    original_start = module.WindowsGraphicsCaptureMethod.start_or_stop
+    if (getattr(original, '_zzz_release_outside_lock', False) is True
+            and getattr(original_start, '_zzz_release_outside_lock', False) is True):
         return
 
     def release(action, name):
@@ -231,8 +237,21 @@ def install_wgc_close_outside_lock():
             for context in contexts:
                 release(functools.partial(module.clean_up_bitblt, context), 'bitblt context')
 
+    def start_or_stop(method, *args, **kwargs):
+        window = method.hwnd_window
+        if (method.frame_pool is not None and window is not None
+                and method.capture_target_signature != window.capture_target_signature):
+            module.logger.info(f'start_or_stop WGC target changed from {method.capture_target_signature} '
+                               f'to {window.capture_target_signature}')
+            method.close()
+        return original_start(method, *args, **kwargs)
+
+    start_or_stop._zzz_release_outside_lock = True
     close._zzz_release_outside_lock = True
-    module.WindowsGraphicsCaptureMethod.close = close
+    if getattr(original, '_zzz_release_outside_lock', False) is not True:
+        module.WindowsGraphicsCaptureMethod.close = close
+    if getattr(original_start, '_zzz_release_outside_lock', False) is not True:
+        module.WindowsGraphicsCaptureMethod.start_or_stop = start_or_stop
 
 
 def install_window_position_compat():

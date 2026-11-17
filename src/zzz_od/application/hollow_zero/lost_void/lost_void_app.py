@@ -27,7 +27,7 @@ from zzz_od.application.hollow_zero.lost_void.mission_screen import common_choic
 from zzz_od.application.hollow_zero.lost_void.lost_void_challenge_config import (
     LostVoidRegionType,
 )
-from zzz_od.application.hollow_zero.lost_void.lost_void_config import LostVoidConfig
+from zzz_od.application.hollow_zero.lost_void.lost_void_config import LostVoidConfig, LostVoidTaskEnum
 from zzz_od.application.hollow_zero.lost_void.matrix_team import custom_matrix_agents, resolve_agent_ids
 from zzz_od.application.hollow_zero.lost_void import matrix_pad_agents, matrix_pad_menu
 from zzz_od.application.hollow_zero.lost_void.matrix_screen import detail_visible, read_team_page, main_agents
@@ -90,8 +90,9 @@ class LostVoidApp(ZApplication):
 
     @operation_node(name='初始化加载', is_start_node=True)
     def init_for_lost_void(self) -> OperationRoundResult:
-        # 检查分配给今天的任务是否完成
-        if self.run_record.is_finished_by_day:
+        # 检查分配给今天的任务是否完成。悬赏/周期奖励以游戏入口实际读数为准，
+        # 本地完成标记不直接结束本轮，满额时仍需进入游戏领取奖励。
+        if self.run_record.should_skip_start:
             return self.round_success(LostVoidApp.STATUS_ENOUGH_TIMES)
 
         try:
@@ -290,9 +291,15 @@ class LostVoidApp(ZApplication):
         if current == target:
             if not self.run_record.bounty_commission_complete:
                 self.run_record.bounty_commission_complete = True
-            if self.config.extra_task == '刷满周期奖励' and not self.run_record.period_reward_complete:
+            if self.config.extra_task == LostVoidTaskEnum.PERIOD_REWARD.value.value and not self.run_record.period_reward_complete:
                 self.run_record.period_reward_complete = True
             return self.round_success(LostVoidApp.STATUS_ENOUGH_TIMES)
+        # 入口读数是当前周期的真实进度：未满额时清掉上一轮遗留的完成标记，
+        # 避免下一次启动再被旧标记误导。
+        if self.run_record.bounty_commission_complete:
+            self.run_record.bounty_commission_complete = False
+        if self.run_record.period_reward_complete:
+            self.run_record.period_reward_complete = False
         if self.config.mission_name == '矩阵行动':
             return self.round_success(LostVoidApp.STATUS_AGAIN_MATRIX)
         return self.round_success(LostVoidApp.STATUS_AGAIN)
@@ -1049,8 +1056,6 @@ class LostVoidApp(ZApplication):
     @node_from(from_name='矩阵行动-开始挑战')
     @operation_node(name='加载自动战斗配置')
     def load_auto_op(self) -> OperationRoundResult:
-        if self.next_region_type == LostVoidRegionType.ENTRY:
-            self.ctx.lost_void.in_start_room = True
         self.ctx.auto_battle_context.init_auto_op(
             sub_dir='auto_battle',
             op_name=self.ctx.lost_void.get_auto_op_name(),

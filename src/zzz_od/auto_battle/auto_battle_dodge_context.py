@@ -187,6 +187,7 @@ class AutoBattleDodgeContext:
         self._flash_model: FlashClassifier | None = None  # 闪避分类器
         self._audio_recorder: AudioRecorder = AudioRecorder(self._on_audio_record_error)  # 音频录制器
         self._audio_template: np.ndarray | None = None  # 音频模板
+        self._audio_template_scaled: np.ndarray | None = None
         self._audio_template_lock = threading.Lock()
         self._audio_template_future: Future | None = None
 
@@ -332,12 +333,18 @@ class AutoBattleDodgeContext:
         if self._audio_template is not None:
             return
         log.info('加载声音模板中')
-        self._audio_template = load_wav(os.path.join(
+        template = load_wav(os.path.join(
             os_utils.get_path_under_work_dir('assets', 'template', 'dodge_audio'),
             'template_1.wav'
         ), 32000)
 
-        self._audio_template = self._get_filter_wave(self._audio_template)  # 滤波
+        template = self._get_filter_wave(template)
+        scaled = scale_by_std(template)
+        template.setflags(write=False)
+        scaled.setflags(write=False)
+        # Publish readiness last: readers must never see an unfiltered template.
+        self._audio_template_scaled = scaled
+        self._audio_template = template
 
         log.info('加载声音模板完成')
 
@@ -434,7 +441,8 @@ class AutoBattleDodgeContext:
         y = self._get_filter_wave(y)  # 滤波
 
         # 标准化
-        wx = scale_by_std(x)
+        cached = getattr(self, '_audio_template_scaled', None)
+        wx = cached if x is getattr(self, '_audio_template', None) and cached is not None else scale_by_std(x)
         wy = scale_by_std(y)
 
         from scipy.signal import correlate

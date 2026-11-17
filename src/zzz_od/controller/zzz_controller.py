@@ -141,7 +141,8 @@ class ZzzController(ZPcController):
             if frame is None:
                 self.cancel_inputs()
                 raise RuntimeError('选中窗口截图不可用，已停止输入；请检查截图方式')
-            return timestamp, self.fill_uid_black(frame)
+            # normalize_bgr returns a fresh RGB buffer, not the capture provider's frame.
+            return timestamp, self.fill_uid_black(frame, new_image=False)
         return ZPcController.screenshot(self, independent=independent)
 
     def sync_frames(self) -> tuple[float, MatLike | None]:

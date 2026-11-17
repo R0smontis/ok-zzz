@@ -252,6 +252,7 @@ class LostVoidContext:
         evidence = detect_battle_presence(screen, battle, attack_hud_visible=True)
         if evidence is not None:
             log.info('迷失之地遭遇战斗：%s', evidence)
+            self.last_encounter_time = screenshot_time
             return True
         auto_op = battle.auto_op
         state_record_service = battle.state_record_service
@@ -263,15 +264,21 @@ class LostVoidContext:
                 self.ctx.auto_battle_context.dodge_context.check_dodge_flash(screen, screenshot_time)
                 state = state_record_service.get_state_recorder(YoloStateEventEnum.DODGE_RED.value)
                 if state is not None and state.last_record_time == screenshot_time:
+                    self.last_encounter_time = screenshot_time
                     return True
                 state = state_record_service.get_state_recorder(YoloStateEventEnum.DODGE_YELLOW.value)
                 if state is not None and state.last_record_time == screenshot_time:
+                    self.last_encounter_time = screenshot_time
                     return True
 
         area = self.ctx.screen_loader.get_area('迷失之地-大世界', '区域-文本提示')
         if screen_utils.find_by_ocr(self.ctx, screen, target_cn='战斗开始', area=area):
+            self.last_encounter_time = screenshot_time
             return True
-        return screen_utils.find_by_ocr(self.ctx, screen, target_cn='侦测到最后的敌人', area=area)
+        found = screen_utils.find_by_ocr(self.ctx, screen, target_cn='侦测到最后的敌人', area=area)
+        if found:
+            self.last_encounter_time = screenshot_time
+        return found
 
     def check_battle_encounter_in_period(self, total_check_seconds: float) -> bool:
         """

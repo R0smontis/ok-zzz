@@ -310,8 +310,7 @@ def check_cnt_by_color_channel_max_range(
     part = cv2_utils.crop_image_only(screen, template.get_template_rect_by_point())
     to_check = cv2.bitwise_and(part, part, mask=template.mask)
 
-    r, g, b = cv2.split(to_check)
-    max_channel = np.max(np.array([r, g, b]), axis=0)
+    max_channel = np.maximum(np.maximum(to_check[:, :, 0], to_check[:, :, 1]), to_check[:, :, 2])
     mask = cv2.inRange(max_channel, state_def.lower_color, state_def.upper_color)
     mask = cv2_utils.dilate(mask, 2)
 

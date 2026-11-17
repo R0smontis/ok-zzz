@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 from cv2.typing import MatLike
+from src.runtime.stage_watchdog import monitored_operation
 
 from onedragon.base.debug.debug_trace_bus import (
     DebugTraceBus,
@@ -414,6 +415,7 @@ class Operation(OperationBase):
         """
         pass
 
+    @monitored_operation
     def execute(self) -> OperationResult:
         """循环执行操作直到完成。
 

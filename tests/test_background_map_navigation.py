@@ -362,3 +362,40 @@ def test_trust_marker_interrupting_point_outline_still_moves_to_coffee():
     assert quick_nav(op, screen).result == R.WAIT
     op.ctx.controller.btn_press.assert_called_once_with('xbox_dpad_left', press_time=.12)
     assert op._quick_nav_chosen is None
+
+
+def test_ignored_region_confirm_recovers_only_after_a_fresh_focus_change():
+    from src.navigation.common import focus_mask
+    from src.navigation.map import quick_nav
+    op, screen = fixture('qn-open', '布亚斯特城区', '吼吼饼铺')
+    assert quick_nav(op, screen).result == R.WAIT
+    for _ in range(3):
+        assert quick_nav(op, screen).result == R.WAIT
+    assert [call.args[0] for call in op.ctx.controller.btn_press.call_args_list] == [
+        'xbox_a', 'xbox_dpad_right']
+
+    # A fresh frame proves the directional press reached the neighbouring region.
+    other = screen.copy()
+    mask = focus_mask(other)
+    other[:925][mask[:925]] = 0
+    other[102:368, 646:658] = (170, 205, 45)
+    other[102:368, 1262:1274] = (170, 205, 45)
+    assert quick_nav(op, other).result == R.WAIT
+    assert quick_nav(op, screen).result == R.WAIT
+    assert [call.args[0] for call in op.ctx.controller.btn_press.call_args_list] == [
+        'xbox_a', 'xbox_dpad_right', 'xbox_dpad_left', 'xbox_a']
+    assert op._quick_nav_chosen is None
+
+
+def test_unreadable_point_focus_is_bounded_without_reconfirming_a_point():
+    from src.navigation.map import quick_nav
+    op, screen = fixture('qn-open', '布亚斯特城区', '吼吼饼铺')
+    for _ in range(16):
+        result = quick_nav(op, screen)
+        if result.is_fail:
+            break
+    assert result.is_fail
+    presses = [call.args[0] for call in op.ctx.controller.btn_press.call_args_list]
+    assert presses.count('xbox_a') == 1
+    assert presses.count('xbox_dpad_right') == 3
+    assert op._quick_nav_chosen is None

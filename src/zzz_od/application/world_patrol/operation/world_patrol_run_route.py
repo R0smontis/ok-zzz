@@ -156,7 +156,7 @@ class WorldPatrolRunRoute(ZOperation):
                     self.in_battle = False
                     time.sleep(2)  # 等待自动战斗松开按键
                     return self.round_success('出发前战斗结束')
-        return self.round_wait(wait=self.ctx.battle_assistant_config.screenshot_interval)
+        return self.round_wait(wait_round_time=self.ctx.battle_assistant_config.screenshot_interval)
 
     @node_from(from_name='初始回到大世界')
     @node_from(from_name='出发前战斗')
@@ -615,7 +615,7 @@ class WorldPatrolRunRoute(ZOperation):
                 if result is not None:
                     return result
 
-        return self.round_wait(wait=self.ctx.battle_assistant_config.screenshot_interval)
+        return self.round_wait(wait_round_time=self.ctx.battle_assistant_config.screenshot_interval)
 
     def _reset_ui_disappear_stuck(self) -> None:
         self.ui_disappear_start_time = 0

@@ -4,6 +4,7 @@
 # 路径: one_dragon/base/cv_process/cv_service.py
 # 本文件随 ok-zzz 以 GPL-3.0 继续分发。
 import os
+from copy import deepcopy
 
 import numpy as np
 import yaml
@@ -61,6 +62,8 @@ class CvService:
         self.od_ctx: OneDragonContext = od_ctx
         self.ocr = od_ctx.ocr
         self.template_loader = od_ctx.template_loader
+        # Cache parsed data only; each load still owns its pipeline and steps.
+        self._pipeline_data_cache = {}
 
         # 可用的步骤类型
         self.available_steps: dict[str, type[CvStep]] = {
@@ -214,6 +217,7 @@ class CvService:
         file_path = os.path.join(self.PIPELINE_DIR, f"{name}.yml")
         with open(file_path, 'w', encoding='utf-8') as f:
             yaml.dump(data_to_save, f, allow_unicode=True, sort_keys=False)
+        self._pipeline_data_cache.pop(file_path, None)
 
         return True
 
@@ -223,14 +227,23 @@ class CvService:
         :param name: 流水线名称
         """
         file_path = os.path.join(self.PIPELINE_DIR, f"{name}.yml")
-        if not os.path.exists(file_path):
+        try:
+            stat = os.stat(file_path)
+        except FileNotFoundError:
+            self._pipeline_data_cache.pop(file_path, None)
             return None
-
-        with open(file_path, encoding='utf-8') as f:
-            try:
-                pipeline_data = yaml_utils.safe_load(f)
-            except yaml.YAMLError:
-                return None
+        signature = (stat.st_mtime_ns, stat.st_size)
+        cached = self._pipeline_data_cache.get(file_path)
+        if cached is not None and cached[0] == signature:
+            pipeline_data = cached[1]
+        else:
+            self._pipeline_data_cache.pop(file_path, None)
+            with open(file_path, encoding='utf-8') as f:
+                try:
+                    pipeline_data = yaml_utils.safe_load(f)
+                except yaml.YAMLError:
+                    return None
+            self._pipeline_data_cache[file_path] = (signature, pipeline_data)
 
         new_steps = []
         if pipeline_data is not None:
@@ -239,7 +252,7 @@ class CvService:
                 step_class = self.available_steps.get(step_name)
                 if step_class:
                     step_instance = step_class()
-                    step_instance.update_from_dict(step_data)
+                    step_instance.update_from_dict(deepcopy(step_data))
                     new_steps.append(step_instance)
 
         pipeline = CvPipeline()
@@ -254,6 +267,7 @@ class CvService:
         file_path = os.path.join(self.PIPELINE_DIR, f"{name}.yml")
         if os.path.exists(file_path):
             os.remove(file_path)
+        self._pipeline_data_cache.pop(file_path, None)
 
     def rename_pipeline(self, old_name: str, new_name: str):
         """
@@ -269,6 +283,8 @@ class CvService:
 
         if os.path.exists(old_file_path) and not os.path.exists(new_file_path):
             os.rename(old_file_path, new_file_path)
+            self._pipeline_data_cache.pop(old_file_path, None)
+            self._pipeline_data_cache.pop(new_file_path, None)
 
     def get_template_names(self) -> list[str]:
         """

@@ -42,6 +42,8 @@ class Globals:
         self._context_callbacks = []
         self._shutdown_lock = threading.Lock()
         self._stopped = False
+        from src.runtime.stage_watchdog import install as install_stage_watchdog
+        self._stage_watchdog = install_stage_watchdog()
         if hasattr(exit_event, 'bind_stop'):
             exit_event.bind_stop(self)
         self._stop_on_session_end()
@@ -63,6 +65,9 @@ class Globals:
             if self._stopped:
                 return
             self._stopped = True
+        monitor = getattr(self, '_stage_watchdog', None)
+        if monitor is not None:
+            monitor.stop()
         live_debug = getattr(self, 'live_debug', None)
         if live_debug is not None:
             live_debug.stop()

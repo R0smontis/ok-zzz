@@ -43,7 +43,8 @@ def test_different_rows_and_distant_boxes_are_not_joined():
 def app():
     task = object.__new__(LostVoidApp)
     task.config = SimpleNamespace(is_bounty_commission_mode=True, mission_name='特遣调查', extra_task='完成悬赏委托')
-    task.run_record = SimpleNamespace(bounty_commission_complete=False, is_finished_by_day=False)
+    task.run_record = SimpleNamespace(bounty_commission_complete=False, period_reward_complete=False,
+                                      is_finished_by_day=False)
     task.last_screenshot = np.zeros((1080, 1920, 3), np.uint8)
     task.node_retry_times, task.node_max_retry_times = 0, 5
     task._after_round_wait = lambda **_kwargs: None
@@ -100,6 +101,39 @@ def test_unknown_progress_does_not_claim_completion_and_retains_evidence(app):
     assert '悬赏进度' in result.status and '2500' in result.status
     assert not app.run_record.bounty_commission_complete
     app.save_screenshot.assert_called_once()
+
+
+def test_unknown_progress_retries_without_claiming_completion(app):
+    """未知读数只重试：既不直接结束，也不改判为未完成。"""
+    app.run_record.bounty_commission_complete = True
+    app.ctx.ocr.ocr.return_value = [word('悬赏进度')]
+    result = app.check_bounty_commission_before()
+    assert result.result == OperationRoundResultEnum.RETRY
+    assert result.status != app.STATUS_ENOUGH_TIMES
+    assert not result.is_success
+    assert app.run_record.bounty_commission_complete
+
+
+def test_incomplete_progress_clears_stale_completion_markers(app):
+    app.run_record.bounty_commission_complete = True
+    app.run_record.period_reward_complete = True
+    app.ctx.ocr.ocr.return_value = [word('7999/8000')]
+    result = app.check_bounty_commission_before()
+    assert result.is_success and result.status == app.STATUS_AGAIN
+    assert not app.run_record.bounty_commission_complete
+    assert not app.run_record.period_reward_complete
+
+
+def test_cached_bounty_completion_does_not_end_before_entry_verification():
+    app = object.__new__(LostVoidApp)
+    app.config = SimpleNamespace(mission_name='特遣调查', challenge_config='默认-成就模式')
+    # 记录里的完成标记为真，但本轮仍必须进入游戏读取悬赏进度。
+    app.run_record = SimpleNamespace(is_finished_by_day=True, should_skip_start=False)
+    app.ctx = SimpleNamespace(lost_void=SimpleNamespace(init_before_run=Mock()))
+    app._after_round_wait = lambda **_kwargs: None
+    result = app.init_for_lost_void()
+    assert result.is_success and result.status == app.STATUS_AGAIN
+    app.ctx.lost_void.init_before_run.assert_called_once()
 
 
 def test_normal_run_count_mode_does_not_require_bounty_ocr(app):

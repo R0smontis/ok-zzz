@@ -58,17 +58,15 @@ class ZPcController(PcControllerBase):
         """从当前实例配置获取闪切键鼠模式时的单步等待时长"""
         return self.game_config.mouse_flash_duration
 
-    def fill_uid_black(self, screen: MatLike) -> MatLike:
-        """
-        遮挡UID 由子类实现
-        """
+    def fill_uid_black(self, screen: MatLike, new_image: bool = True) -> MatLike:
+        """遮挡 UID；默认保留输入，仅独占的可写图像可选择原地填色。"""
         rect = ScreenNormalWorldEnum.UID.value.rect
 
         return cv2_utils.mark_area_as_color(
             screen,
             pos=[rect.x1, rect.y1, rect.width, rect.height],
             color=game_const.YOLO_DEFAULT_COLOR,
-            new_image=True
+            new_image=new_image
         )
 
     def enable_keyboard(self):

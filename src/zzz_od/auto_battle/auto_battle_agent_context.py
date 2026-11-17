@@ -538,22 +538,18 @@ class AutoBattleAgentContext:
 
         return None, None
 
-    def _check_agent_state_in_parallel(self, screen: MatLike, screenshot_time: float, agent_state_list: List[CheckAgentState]) -> List[StateRecord]:
+    def _check_agent_states(self, screen: MatLike, screenshot_time: float, agent_state_list: List[CheckAgentState]) -> List[StateRecord]:
         """
-        并行识别多个角色状态
+        在角色识别后台任务内识别各状态，避免为每个小区域再创建一个 Future。
         :param screen: 游戏画面
         :param screenshot_time: 截图时间
         :param agent_state_list: 需要识别的状态列表
         :return:
         """
-        future_list: List[Future] = []
+        result_list: List[StateRecord] = []
         for state in agent_state_list:
-            future_list.append(_battle_agent_context_executor.submit(self._check_agent_state, screen, screenshot_time, state))
-
-        result_list: List[Optional[StateRecord]] = []
-        for future in future_list:
             try:
-                record = future.result()
+                record = self._check_agent_state(screen, screenshot_time, state)
                 if record is not None:
                     result_list.append(record)
             except Exception:
@@ -673,7 +669,7 @@ class AutoBattleAgentContext:
             state = CommonAgentStateEnum.LIFE_DEDUCTION_21.value
         to_check_list.append(CheckAgentState(state))
 
-        all_state_result_list = self._check_agent_state_in_parallel(screen, screenshot_time, to_check_list)
+        all_state_result_list = self._check_agent_states(screen, screenshot_time, to_check_list)
         energy_len = len(energy_state_list)
         special_len = len(special_state_list)
         ultimate_len = len(ultimate_state_list)

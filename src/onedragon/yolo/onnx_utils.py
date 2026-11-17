@@ -32,8 +32,12 @@ def scale_input_image_u(image: MatLike, onnx_input_width: int, onnx_input_height
     if onnx_input_height != img_height or onnx_input_width != img_width:  # 需要缩放
         input_img = np.full(shape=(onnx_input_height, onnx_input_width, 3),
                             fill_value=114, dtype=np.uint8)
-        scale_img = cv2.resize(image, (scale_width, scale_height), interpolation=cv2.INTER_LINEAR)
-        input_img[0:scale_height, 0:scale_width, :] = scale_img
+        # OpenCV only reuses dst when its dtype matches the source.
+        target = input_img[:scale_height, :scale_width]
+        scaled = cv2.resize(image, (scale_width, scale_height), dst=target,
+                            interpolation=cv2.INTER_LINEAR)
+        if scaled is not target:
+            target[:] = scaled
     else:
         input_img = image
 

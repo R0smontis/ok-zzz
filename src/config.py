@@ -4,6 +4,7 @@ from ok import ConfigOption
 from src.controls.interaction import INTERACTIONS
 from src.controls.hotkey_settings import validate_hotkey
 from src.runtime.inference import recognition_config
+from src.runtime.stage_watchdog import option as stage_timeout_option
 from src.runtime.game_discovery import (OPTION_NAME as GAME_PATH_OPTION, PATH_KEY as GAME_PATH_KEY,
                                         validate_game_path)
 
@@ -50,7 +51,7 @@ config = {
     'debug': False,
     'gui': gui_config,
     'config_folder': 'configs',
-    'global_configs': [key_config_option, recognition_config, game_path_config_option],
+    'global_configs': [key_config_option, recognition_config, game_path_config_option, stage_timeout_option],
     'screenshot_processor': make_uid_black,
     'gui_icon': 'icons/icon.png',
     'wait_until_before_delay': 0,

@@ -254,7 +254,8 @@ class LostVoidRunLevel(ZOperation):
         if end_boss_pre_battle:
             self.boss_pre_battle = False
 
-        self.nothing_times = 0
+        # Preserve the bounded search count until combat actually starts.
+        self._encounter_handoff_time = (self.last_screenshot_time if screenshot_time is None else screenshot_time)
         current_time = self.last_screenshot_time if screenshot_time is None else screenshot_time
         self.last_det_time = current_time
         self.last_check_finish_time = current_time
@@ -359,7 +360,7 @@ class LostVoidRunLevel(ZOperation):
                             return self.enter_battle(end_boss_pre_battle=True)
                         return self.round_wait('等待BOSS进入战斗', wait=0.2)
                     self.interact_target = LostVoidInteractTarget(name='战斗后', icon='战斗后', after_battle=True)
-                    return self.round_success(LostVoidMoveByDet.STATUS_IN_BATTLE)
+                    return self.enter_battle(screenshot_time=op.last_screenshot_time)
                 elif op_result.status == LostVoidMoveByDet.STATUS_INTERACT:
                     self.interact_target = LostVoidInteractTarget(name='未知', icon='感叹号', is_exclamation=True)
                     return self.round_success('未在大世界')
@@ -383,7 +384,7 @@ class LostVoidRunLevel(ZOperation):
             if op_result.success:
                 if op_result.status == LostVoidMoveByDet.STATUS_IN_BATTLE:
                     self.interact_target = LostVoidInteractTarget(name='战斗后', icon='战斗后', after_battle=True)
-                    return self.round_success(LostVoidMoveByDet.STATUS_IN_BATTLE)
+                    return self.enter_battle(screenshot_time=op.last_screenshot_time)
                 elif op_result.status == LostVoidMoveByDet.STATUS_INTERACT:
                     self.interact_target = LostVoidInteractTarget(name='未知', icon='感叹号', is_exclamation=True)
                     return self.round_success('未在大世界')
@@ -409,7 +410,7 @@ class LostVoidRunLevel(ZOperation):
             if op_result.success:
                 if op_result.status == LostVoidMoveByDet.STATUS_IN_BATTLE:
                     self.interact_target = LostVoidInteractTarget(name='战斗后', icon='战斗后', after_battle=True)
-                    return self.round_success(LostVoidMoveByDet.STATUS_IN_BATTLE)
+                    return self.enter_battle(screenshot_time=op.last_screenshot_time)
                 elif op_result.status == LostVoidMoveByDet.STATUS_INTERACT:
                     self.interact_target = LostVoidInteractTarget(name='未知', icon='感叹号', is_exclamation=True)
                     return self.round_success('未在大世界')
@@ -440,7 +441,8 @@ class LostVoidRunLevel(ZOperation):
         # 识别不到目标的时候 判断是否在战斗 转动等待的时候持续识别 否则0.5秒才识别一次间隔太久 很难识别到黄光
         in_battle = self.ctx.lost_void.check_battle_encounter_in_period(0.5)
         if in_battle:
-            return self.enter_battle(screenshot_time=time.time(), end_boss_pre_battle=self.boss_pre_battle)
+            return self.enter_battle(screenshot_time=self.ctx.lost_void.last_encounter_time,
+                                     end_boss_pre_battle=self.boss_pre_battle)
 
         return self.round_wait(status='转动识别目标')
 
@@ -1249,9 +1251,20 @@ class LostVoidRunLevel(ZOperation):
     @node_from(from_name='区域类型初始化', status='战斗区域')  # 区域类型就是战斗的
     @operation_node(name='准备自动战斗')
     def init_auto_op(self) -> OperationRoundResult:
-        # 战斗区域类型只表示房间用途，不能单独作为开始攻击的依据。
-        if not self.ctx.lost_void.check_battle_encounter(self.last_screenshot, self.last_screenshot_time):
+        lost = self.ctx.lost_void
+        battle = self.ctx.auto_battle_context
+        observed = getattr(self, '_encounter_handoff_time', None)
+        self._encounter_handoff_time = None  # Evidence is single-use, including rejected attempts.
+        recent = (observed is not None
+                  and 0 <= self.last_screenshot_time - observed <= .25
+                  and 0 <= time.time() - self.last_screenshot_time <= .25)
+        # ENTRY is also the unknown-room fallback, never proof of a preparation room.
+        if getattr(lost, 'in_start_room', False):
             return self.round_success('等待战斗信号')
+        if not (recent and battle.is_normal_attack_btn_available(self.last_screenshot)):
+            if not lost.check_battle_encounter(self.last_screenshot, self.last_screenshot_time):
+                return self.round_success('等待战斗信号')
+        self.nothing_times = 0
         self.ctx.auto_battle_context.start_auto_battle()
         self.battle_lease_until = self.last_screenshot_time + 10
         self.battle_absent_since = None

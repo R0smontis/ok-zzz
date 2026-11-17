@@ -150,7 +150,7 @@ def test_legacy_challenge_team_remains_supported(matrix):
 
 def test_custom_team_clears_previous_preset_before_battle_initialization(matrix):
     app, _world, _frame = matrix
-    app.run_record = SimpleNamespace(is_finished_by_day=False)
+    app.run_record = SimpleNamespace(is_finished_by_day=False, should_skip_start=False)
     app.config.challenge_config = '默认-成就模式'
     app.ctx.lost_void.init_before_run = Mock()
     assert app.init_for_lost_void().is_success

@@ -132,7 +132,7 @@ class BattleOpBase(ZOperation):
         if sec is not None:
             ctx.stop_auto_battle()
             return self.round_success(status=sec)                 # 如 STATUS_NEED_MOVE
-        return self.round_wait(wait=self.ctx.battle_assistant_config.screenshot_interval)
+        return self.round_wait(wait_round_time=self.ctx.battle_assistant_config.screenshot_interval)
 
     # ===== Hook(模板方法,子类覆写)=====
 
