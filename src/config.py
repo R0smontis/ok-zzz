@@ -8,7 +8,7 @@ from src.runtime.stage_watchdog import option as stage_timeout_option
 from src.runtime.game_discovery import (OPTION_NAME as GAME_PATH_OPTION, PATH_KEY as GAME_PATH_KEY,
                                         validate_game_path)
 
-version = "0.2.13"
+version = "0.2.14"
 
 gui_config = {
     'type': 'qt',
