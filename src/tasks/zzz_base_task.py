@@ -74,15 +74,22 @@ class ZzzBaseTask(BaseTask):
     def _sync_application_state(self, *, stopped=False):
         if not self.running or isinstance(self, TriggerTask):
             return
-        run_context = self.ctx.run_context
-        if stopped:
-            run_context.stop_running()
-        elif not run_context.is_context_stop and run_context.is_context_pause != self.paused:
-            run_context.switch_context_pause_and_run()
-        if stopped or self.paused:
-            cancel = getattr(self.ctx.controller, 'cancel_inputs', None)
-            if cancel is not None:
-                cancel()
+        ctx = self.ctx
+        run_context = ctx.run_context
+        try:
+            if stopped:
+                run_context.stop_running()
+                # A screenshot can still be blocked; its finally block is not an immediate stop path.
+                battle = vars(ctx).get('_auto_battle_context')
+                if battle is not None:
+                    battle.stop_auto_battle()
+            elif not run_context.is_context_stop and run_context.is_context_pause != self.paused:
+                run_context.switch_context_pause_and_run()
+        finally:
+            if stopped or self.paused:
+                cancel = getattr(ctx.controller, 'cancel_inputs', None)
+                if cancel is not None:
+                    cancel()
 
     def pause(self):
         super().pause()
@@ -93,8 +100,10 @@ class ZzzBaseTask(BaseTask):
         self._sync_application_state()
 
     def disable(self):
-        self._sync_application_state(stopped=True)
-        super().disable()
+        try:
+            self._sync_application_state(stopped=True)
+        finally:
+            super().disable()
 
     @property
     def ctx(self):

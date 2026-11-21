@@ -30,8 +30,12 @@ class Globals:
         install_option_widgets()
         from src.runtime.gpu_ocr import install_gpu_ocr
         install_gpu_ocr()
-        from src.runtime.startup import install_update_compat
+        from src.runtime.startup import (
+            install_launcher_shutdown_compat, install_started_window_guard, install_update_compat,
+        )
         install_update_compat()
+        install_started_window_guard()
+        install_launcher_shutdown_compat()
         from src.tasks.error_report_ui import install_error_reports
         install_error_reports()
         from src.runtime.game_discovery import install_game_discovery
@@ -117,12 +121,7 @@ class Globals:
                 context.auto_battle_context.stop_auto_battle()
                 if context.controller is not None:
                     context.controller.cancel_inputs()
-            raise RuntimeError('连续12秒无法取得游戏画面，已停止输入；请检查截图方式和游戏窗口')
-        from src.runtime.frozen_capture import FrozenCaptureWatch, handle_frozen_capture
-        watch = self.__dict__.get('_capture_watch')
-        if watch is None:
-            watch = self.__dict__['_capture_watch'] = FrozenCaptureWatch()
-        handle_frozen_capture(watch, frame, getattr(executor, 'method', None))
+            raise RuntimeError('无法取得可用的游戏画面，已停止输入；请检查截图方式、游戏窗口或画面冻结状态')
         return executor._last_frame_time, frame
 
     def _window_provider(self):

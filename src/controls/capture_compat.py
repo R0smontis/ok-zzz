@@ -15,6 +15,74 @@ def blank_frame(frame):
     return bool(np.mean(np.max(pixels, axis=2) > 3) < .005)
 
 
+_capture_lock_init = threading.Lock()
+
+
+def _capture_frame_lock(executor):
+    lock = getattr(executor, '_zzz_capture_frame_lock', None)
+    if lock is None:
+        with _capture_lock_init:
+            lock = getattr(executor, '_zzz_capture_frame_lock', None)
+            if lock is None:
+                lock = executor._zzz_capture_frame_lock = threading.RLock()
+    return lock
+
+
+def _stop_frozen_frame_inputs(executor):
+    from ok import Logger, og
+
+    logger = Logger.get_logger(__name__)
+    for task in getattr(executor, 'trigger_tasks', ()):
+        stop_engine = getattr(task, '_stop_engine', None)
+        if callable(stop_engine):
+            try:
+                stop_engine()
+            except Exception as error:
+                logger.warning(f'冻结截图停止助手失败: {error}')
+    app = getattr(og, 'my_app', None)
+    context_if_ready = getattr(app, 'context_if_ready', None)
+    try:
+        context = context_if_ready() if callable(context_if_ready) else None
+    except Exception as error:
+        logger.warning(f'冻结截图获取运行上下文失败: {error}')
+        context = None
+    if context is None:
+        return
+    battle = vars(context).get('_auto_battle_context')
+    try:
+        if battle is not None:
+            battle.stop_auto_battle()
+    except Exception as error:
+        logger.warning(f'冻结截图停止战斗失败: {error}')
+    finally:
+        controller = getattr(context, 'controller', None)
+        if controller is not None:
+            try:
+                controller.cancel_inputs()
+            except Exception as error:
+                logger.warning(f'冻结截图释放输入失败: {error}')
+
+
+def _accept_captured_frame(executor, frame, method):
+    if frame is None:
+        return False
+    from src.runtime.frozen_capture import FrozenCaptureWatch, handle_frozen_capture
+
+    with _capture_frame_lock(executor):
+        watch = getattr(executor, '_zzz_frozen_capture_watch', None)
+        if watch is None:
+            watch = executor._zzz_frozen_capture_watch = FrozenCaptureWatch()
+        previous_stage = watch.stage
+        try:
+            handle_frozen_capture(watch, frame, method)
+        finally:
+            if watch.stage is not None:
+                executor._frame = None
+                if watch.stage != previous_stage:
+                    _stop_frozen_frame_inputs(executor)
+        return watch.stage is None
+
+
 def install_capture_compat():
     import win32gui
     import win32ui
@@ -25,6 +93,7 @@ def install_capture_compat():
     install_windows_graphics_compat()
     install_wgc_blank_frame_guard()
     install_wgc_close_outside_lock()
+    install_executor_frozen_capture_guard()
 
     if getattr(bitblt_utils.capture_by_bitblt, '_zzz_offscreen', False) is True:
         return
@@ -181,6 +250,26 @@ def install_wgc_blank_frame_guard():
     WindowsGraphicsCaptureMethod.do_get_frame = capture
 
 
+def install_executor_frozen_capture_guard():
+    """Reject frozen frames before cached-frame trigger tasks can consume them."""
+    from ok.task.TaskExecutor import TaskExecutor
+
+    original = TaskExecutor.next_frame
+    if getattr(original, '_zzz_frozen_frame_guard', False) is True:
+        return
+
+    @functools.wraps(original)
+    def next_frame(executor, *args, **kwargs):
+        # Keep capture and validation ordered with direct live preview captures.
+        with _capture_frame_lock(executor):
+            frame = original(executor, *args, **kwargs)
+            return frame if _accept_captured_frame(
+                executor, frame, getattr(executor, 'method', None)) else None
+
+    next_frame._zzz_frozen_frame_guard = True
+    TaskExecutor.next_frame = next_frame
+
+
 def install_wgc_close_outside_lock():
     """Release WGC's capture objects only after dropping the capture lock.
 
@@ -193,12 +282,18 @@ def install_wgc_close_outside_lock():
     start_or_stop() closes a changed target (resized window or new hwnd) while already holding the
     same RLock, so close() alone cannot drop it (2026-11-17: every live resize froze capture).
     Close a changed target before entering start_or_stop instead.
+
+    Frame-pool recreation can fail with RPC_E_WRONG_THREAD in a free-threaded FrameArrived callback.
+    Cancel that request there; start_or_stop rebuilds the capture after the callback releases its frame.
     """
     from ok.device.capture_methods import windows_graphics as module
     original = module.WindowsGraphicsCaptureMethod.close
     original_start = module.WindowsGraphicsCaptureMethod.start_or_stop
+    original_reset = module.WindowsGraphicsCaptureMethod.reset_framepool
+    native_reset = getattr(original_reset, '_zzz_native_reset', original_reset)
     if (getattr(original, '_zzz_release_outside_lock', False) is True
-            and getattr(original_start, '_zzz_release_outside_lock', False) is True):
+            and getattr(original_start, '_zzz_release_outside_lock', False) is True
+            and getattr(original_reset, '_zzz_rebuild_outside_callback', False) is True):
         return
 
     def release(action, name):
@@ -207,7 +302,7 @@ def install_wgc_close_outside_lock():
         except Exception as error:
             module.logger.warning(f'destroy windows capture: {name} failed: {error}')
 
-    def close(method):
+    def close(method, *_event_args):
         with method.lock:
             method._frame_cancel_generation += 1
             method.frame_requested.clear()
@@ -227,6 +322,7 @@ def install_wgc_close_outside_lock():
                 method.contexts.clear()
                 method.capture_hwnd = 0
                 method.capture_target_signature = None
+                method._zzz_rebuild_size = None
             if pool is not None:
                 release(pool.Close, 'frame pool')
             if session is not None:
@@ -239,19 +335,41 @@ def install_wgc_close_outside_lock():
 
     def start_or_stop(method, *args, **kwargs):
         window = method.hwnd_window
-        if (method.frame_pool is not None and window is not None
-                and method.capture_target_signature != window.capture_target_signature):
-            module.logger.info(f'start_or_stop WGC target changed from {method.capture_target_signature} '
-                               f'to {window.capture_target_signature}')
+        target_changed = (method.frame_pool is not None and window is not None
+                          and method.capture_target_signature != window.capture_target_signature)
+        rebuild_size = None if target_changed else getattr(method, '_zzz_rebuild_size', None)
+        if target_changed or rebuild_size is not None:
+            module.logger.info('rebuild WGC capture outside the frame callback')
             method.close()
-        return original_start(method, *args, **kwargs)
+        started = original_start(method, *args, **kwargs)
+        if started and rebuild_size is not None and method.frame_pool is not None:
+            # Item.Size can be DPI-scaled; use the actual frame dimensions on the new pool's owner.
+            try:
+                native_reset(method, rebuild_size)
+            except Exception as error:
+                module.logger.error('WGC frame-pool rebuild failed', exception=error)
+                method.close()
+                return False
+            method.last_size = rebuild_size
+        return started
+
+    def reset_framepool(method, size, reset_device=False):
+        with method.lock:
+            method._zzz_rebuild_size = size
+            method._frame_cancel_generation += 1
+            method.frame_requested.clear()
+            method.frame_event.set()
 
     start_or_stop._zzz_release_outside_lock = True
     close._zzz_release_outside_lock = True
+    reset_framepool._zzz_rebuild_outside_callback = True
+    reset_framepool._zzz_native_reset = native_reset
     if getattr(original, '_zzz_release_outside_lock', False) is not True:
         module.WindowsGraphicsCaptureMethod.close = close
     if getattr(original_start, '_zzz_release_outside_lock', False) is not True:
         module.WindowsGraphicsCaptureMethod.start_or_stop = start_or_stop
+    if getattr(original_reset, '_zzz_rebuild_outside_callback', False) is not True:
+        module.WindowsGraphicsCaptureMethod.reset_framepool = reset_framepool
 
 
 def install_window_position_compat():

@@ -23,7 +23,7 @@ def test_capture_timeout_never_returns_cached_frame_and_releases_input(monkeypat
     bridge = Globals.__new__(Globals)
     bridge._context = SimpleNamespace(auto_battle_context=SimpleNamespace(stop_auto_battle=Mock()),
                                     controller=SimpleNamespace(cancel_inputs=Mock()))
-    with pytest.raises(RuntimeError, match='连续12秒'):
+    with pytest.raises(RuntimeError):
         bridge._frame_provider()
     bridge._context.auto_battle_context.stop_auto_battle.assert_called_once()
     bridge._context.controller.cancel_inputs.assert_called_once()

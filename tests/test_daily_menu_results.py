@@ -617,6 +617,42 @@ def test_weekly_grid_focus_in_yellow_green_phase_is_recognised():
     op=operation(RiduWeeklyApp);op.handle_init();fixture(op,'weekly-grid-green-focus')
     assert op.claim_score().status!='未核验周纪格子焦点，未操作'
 
+
+@pytest.mark.parametrize('name', ['weekly-detail-real', 'weekly-keyboard-mode'])
+def test_weekly_missing_controller_hint_reestablishes_input_before_claiming(name):
+    op=operation(RiduWeeklyApp);op.handle_init()
+    rows=fixture(op,name)
+    rows[:]=[row for row in rows if not (1000<=row.center.x<1220 and 980<=row.center.y<1060)]
+
+    result=op.confirm_schedule()
+
+    assert result.result==R.RETRY
+    op.ctx.controller.forget_game_input_mode.assert_called_once()
+    op.ctx.controller.btn_press.assert_called_once_with('xbox_x',press_time=.12)
+    assert [call[0] for call in op.ctx.controller.method_calls]==['forget_game_input_mode','btn_press']
+    fixture(op,'weekly-claim-focus')  # A fresh disabled hint proves there are no remaining rewards.
+    assert op.confirm_schedule().is_success
+    assert op.ctx.controller.btn_press.call_count==1
+
+
+def test_weekly_missing_controller_hint_never_marks_success_and_stops_claiming_after_limit():
+    op=operation(RiduWeeklyApp);op.handle_init()
+    fixture(op,'weekly-keyboard-mode')
+
+    for _ in range(3):
+        assert op.confirm_schedule().result==R.RETRY
+    assert op.confirm_schedule().is_fail
+    assert op.ctx.controller.btn_press.call_count==3
+
+
+def test_weekly_unknown_page_without_hint_never_claims_or_finishes():
+    op=operation(RiduWeeklyApp);op.handle_init();fixture(op,'weekly-entry-real')
+
+    assert op.confirm_schedule().result==R.RETRY
+    op.ctx.controller.btn_press.assert_not_called()
+    op.ctx.controller.forget_game_input_mode.assert_not_called()
+
+
 def test_business_success_message_is_confirmed_but_not_counted_as_running():
     op=store();fixture(op,'store-business-success-popup')
     assert op.confirm().result==R.RETRY

@@ -565,3 +565,54 @@ def test_client_enable_reports_and_cleans_up_when_no_app_answers(tmp_path):
     with pytest.raises(ValueError, match='未开启实时调试'):
         enable_session(tmp_path, timeout=1)
     assert not (tmp_path/'debug/live/request').exists()
+
+
+def test_live_preview_rejects_frozen_capture_and_stops_inputs(monkeypatch):
+    import numpy as np
+    from ok import og
+    from src.live import runtime as live_runtime
+    from src.runtime import frozen_capture
+
+    frame = np.full((32, 32, 3), 80, np.uint8)
+    current = [frame]
+    clock = [100.0]
+    method = SimpleNamespace(name='Windows Graphics Capture',
+        hwnd_window=SimpleNamespace(hwnd=101), get_frame=Mock(side_effect=lambda: current[0]),
+        close=Mock())
+    stop_assistant = Mock()
+    executor = SimpleNamespace(method=method, trigger_tasks=[SimpleNamespace(_stop_engine=stop_assistant)],
+                               _frame=frame)
+    battle = SimpleNamespace(stop_auto_battle=Mock())
+    controller = SimpleNamespace(cancel_inputs=Mock())
+    context = SimpleNamespace(_auto_battle_context=battle, controller=controller)
+    monkeypatch.setattr(og, 'executor', executor)
+    monkeypatch.setattr(og, 'my_app', SimpleNamespace(context_if_ready=lambda: context))
+    monkeypatch.setattr(live_runtime.win32gui, 'IsWindow', lambda hwnd: hwnd == 101)
+    monkeypatch.setattr(live_runtime.win32gui, 'IsIconic', lambda hwnd: False)
+    monkeypatch.setattr(live_runtime.win32gui, 'GetClientRect', lambda hwnd: (0, 0, 640, 360))
+    monkeypatch.setattr(live_runtime.win32gui, 'GetWindowText', lambda hwnd: 'game')
+    monkeypatch.setattr(live_runtime.win32gui, 'GetForegroundWindow', lambda: 0)
+    monkeypatch.setattr(frozen_capture, 'time', SimpleNamespace(time=lambda: clock[0]))
+    recorder = Mock()
+    monkeypatch.setattr('src.diagnostics.recorder.recorder.observe', recorder)
+
+    runtime = live_runtime.GameRuntime(SimpleNamespace(window_hwnd=lambda: 101), None)
+    runtime.service = SimpleNamespace(frames=[])
+    captured = runtime.capture()
+    assert captured[0] is frame
+    recorder.assert_called_once_with(frame, captured_at=captured[2])
+
+    clock[0] = 116
+    assert runtime.capture() is None
+    assert executor._frame is None
+    method.close.assert_called_once()
+    stop_assistant.assert_called_once()
+    battle.stop_auto_battle.assert_called_once()
+    controller.cancel_inputs.assert_called_once()
+    assert recorder.call_count == 1
+
+    current[0] = np.full_like(frame, 81)
+    clock[0] = 117
+    recovered = runtime.capture()
+    assert recovered[0] is current[0]
+    assert recorder.call_count == 2

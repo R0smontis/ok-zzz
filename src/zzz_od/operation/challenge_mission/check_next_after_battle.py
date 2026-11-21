@@ -36,8 +36,13 @@ class ChooseNextOrFinishAfterBattle(ZOperation):
     @node_from(from_name='恢复电量', status='战斗结果-完成')
     @operation_node(name='判断再来一次', is_start_node=True)
     def check_next(self) -> OperationRoundResult:
-        if getattr(self.ctx.controller, 'background_mode', False):
-            return self._check_next_by_gamepad()
+        result = (self._check_next_by_gamepad() if getattr(self.ctx.controller, 'background_mode', False)
+                  else self._check_next_by_mouse())
+        if result.is_success and result.status == '战斗结果-完成' and getattr(self, '_refill_denied', False):
+            result.status = RestoreCharge.STATUS_CHARGE_NOT_ENOUGH
+        return result
+
+    def _check_next_by_mouse(self) -> OperationRoundResult:
         # 特训目标(代理人方案培养)结算画面左下角显示“已达成”时 说明本条计划无需再打 直接点完成结束
         if self.try_next and self.is_agent_plan:
             result = self.round_by_find_area(self.last_screenshot, '战斗画面', '战斗结果-已达成')
@@ -99,15 +104,22 @@ class ChooseNextOrFinishAfterBattle(ZOperation):
             group_id=application_const.DEFAULT_GROUP_ID,
         )
 
-        if config.is_restore_charge_enabled:
+        if getattr(self, 'allow_restore_charge', True) and config.is_restore_charge_enabled:
             op = RestoreCharge(self.ctx)
             op.is_after_battle_retry = True
+            op.charge_plan_app = getattr(self, 'charge_plan_app', None)
+            op.required_charge = getattr(self, 'required_charge', None)
             op_result = op.execute()
             if not op_result.success:
                 return self.round_by_op_result(op_result)
             self.try_next = op_result.status == RestoreCharge.STATUS_RESTORE_SUCCESS
+            self._refill_denied = not self.try_next
+            self._pad_result_choice = None
+            self._pad_result_requests = 0
         else:
             self.try_next = False
+            self._pad_result_choice = None
+            self._pad_result_requests = 0
             if getattr(self.ctx.controller, 'background_mode', False):
                 pad(self.ctx, 'b')
                 return self.round_wait('未启用恢复电量，关闭弹窗后重新核验结算画面', wait=.5)

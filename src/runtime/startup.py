@@ -2,7 +2,13 @@
 import functools
 import logging
 import sys
+import threading
+import time
 from pathlib import Path
+
+import win32gui
+
+logger = logging.getLogger('ok')
 
 
 def prepare_runtime_directory():
@@ -143,3 +149,125 @@ def install_update_compat():
     UpdateCard.check_for_updates = check
     MainWindow._schedule_update_check = schedule
     UpdateCard._zzz_standalone_updates = True
+
+
+def install_launcher_shutdown_compat():
+    """Do not terminate the same launcher's PID again after a confirmed exit."""
+    import pyappify
+
+    original = getattr(pyappify, 'kill_pyappify', None)
+    if not callable(original) or getattr(original, '_zzz_idempotent_shutdown', False) is True:
+        return
+    lock = threading.Lock()
+    exited = False
+
+    @functools.wraps(original)
+    def shutdown(*args, **kwargs):
+        nonlocal exited
+        with lock:
+            if exited:
+                return True
+            result = original(*args, **kwargs)
+            exited = result is True
+            return result
+
+    shutdown._zzz_idempotent_shutdown = True
+    pyappify.kill_pyappify = shutdown
+
+
+def _started_window_min_size(controller):
+    """Use the app's configured capture minimum, falling back to the framework's."""
+    fallback = getattr(controller, 'STARTED_WINDOW_MIN_SIZE', (100, 100))
+    config = getattr(controller, 'config', None) or {}
+    supported = config.get('supported_resolution') or {}
+    configured = supported.get('min_size') if hasattr(supported, 'get') else None
+    if configured:
+        try:
+            width, height = int(configured[0]), int(configured[1])
+        except (IndexError, KeyError, TypeError, ValueError):
+            pass
+        else:
+            if width > 0 and height > 0:
+                return width, height
+    return fallback
+
+
+def _started_window_target(hwnd_window):
+    """Return (hwnd, client width, client height) once the window can be captured.
+
+    Hidden and minimized windows still have a client rect, so they must be rejected
+    explicitly; the game creates a small hidden client area before its real window appears.
+    Foreground state is deliberately irrelevant: background capture is supported.
+    """
+    hwnd = getattr(hwnd_window, 'hwnd', 0)
+    if not hwnd:
+        return None
+    try:
+        if not win32gui.IsWindow(hwnd):
+            return None
+        if not win32gui.IsWindowVisible(hwnd):
+            return None
+        if win32gui.IsIconic(hwnd):
+            return None
+        left, top, right, bottom = win32gui.GetClientRect(hwnd)
+    except Exception as error:
+        logger.debug(f'cannot use started window {hwnd}: {error}')
+        return None
+    width, height = right - left, bottom - top
+    if width <= 0 or height <= 0:
+        return None
+    return hwnd, width, height
+
+
+def _wait_until_started_window_stable(controller):
+    from ok import og
+    from ok.core.events import communicate
+
+    wait_until = time.monotonic() + controller.start_timeout
+    stable_target = None
+    stable_since = None
+    min_width, min_height = _started_window_min_size(controller)
+
+    while not controller.exit_event.is_set():
+        hwnd_window = getattr(getattr(og, 'device_manager', None), 'hwnd_window', None)
+        target = None
+        if hwnd_window is not None:
+            hwnd_window.do_update_window_size()
+            target = _started_window_target(hwnd_window)
+        if target is not None and target[1] >= min_width and target[2] >= min_height:
+            now = time.monotonic()
+            if target != stable_target:
+                logger.info(f'waiting for started window to stabilize, hwnd {target[0]} '
+                            f'client {target[1]}x{target[2]}')
+                stable_target = target
+                stable_since = now
+            elif now - stable_since >= controller.STARTED_WINDOW_STABLE_SECONDS:
+                logger.info(f'started window stable for {controller.STARTED_WINDOW_STABLE_SECONDS}s: '
+                            f'hwnd {target[0]} client {target[1]}x{target[2]}')
+                return True
+        else:
+            stable_target = None
+            stable_since = None
+
+        remaining_time = wait_until - time.monotonic()
+        if remaining_time <= 0:
+            communicate.starting_emulator.emit(True, controller.tr('Start game timeout!'), 0)
+            return False
+        time.sleep(controller.STARTED_WINDOW_POLL_INTERVAL)
+    return False
+
+
+def install_started_window_guard():
+    """Refuse to hand hidden or minimized startup windows to the capture backend."""
+    from ok.core.start_controller import StartController
+
+    current = StartController._wait_until_started_window_stable
+    if getattr(current, '_zzz_started_window_guard', False):
+        return
+
+    @functools.wraps(current)
+    def wait_until_started_window_stable(controller):
+        return _wait_until_started_window_stable(controller)
+
+    wait_until_started_window_stable._zzz_started_window_guard = True
+    StartController._wait_until_started_window_stable = wait_until_started_window_stable

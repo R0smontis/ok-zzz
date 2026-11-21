@@ -27,6 +27,7 @@ from zzz_od.operation.challenge_mission.check_next_after_battle import (
 from zzz_od.operation.challenge_mission.exit_in_battle import ExitInBattle
 from zzz_od.operation.choose_predefined_team import ChoosePredefinedTeam
 from zzz_od.operation.deploy import Deploy
+from zzz_od.operation.compendium.charge_power import consume_battle_charge, remember_battle_charge
 from zzz_od.operation.restore_charge import RestoreCharge
 from zzz_od.operation.zzz_operation import ZOperation
 from zzz_od.screen_area.screen_normal_world import ScreenNormalWorldEnum
@@ -101,13 +102,19 @@ class AreaPatrol(ZOperation):
     @node_from(from_name='恢复电量', status=RestoreCharge.STATUS_RESTORE_SUCCESS)
     @operation_node(name='下一步', node_max_retry_times=10)  # 部分机器加载较慢 延长出战的识别时间
     def click_next(self) -> OperationRoundResult:
-        # 防止前面电量识别错误
         result = self.round_by_find_area(self.last_screenshot, '恢复电量', '标题-恢复电量')
         if result.is_success:
-            return self.round_success(status=AreaPatrol.STATUS_CHARGE_NOT_ENOUGH)
+            return self.round_success(status=RestoreCharge.STATUS_RESTORE_REQUIRED)
 
         # 点击直到出战按钮出现
         result = self.round_by_find_area(self.last_screenshot, '实战模拟室', '出战')
+        charge_plan_app = getattr(self, 'charge_plan_app', None)
+        if charge_plan_app is not None and (result.is_success or self.round_by_find_area(
+                self.last_screenshot, '实战模拟室', '下一步').is_success):
+            required = remember_battle_charge(
+                self, '区域巡防', '电量', default_required=self.plan.estimated_charge_power)
+            if result.is_success and not charge_plan_app.can_afford_battle(required):
+                return self.round_success(status=AreaPatrol.STATUS_CHARGE_NOT_ENOUGH)
         if result.is_success:
             return self.round_success(result.status)
 
@@ -123,13 +130,23 @@ class AreaPatrol(ZOperation):
 
         return self.round_retry(result.status, wait=1)
 
-    @node_from(from_name='下一步', status=STATUS_CHARGE_NOT_ENOUGH)
+    @node_from(from_name='下一步', status=RestoreCharge.STATUS_RESTORE_REQUIRED)
     @operation_node(name='恢复电量')
     def restore_charge(self) -> OperationRoundResult:
+        charge_plan_app = getattr(self, 'charge_plan_app', None)
         if not self.config.is_restore_charge_enabled:
             return self.round_success(AreaPatrol.STATUS_CHARGE_NOT_ENOUGH)
         op = RestoreCharge(self.ctx)
+        op.charge_plan_app = charge_plan_app
+        op.required_charge = getattr(self, '_battle_charge_cost', self.plan.estimated_charge_power)
         return self.round_by_op_result(op.execute())
+
+    @node_from(from_name='下一步', status=STATUS_CHARGE_NOT_ENOUGH)
+    @node_from(from_name='恢复电量', status=RestoreCharge.STATUS_CHARGE_NOT_ENOUGH)
+    @operation_node(name='电量不足')
+    def stop_for_charge(self) -> OperationRoundResult:
+        return self.round_success(AreaPatrol.STATUS_CHARGE_NOT_ENOUGH)
+
 
     @node_from(from_name='下一步', status='出战')
     @operation_node(name='选择预备编队')
@@ -202,16 +219,21 @@ class AreaPatrol(ZOperation):
             return self.round_fail('计划已完成，不重复增加完成次数')
         self.battle_entered = False
         self.config.add_plan_run_times(self.plan)
+        consume_battle_charge(self)
         return self.round_success()
 
     @node_from(from_name='战斗结束')
     @operation_node(name='判断下一次')
     def check_next(self) -> OperationRoundResult:
+        charge_plan_app = getattr(self, 'charge_plan_app', None)
+        required_charge = getattr(self, '_battle_charge_cost', self.plan.estimated_charge_power)
+        try_next = self.plan.plan_times > self.plan.run_times
+        if charge_plan_app is not None:
+            try_next = try_next and charge_plan_app.can_afford_battle(required_charge)
         op = ChooseNextOrFinishAfterBattle(
-            self.ctx,
-            self.plan.plan_times > self.plan.run_times,
-            is_agent_plan=self.plan.is_agent_plan,
-        )
+            self.ctx, try_next, is_agent_plan=self.plan.is_agent_plan)
+        op.charge_plan_app = charge_plan_app
+        op.required_charge = required_charge
         return self.round_by_op_result(op.execute())
 
     @node_from(from_name='自动战斗', success=False, status=Operation.STATUS_TIMEOUT)

@@ -193,8 +193,12 @@ def test_confirmation_requires_unchanged_quick_use_source_and_amount():
     assert op.ctx.controller.btn_press.call_count==1
 
 
-def test_no_repeat_consumption_and_no_success_on_unknown_screen():
+@pytest.mark.parametrize('background_mode', [False, True])
+def test_no_repeat_consumption_and_no_success_on_unknown_screen(background_mode):
     op=restore('restore-quick')
+    from unittest.mock import Mock
+    op.ctx.controller.background_mode = background_mode
+    op.round_by_find_and_click_area = Mock(return_value=op.round_success())
     op._restore_source='储蓄电量';op._restore_before_amount=501
     op._restore_obtained_seen=False
     assert op.confirm_after_restore().result==R.RETRY
@@ -204,6 +208,7 @@ def test_no_repeat_consumption_and_no_success_on_unknown_screen():
     op.round_by_find_area=lambda *args:SimpleNamespace(is_success=False)
     assert op.confirm_after_restore().result==R.RETRY
     op.ctx.controller.btn_press.assert_not_called()
+    op.round_by_find_and_click_area.assert_not_called()
 
 
 def test_unavailable_backup_uses_ether_only_when_both_enabled(monkeypatch):
@@ -217,6 +222,36 @@ def test_unavailable_backup_uses_ether_only_when_both_enabled(monkeypatch):
         assert result.status==expected
         assert op.skip_backup_charge == (expected=='重新选择电量来源')
         op.ctx.controller.btn_press.assert_not_called()
+
+
+@pytest.mark.parametrize('exchange,can_confirm', [(59, False), (60, True)])
+def test_refill_must_complete_a_battle_before_confirmation(monkeypatch, exchange, can_confirm):
+    from unittest.mock import Mock
+    import zzz_od.operation.restore_charge as module
+
+    op = restore('restore-quick', '使用储蓄电量')
+    op.ctx.controller.background_mode = True
+    op._previous_round_result = op.round_success('储蓄电量')
+    op.charge_plan_app = SimpleNamespace(
+        battery_charge=40, record_charge_refill=Mock())
+    op.required_charge = 100
+    monkeypatch.setattr(module, 'quick_use',
+                        lambda _: ('储蓄电量', 501, exchange))
+    pressed = Mock()
+    monkeypatch.setattr(module, 'pad', pressed)
+
+    selected = op.set_charge_amount()
+    if not can_confirm:
+        assert selected.status == RestoreCharge.STATUS_CHARGE_NOT_ENOUGH
+        confirmed = op.confirm_restore_charge()
+        assert confirmed.is_fail and '未消耗' in confirmed.status
+        pressed.assert_not_called()
+        op.charge_plan_app.record_charge_refill.assert_not_called()
+    else:
+        assert selected.status == '储蓄电量'
+        confirmed = op.confirm_restore_charge()
+        assert confirmed.is_success
+        pressed.assert_called_once_with(op.ctx, 'a')
 
 
 def test_disabled_restore_returns_to_finish_after_popup_closes():
@@ -233,3 +268,73 @@ def test_disabled_restore_returns_to_finish_after_popup_closes():
     result=op.restore_charge()
     assert result.is_success and result.status=='战斗结果-完成'
     assert not op.try_next
+
+def test_rejected_postbattle_refill_finishes_instead_of_reporting_a_repeat(monkeypatch):
+    from test_daily_menu_results import result_op
+    from onedragon.base.operation.operation_base import OperationResult
+
+    visible = {'战斗结果-完成', '战斗结果-再来一次'}
+    op = result_op(True, visible)
+    op.ctx.run_context = SimpleNamespace(get_config=lambda **_: SimpleNamespace(is_restore_charge_enabled=True))
+    op.ctx.current_instance_idx = 1
+    class RejectedRefill:
+        def __init__(self, _ctx):
+            pass
+
+        def execute(self):
+            visible.clear()
+            return OperationResult(True, RestoreCharge.STATUS_CHARGE_NOT_ENOUGH)
+
+    monkeypatch.setattr('zzz_od.operation.challenge_mission.check_next_after_battle.RestoreCharge.__init__',
+                        RejectedRefill.__init__)
+    monkeypatch.setattr(RestoreCharge, 'execute', RejectedRefill.execute)
+    assert op.check_next().result == R.WAIT
+    visible.clear()
+    visible.add('标题-恢复电量')
+    assert op.restore_charge().is_success
+    assert op.check_next().result == R.RETRY
+    visible.add('战斗结果-完成')
+    assert op.check_next().result == R.WAIT
+    visible.clear()
+    assert op.check_next().status == RestoreCharge.STATUS_CHARGE_NOT_ENOUGH
+    assert [call.args[0] for call in op.ctx.controller.btn_press.call_args_list] == ['xbox_x', 'xbox_b']
+
+
+
+
+
+@pytest.mark.parametrize('policy,source,battery,exchange,expected', [
+    ('使用储蓄电量', '储蓄电量', 40, 59, RestoreCharge.STATUS_CHARGE_NOT_ENOUGH),
+    ('使用储蓄电量', '储蓄电量', 40, 60, '储蓄电量'),
+    (BOTH, '储蓄电量', 40, 59, '重新选择电量来源'),
+    ('使用以太电池', '以太电池', 39, 1, RestoreCharge.STATUS_CHARGE_NOT_ENOUGH)
+])
+def test_selected_refill_is_never_confirmed_if_short_of_battle(policy, source, battery, exchange, expected, monkeypatch):
+    import src.navigation.restore_charge as nav
+    import zzz_od.operation.restore_charge as module
+    from unittest.mock import Mock
+
+    op = restore('restore-quick' if source == '储蓄电量' else 'restore-ether-use', policy)
+    op.ctx.controller.background_mode = True
+    op._previous_round_result = op.round_success(source)
+    op.charge_plan_app = SimpleNamespace(battery_charge=battery, record_charge_refill=Mock())
+    op.required_charge = 100
+    monkeypatch.setattr(module, 'quick_use', lambda _: (source, 501 if source == '储蓄电量' else 28, exchange))
+    pressed = Mock()
+    monkeypatch.setattr(module, 'pad', pressed)
+
+    result = op.set_charge_amount()
+    assert result.status == expected
+    if expected == source:
+        assert op.confirm_restore_charge().is_success
+        op._restore_obtained_seen = True
+        monkeypatch.setattr(module, 'quick_use', lambda _: None)
+        monkeypatch.setattr(nav, 'source_page', lambda _: None)
+        op.round_by_find_area = lambda *args: SimpleNamespace(is_success=False)
+        assert op.confirm_after_restore().status == RestoreCharge.STATUS_RESTORE_SUCCESS
+        op.charge_plan_app.record_charge_refill.assert_called_once_with(source, exchange)
+        pressed.assert_called_once_with(op.ctx, 'a')
+    else:
+        assert op.confirm_restore_charge().is_fail
+        pressed.assert_not_called()
+        op.charge_plan_app.record_charge_refill.assert_not_called()

@@ -236,3 +236,230 @@ def test_wgc_close_patch_is_idempotent(monkeypatch):
     patched = module.WindowsGraphicsCaptureMethod.close
     install_wgc_close_outside_lock()
     assert module.WindowsGraphicsCaptureMethod.close is patched
+
+
+def test_wgc_resize_releases_callback_frame_before_rebuilding_and_delivers_next_frame(monkeypatch):
+    import threading
+    from ok.device.capture_methods import windows_graphics as module
+    from src.controls.capture_compat import install_wgc_close_outside_lock
+
+    wgc = module.WindowsGraphicsCaptureMethod
+    for name in ('close', 'start_or_stop', 'reset_framepool'):
+        monkeypatch.setattr(wgc, name, getattr(wgc, name))
+    method = object.__new__(wgc)
+    method.lock, method.get_frame_lock = threading.RLock(), threading.RLock()
+    method.exit_event = threading.Event()
+    method.frame_requested, method.frame_event = threading.Event(), threading.Event()
+    method._frame_cancel_generation = 0
+    method.capture_hwnd, method.capture_target_signature = 1, ('target',)
+    method._hwnd_window = SimpleNamespace(capture_target_signature=('target',))
+    method.contexts = {}
+    method.last_frame, method.last_frame_time = None, time.time()
+    method.last_size = SimpleNamespace(Width=320, Height=240)
+    method.cputex = method.session = method.item = None
+    method.dxdevice = SimpleNamespace(Release=Mock())
+    method.immediatedc = SimpleNamespace(Release=Mock())
+    method.rtdevice = SimpleNamespace(Release=Mock())
+    native_frame_released = threading.Event()
+    expected = np.full((360, 640, 4), 61, np.uint8)
+    old_frame = SimpleNamespace(ContentSize=SimpleNamespace(Width=640, Height=360),
+                                Close=native_frame_released.set)
+    new_frame = SimpleNamespace(ContentSize=SimpleNamespace(Width=640, Height=360), Close=Mock())
+    old_pool = SimpleNamespace(TryGetNextFrame=lambda: old_frame,
+                               Recreate=Mock(side_effect=AssertionError('callback COM recreation')))
+    def close_pool():
+        assert native_frame_released.is_set(), 'a checked-out native frame must be released first'
+    old_pool.Close = Mock(side_effect=close_pool)
+    method.frame_pool = old_pool
+    starts = []
+    recreated = []
+    def recreate(device, pixel_format, count, size):
+        assert native_frame_released.is_set()
+        recreated.append((threading.get_ident(), size.Width, size.Height))
+    def start(self, *args, **kwargs):
+        if self.frame_pool is None:
+            starts.append(threading.get_ident())
+            self.frame_pool = SimpleNamespace(TryGetNextFrame=lambda: new_frame, Recreate=recreate)
+            self.last_size = SimpleNamespace(Width=320, Height=240)  # DPI-scaled Item.Size differs.
+            self.capture_target_signature = ('target',)
+        return True
+    monkeypatch.setattr(wgc, 'start_or_stop', start)
+    original_convert = wgc.convert_dx_frame
+    method.convert_dx_frame = lambda frame: (original_convert(method, frame)
+                                             if frame is old_frame else expected)
+    method.crop_image = lambda frame: frame
+    monkeypatch.setattr(module, 'composite_hwnds', lambda frame, *args: frame)
+    monkeypatch.setattr(module, 'WGC_FRAME_WAIT_TIMEOUT', 1)
+    callback_errors = Mock()
+    monkeypatch.setattr(module.logger, 'error', callback_errors)
+    install_wgc_close_outside_lock()
+
+    def arrive():
+        for _ in range(2):
+            if not method.frame_requested.wait(2):
+                return
+            method.frame_arrived_callback()
+    worker = threading.Thread(target=arrive, daemon=True)
+    worker.start()
+    try:
+        assert method.do_get_frame() is None  # Resize cancels, never publishes an old-sized frame.
+        assert method.do_get_frame() is expected
+    finally:
+        worker.join(timeout=3)
+    assert not worker.is_alive()
+    assert starts == [threading.get_ident()]  # Rebuild runs on the requester, not the system callback.
+    assert recreated == [(threading.get_ident(), 640, 360)]
+    assert (method.last_size.Width, method.last_size.Height) == (640, 360)
+    old_pool.Recreate.assert_not_called()
+    old_pool.Close.assert_called_once()
+    new_frame.Close.assert_called_once()
+    callback_errors.assert_not_called()
+
+
+def test_wgc_native_closed_event_releases_capture_and_cancels_pending_request(monkeypatch):
+    from ok.rotypes import IInspectable
+    from ok.rotypes.Windows.Foundation import TypedEventHandler
+    from ok.rotypes.Windows.Graphics.Capture import GraphicsCaptureItem
+    from src.controls.capture_compat import install_wgc_close_outside_lock
+
+    module, method, seen, released = wgc_closing_with_pending_frame(monkeypatch)
+    monkeypatch.setattr(module.WindowsGraphicsCaptureMethod, 'close', module.WindowsGraphicsCaptureMethod.close)
+    install_wgc_close_outside_lock()
+    method.frame_requested.set()
+    handler = TypedEventHandler(GraphicsCaptureItem, IInspectable).delegate(method.close)
+
+    handler.Invoke(None, None)  # WinRT passes sender and event args even when unused by close().
+
+    assert method.frame_event.is_set() and not method.frame_requested.is_set()
+    assert method.frame_pool is None and method.capture_hwnd == 0
+    assert seen == [None] and released == [True]
+    handler.Invoke(None, None)  # A later explicit/duplicate close must remain safe.
+    assert released == [True]
+
+
+def test_wgc_failed_pool_rebuild_discards_the_session_and_returns_no_frame(monkeypatch, caplog):
+    import threading
+    from ok.device.capture_methods import windows_graphics as module
+    from src.controls.capture_compat import install_wgc_close_outside_lock
+
+    wgc = module.WindowsGraphicsCaptureMethod
+    for name in ('close', 'reset_framepool'):
+        monkeypatch.setattr(wgc, name, getattr(wgc, name))
+    signature = (101, 640, 360)
+    window = SimpleNamespace(app_exit_event=threading.Event(), exists=True,
+                             capture_target_signature=signature)
+    pool_closed, session_closed = [], []
+
+    def start(method):
+        assert method.frame_pool is None
+        method.frame_pool = SimpleNamespace(
+            Close=lambda: pool_closed.append(True),
+            Recreate=Mock(side_effect=OSError('WGC Recreate rejected the new frame size')),
+        )
+        method.session = SimpleNamespace(Close=lambda: session_closed.append(True))
+        method.capture_target_signature = signature
+        return True
+
+    monkeypatch.setattr(wgc, 'start_or_stop', start)
+    install_wgc_close_outside_lock()
+    method = wgc(window)
+    method.reset_framepool(SimpleNamespace(Width=640, Height=360))
+
+    assert method.get_frame() is None
+    assert not method.connected()
+    assert pool_closed == session_closed == [True, True]
+    assert 'WGC Recreate rejected the new frame size' in caplog.text
+
+
+@pytest.mark.parametrize('backend', ['Windows Graphics Capture', 'BitBlt'])
+def test_shared_executor_guard_rejects_frozen_frames_and_stops_inputs(monkeypatch, backend):
+    import threading
+    from ok import og
+    from ok.task.TaskExecutor import TaskExecutor
+    from src.runtime import frozen_capture
+    from src.controls.capture_compat import install_executor_frozen_capture_guard
+
+    frame = np.full((32, 32, 3), 80, np.uint8)
+    current = [frame]
+    clock = [100.0]
+    method = SimpleNamespace(name=backend, close=Mock())
+    battle = SimpleNamespace(stop_auto_battle=Mock())
+    controller = SimpleNamespace(cancel_inputs=Mock())
+    context = SimpleNamespace(_auto_battle_context=battle, controller=controller)
+    monkeypatch.setattr(og, 'my_app', SimpleNamespace(context_if_ready=lambda: context))
+    monkeypatch.setattr(frozen_capture, 'time', SimpleNamespace(time=lambda: clock[0]))
+
+    def base_next(executor, *args, **kwargs):
+        executor._frame = current[0]
+        return current[0]
+
+    monkeypatch.setattr(TaskExecutor, 'next_frame', base_next)
+    install_executor_frozen_capture_guard()
+    executor = object.__new__(TaskExecutor)
+    executor._frame = None
+    executor.device_manager = SimpleNamespace(capture_method=method)
+    executor.paused, executor.exit_event = False, threading.Event()
+    stop_assistant = Mock()
+    executor.trigger_tasks = [SimpleNamespace(_stop_engine=stop_assistant)]
+
+    assert executor.next_frame() is frame
+    clock[0] = 116
+    assert executor.next_frame() is None
+    assert executor._frame is None
+    stop_assistant.assert_called_once()
+    battle.stop_auto_battle.assert_called_once()
+    controller.cancel_inputs.assert_called_once()
+
+    for clock[0] in (117, 131, 200):
+        assert executor.next_frame() is None
+        assert executor.frame is None
+    assert method.close.call_count == (1 if backend == 'Windows Graphics Capture' else 0)
+
+    stop_assistant.reset_mock()
+    battle.stop_auto_battle.reset_mock()
+    controller.cancel_inputs.reset_mock()
+    for clock[0], value in ((201, 81), (211, 82), (221, 83), (231, 84)):
+        current[0] = np.full_like(frame, value)
+        assert executor.next_frame() is current[0]
+        assert executor.frame is current[0]
+    stop_assistant.assert_not_called()
+    battle.stop_auto_battle.assert_not_called()
+    controller.cancel_inputs.assert_not_called()
+
+
+@pytest.mark.parametrize('close_fails', [False, True])
+def test_frozen_frame_releases_inputs_despite_cleanup_failure(monkeypatch, close_fails):
+    from ok import og
+    from ok.task.TaskExecutor import TaskExecutor
+    from src.runtime import frozen_capture
+    from src.controls.capture_compat import install_executor_frozen_capture_guard
+
+    frame = np.full((32, 32, 3), 80, np.uint8)
+    clock = [100.0]
+    close = Mock(side_effect=RuntimeError('capture close failed') if close_fails else None)
+    stop_assistant = Mock(side_effect=RuntimeError('assistant stop failed'))
+    battle = SimpleNamespace(stop_auto_battle=Mock(side_effect=RuntimeError('battle stop failed')))
+    controller = SimpleNamespace(cancel_inputs=Mock())
+    context = SimpleNamespace(_auto_battle_context=battle, controller=controller)
+    monkeypatch.setattr(og, 'my_app', SimpleNamespace(context_if_ready=lambda: context))
+    monkeypatch.setattr(frozen_capture, 'time', SimpleNamespace(time=lambda: clock[0]))
+
+    def base_next(executor, *args, **kwargs):
+        executor._frame = frame
+        return frame
+
+    monkeypatch.setattr(TaskExecutor, 'next_frame', base_next)
+    install_executor_frozen_capture_guard()
+    executor = SimpleNamespace(_frame=None, method=SimpleNamespace(
+        name='Windows Graphics Capture', close=close),
+        trigger_tasks=[SimpleNamespace(_stop_engine=stop_assistant)])
+    assert TaskExecutor.next_frame(executor) is frame
+    clock[0] = 116
+    if close_fails:
+        with pytest.raises(RuntimeError, match='capture close failed'):
+            TaskExecutor.next_frame(executor)
+    else:
+        assert TaskExecutor.next_frame(executor) is None
+    assert executor._frame is None
+    battle.stop_auto_battle.assert_called_once()
+    controller.cancel_inputs.assert_called_once()

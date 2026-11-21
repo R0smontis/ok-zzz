@@ -148,13 +148,19 @@ class RiduWeeklyApp(ZApplication):
             if '确认' in words and any('获得' in w for w in words):
                 pad_press(self,'a')
                 return self.round_retry('确认周纪积分特赏，等待真实任务页',wait=1)
-            if not self._weekly_page() or '领取积分特赏' not in menu_words(self,Rect(1000,980,1220,1060)):
+            if not self._weekly_page():
                 return self.round_retry('未核验周纪奖励页，未操作',wait=1)
-            part=self.last_screenshot[1004:1044,1065:1190]
-            if np.mean(np.all(part>190,axis=2))<.04:
-                return self.round_success('已核验当前可领取周纪奖励处理完毕')
+            claim_hint = '领取积分特赏' in menu_words(self,Rect(1000,980,1220,1060))
+            if claim_hint:
+                part=self.last_screenshot[1004:1044,1065:1190]
+                if np.mean(np.all(part>190,axis=2))<.04:
+                    return self.round_success('已核验当前可领取周纪奖励处理完毕')
             if self._pad_weekly_rewards>=3:
                 return self.round_fail('周纪积分特赏领取未生效')
+            if not claim_hint:
+                # Mouse input can hide the controller footer while its cached mode still says gamepad.
+                # Re-establish that mode before X; missing OCR alone never proves rewards are complete.
+                self.ctx.controller.forget_game_input_mode()
             pad_press(self,'x');self._pad_weekly_rewards+=1
             return self.round_retry('领取周纪积分特赏，等待实际获得奖励',wait=1)
         return self.round_by_click_area('丽都周纪', '领取奖励',

@@ -396,12 +396,16 @@ class PcControllerBase(ControllerBase):
         else:
             click_pos = get_current_mouse_pos()
 
-        if pc_alt:
-            self.keyboard_controller.keyboard.press(keyboard.Key.alt)
-            time.sleep(0.2)
-        win_click(click_pos, press_time=press_time)
-        if pc_alt:
-            self.keyboard_controller.keyboard.release(keyboard.Key.alt)
+        alt_pressed = False
+        try:
+            if pc_alt:
+                self.keyboard_controller.keyboard.press(keyboard.Key.alt)
+                alt_pressed = True
+                time.sleep(0.2)
+            win_click(click_pos, press_time=press_time)
+        finally:
+            if alt_pressed:
+                self.keyboard_controller.keyboard.release(keyboard.Key.alt)
         return True
 
     def _gamepad_click(self, gamepad_key: str | None) -> bool:
@@ -456,20 +460,17 @@ class PcControllerBase(ControllerBase):
             start = start or self.window_input.position
             return self._background_drag(start, end, duration)
 
-        if start is None:
-            start = get_current_mouse_pos()
-
         return self._foreground_drag(start, end, duration)
 
-    def _foreground_drag(self, start: Point, end: Point, duration: float = 0.5) -> None:
+    def _foreground_drag(self, start: Point | None, end: Point, duration: float = 0.5) -> None:
         """前台拖拽：通过 pyautogui 按住拖动。
 
         Args:
-            start: 拖拽起点（游戏坐标）
+            start: 拖拽起点（游戏坐标）；None使用当前屏幕鼠标位置
             end: 拖拽终点（游戏坐标）
             duration: 拖拽持续时间
         """
-        from_pos = self.game_win.game2win_pos(start)
+        from_pos = get_current_mouse_pos() if start is None else self.game_win.game2win_pos(start)
         if from_pos is None:
             log.error('拖拽起点不在游戏窗口区域 (%s)', start)
             return
@@ -495,7 +496,8 @@ class PcControllerBase(ControllerBase):
         if self.is_background_input:
             return self.window_input.scroll(down, pos)
         if pos is None:
-            pos = get_current_mouse_pos()
+            win_scroll(down)
+            return
         win_pos = self.game_win.game2win_pos(pos)
         if win_pos is None:
             log.error('滚动位置不在游戏窗口区域 (%s)', pos)
@@ -561,6 +563,18 @@ class PcControllerBase(ControllerBase):
         self.btn_controller.reset()
 
 
+def _release_mouse_button(primary=True):
+    button = pyautogui.PRIMARY if primary else pyautogui.SECONDARY
+    try:
+        pyautogui.mouseUp(button=button)
+    except BaseException:
+        # A corner-triggered PyAutoGUI failsafe also rejects mouseUp; release without moving the cursor.
+        swapped = bool(ctypes.windll.user32.GetSystemMetrics(win32con.SM_SWAPBUTTON))
+        flag = win32con.MOUSEEVENTF_LEFTUP if primary != swapped else win32con.MOUSEEVENTF_RIGHTUP
+        ctypes.windll.user32.mouse_event(flag, 0, 0, 0, 0)
+        raise
+
+
 def win_click(pos: Point = None, press_time: float = 0.1, primary: bool = True):
     """点击鼠标。
 
@@ -574,9 +588,14 @@ def win_click(pos: Point = None, press_time: float = 0.1, primary: bool = True):
         pos = get_current_mouse_pos()
 
     pyautogui.moveTo(pos.x, pos.y)
-    pyautogui.mouseDown(button=btn)
-    time.sleep(max(0.001, press_time))
-    pyautogui.mouseUp(button=btn)
+    pressed = False
+    try:
+        pyautogui.mouseDown(button=btn, _pause=False)
+        pressed = True
+        time.sleep(max(0.001, press_time))
+    finally:
+        if pressed:
+            _release_mouse_button(primary)
 
 
 def win_scroll(clicks: int, pos: Point = None):
@@ -586,9 +605,11 @@ def win_scroll(clicks: int, pos: Point = None):
         clicks: 负数时为向上滚动
         pos: 滚动位置 不传入时为鼠标当前位置
     """
-    if pos is not None:
+    if pos is None:
+        pyautogui.scroll(-120 * clicks)
+    else:
         pyautogui.moveTo(pos.x, pos.y)
-    pyautogui.scroll(-120 * clicks, pos.x, pos.y)
+        pyautogui.scroll(-120 * clicks, pos.x, pos.y)
 
 
 @lru_cache
@@ -609,25 +630,24 @@ def drag_mouse(start: Point, end: Point, duration: float = 0.5):
         duration: 拖动鼠标到目标位置，持续秒数
     """
 
-    # 移动到起点并按下
     pyautogui.moveTo(start.x, start.y)
-    pyautogui.mouseDown()
-
-    # 减去 PcControllerBase.SLEEP_BEFORE_DRAG_END 之后的间隔
-    duration_drag = max(duration - PcControllerBase.SLEEP_BEFORE_DRAG_END, PcControllerBase.DRAG_MIN_DURATION)
-    # 分步移动到终点
-    steps = max(int(duration_drag / 0.02), 5)
-    for i in range(1, steps + 1):
-        t = i / steps
-        cx = int(start.x + (end.x - start.x) * t)
-        cy = int(start.y + (end.y - start.y) * t)
-        pyautogui.moveTo(cx, cy)
-        ctypes.windll.user32.mouse_event(PcControllerBase.MOUSEEVENTF_MOVE, 0, 0, 0, 0)
-        time.sleep(duration_drag / steps)
-    # 松开之前先定住鼠标以消除滑动惯性
-    time.sleep(PcControllerBase.SLEEP_BEFORE_DRAG_END)
-    # 松开
-    pyautogui.mouseUp()
+    pressed = False
+    try:
+        pyautogui.mouseDown(_pause=False)
+        pressed = True
+        duration_drag = max(duration - PcControllerBase.SLEEP_BEFORE_DRAG_END, PcControllerBase.DRAG_MIN_DURATION)
+        steps = max(int(duration_drag / 0.02), 5)
+        for i in range(1, steps + 1):
+            t = i / steps
+            cx = int(start.x + (end.x - start.x) * t)
+            cy = int(start.y + (end.y - start.y) * t)
+            pyautogui.moveTo(cx, cy)
+            ctypes.windll.user32.mouse_event(PcControllerBase.MOUSEEVENTF_MOVE, 0, 0, 0, 0)
+            time.sleep(duration_drag / steps)
+        time.sleep(PcControllerBase.SLEEP_BEFORE_DRAG_END)
+    finally:
+        if pressed:
+            _release_mouse_button()
 
 
 def get_current_mouse_pos() -> Point:

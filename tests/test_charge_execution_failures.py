@@ -272,6 +272,152 @@ def test_low_charge_names_the_plan_and_requirement(monkeypatch):
     assert checked.status == app.STATUS_ROUND_FINISHED
     assert finish(app, checked).status == '电量不足：实战模拟室 音擎改装需要 20，本次未刷本；剩余电量 10'
 
+@pytest.mark.parametrize('policy,backup,ether,proceed', [
+    ('使用储蓄电量', 99, 3, False),
+    ('使用储蓄电量', 100, 0, True),
+    ('使用以太电池', 0, 1, False),
+    ('使用以太电池', 0, 2, True),
+    ('同时使用储蓄电量和以太电池', 40, 1, False),
+    ('同时使用储蓄电量和以太电池', 0, 2, True),
+])
+def test_refill_policy_must_cover_one_battle_without_combining_sources(policy, backup, ether, proceed):
+    plan = ChargePlanItem(category_name='实战模拟室', mission_type_name='音擎改装', card_num='5')
+    app = started(plan_app([plan]))
+    app.config.data['restore_charge'] = policy
+    app.battery_charge = 0
+    app.backup_battery_charge = backup
+    app.ether_battery = ether
+
+    result = app.check_before_transport()
+    if proceed:
+        assert result.is_success and result.status is None
+        assert not app.charge_notes and not plan.skipped
+    else:
+        assert result.is_success and result.status == app.STATUS_ROUND_FINISHED
+        assert app.charge_notes == ['电量不足：实战模拟室 音擎改装需要 100']
+        assert not plan.skipped
+
+
+
+def test_empty_energy_does_not_skip_possible_free_hunt():
+    plan = ChargePlanItem(category_name='恶名狩猎', mission_type_name='牲鬼')
+    app = started(plan_app([plan]))
+    app.battery_charge = 0
+
+    result = app.check_before_transport()
+    assert result.is_success and result.status is None
+    assert not plan.skipped and not app.charge_notes
+
+
+@pytest.mark.parametrize('text,expected', [
+    ('40/100', (40, 100)), ('0 ／ 60', (0, 60)), ('40', None),
+    ('0/0', None), ('4O/100', None), ('40/1O0', None),
+])
+def test_challenge_charge_requires_a_complete_pair(text, expected):
+    from onedragon.base.geometry.rectangle import Rect
+    from zzz_od.operation.compendium.charge_power import read_battle_charge
+
+    op = SimpleNamespace(last_screenshot=object(), ctx=SimpleNamespace(
+        screen_loader=SimpleNamespace(get_area=lambda *_: SimpleNamespace(rect=Rect(0, 0, 1, 1))),
+        ocr_service=SimpleNamespace(get_ocr_result_list=lambda **_: [SimpleNamespace(data=text)])))
+    assert read_battle_charge(op, '实战模拟室', '剩余电量') == expected
+
+
+@pytest.mark.parametrize('backup,can_enter', [(39, False), (40, True)])
+def test_saved_card_selection_uses_actual_cost_for_entry(backup, can_enter):
+    from onedragon.base.geometry.rectangle import Rect
+    from zzz_od.operation.compendium.combat_simulation import CombatSimulation
+
+    op = operation(CombatSimulation)
+    op.plan = ChargePlanItem(category_name='实战模拟室', mission_type_name='音擎改装')
+    app = started(plan_app([op.plan]))
+    app.config.data['restore_charge'] = '使用储蓄电量'
+    app.battery_charge = 0
+    app.backup_battery_charge = backup
+    app.ether_battery = 0
+    op.charge_plan_app = app
+    op.ctx.screen_loader.get_area = lambda _screen, area: SimpleNamespace(
+        rect=Rect(0, 0, 1, 1) if area == '剩余电量' else Rect(1, 0, 2, 1))
+    visible = {'出战'}
+    # The frame with a modal can contain unrelated text in the old footer position.
+    op.ctx.ocr_service = SimpleNamespace(get_ocr_result_list=lambda **_: [
+        SimpleNamespace(data='240/20' if '标题-恢复电量' in visible else '40/80')])
+    op.round_by_find_area = lambda _screen, _page, area: SimpleNamespace(
+        is_success=area in visible, status=area)
+
+    result = op.click_next()
+    assert result.status == ('出战' if can_enter else CombatSimulation.STATUS_CHARGE_NOT_ENOUGH)
+    assert app.battery_charge == 40
+
+    visible.clear()
+    visible.add('标题-恢复电量')
+    op._init_network()
+    op._current_node = op._node_map['下一步']
+    assert op._get_next_node(op.click_next()).cn == '恢复电量'
+    assert app.battery_charge == 40
+    assert op._battle_charge_cost == 80
+
+@pytest.mark.parametrize('cls,category,screen,remaining_area,required_area,required', [
+    ('combat', '实战模拟室', '实战模拟室', '剩余电量', '需要电量', 100),
+    ('patrol', '区域巡防', '区域巡防', '电量', None, 60),
+    ('expert', '专业挑战室', '专业挑战室', '剩余电量', '需要电量', 40),
+    ('hunt', '恶名狩猎', '恶名狩猎', '文本-剩余电量', '文本-需要电量', 60),
+])
+def test_all_charge_plan_entries_check_live_one_battle_budget(
+        cls, category, screen, remaining_area, required_area, required):
+    from onedragon.base.geometry.rectangle import Rect
+    from zzz_od.operation.compendium.area_patrol import AreaPatrol
+    from zzz_od.operation.compendium.combat_simulation import CombatSimulation
+    from zzz_od.operation.compendium.expert_challenge import ExpertChallenge
+    from zzz_od.operation.compendium.notorious_hunt import NotoriousHunt
+
+    operations = {'combat': CombatSimulation, 'patrol': AreaPatrol,
+                  'expert': ExpertChallenge, 'hunt': NotoriousHunt}
+    op = operation(operations[cls])
+    op.plan = ChargePlanItem(category_name=category, mission_type_name='音擎改装',
+                             card_num='5' if cls == 'combat' else '默认数量')
+    app = started(plan_app([op.plan]))
+    app.battery_charge = 200
+    op.charge_plan_app = app
+    if cls == 'hunt':
+        op.use_charge_power = True
+        op.pursuit = True
+    if cls == 'combat':
+        op._battle_charge_cost = None
+    op.ctx.screen_loader.get_area = lambda _screen, area: SimpleNamespace(
+        rect=Rect(0, 0, 1, 1) if area == remaining_area else Rect(1, 0, 2, 1))
+    op.ctx.ocr_service = SimpleNamespace(get_ocr_result_list=lambda **_: [
+        SimpleNamespace(data=f'{required - 1}/{required}')])
+    op.round_by_find_area = lambda _image, _screen, area: SimpleNamespace(
+        is_success=area == '出战', status='出战')
+
+    result = op.click_next()
+    assert result.status == '电量不足'
+    assert app.battery_charge == required - 1
+
+def test_no_repeat_after_victory_when_refill_cannot_fund_next_battle(monkeypatch):
+    from zzz_od.operation.compendium.combat_simulation import CombatSimulation
+
+    op = operation(CombatSimulation)
+    op.plan = ChargePlanItem(category_name='实战模拟室', mission_type_name='音擎改装',
+                             plan_times=2, card_num='5')
+    op._battle_charge_cost = 100
+    op.charge_plan_app = SimpleNamespace(can_afford_battle=Mock(return_value=False))
+    choices = []
+    from zzz_od.operation.compendium import combat_simulation
+
+    def choose_next(_ctx, try_next, **_kwargs):
+        choices.append(try_next)
+        return SimpleNamespace(execute=lambda: SimpleNamespace(
+            success=True, status='战斗结果-完成'))
+
+    monkeypatch.setattr(combat_simulation, 'ChooseNextOrFinishAfterBattle', choose_next)
+    op.round_by_op_result = lambda result: result
+
+    result = op.check_next()
+    assert choices == [False]
+    assert result.status == CombatSimulation.STATUS_CHARGE_NOT_ENOUGH
+
 
 def test_completed_challenge_keeps_plain_charge_status(monkeypatch):
     world_cleanup(monkeypatch)
@@ -287,7 +433,7 @@ def test_completed_challenge_keeps_plain_charge_status(monkeypatch):
 
 
 def test_charge_found_short_inside_the_mission_is_named(monkeypatch):
-    # The pre-check estimates 20 for 实战模拟室 默认数量, but one run took 100 live (320 → 220).
+    # The in-mission shortage branch remains reported if game state changes after preflight.
     from zzz_od.operation.compendium.combat_simulation import CombatSimulation
     world_cleanup(monkeypatch)
     plan = ChargePlanItem(category_name='实战模拟室', mission_type_name='音擎改装', plan_times=1)

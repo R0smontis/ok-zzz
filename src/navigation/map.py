@@ -472,8 +472,12 @@ def quick_nav_state(op, screen):
     points = sorted(((_text(r.data), r.center,
                       any(x + 15 < r.center.x < x + w - 15 and y + 85 < r.center.y < 1075
                           for x, y, w, h in point_outlines))
-                     for r in rows if (has_cjk(r) or _text(r.data) == 'HDD') and 1000 < r.center.y < 1065), key=lambda p: p[1].x)
-    if len(tiles) < 3 or not points:
+                     for r in rows if (has_cjk(r) or _text(r.data) == 'HDD') and 1000 < r.center.y < 1065),
+                    key=lambda p: p[1].x)
+    # Other pages have 3x3 reward grids too; geometry alone does not identify a map.
+    visible_regions = {region for region in QUICK_NAV_REGIONS
+                       if any(_match(name, region) for name, _, _ in tiles)}
+    if len(visible_regions) < 3 or not points:
         return None
     return dict(dialog=False, tiles=tiles, points=points)
 

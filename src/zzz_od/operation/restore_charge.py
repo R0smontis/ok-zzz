@@ -32,6 +32,7 @@ class RestoreCharge(ZOperation):
 
     SOURCE_BACKUP_CHARGE: ClassVar[str] = '储蓄电量'
     SOURCE_ETHER_BATTERY: ClassVar[str] = '以太电池'
+    STATUS_RESTORE_REQUIRED: ClassVar[str] = '需恢复电量'
     STATUS_CHARGE_NOT_ENOUGH: ClassVar[str] = '电量不足'
     STATUS_RESTORE_SUCCESS: ClassVar[str] = '恢复电量成功'
 
@@ -63,16 +64,30 @@ class RestoreCharge(ZOperation):
         self._restore_before_amount = None
         self._restore_exchange_amount = None
         self._restore_close_presses = 0
+        self._refill_inventory_recorded = False
 
     def _should_confirm_restore(self, current_amount: int, exchange_amount: int) -> bool:
         return 0 < exchange_amount <= current_amount
 
-    def _should_reselect_source(self, source: str) -> bool:
-        return (
-            source == self.SOURCE_BACKUP_CHARGE
-            and self.config.restore_charge == RestoreChargeEnum.BOTH.value.value
-        )
+    def _refill_completes_battle(self, source: str, exchange_amount: int) -> bool:
+        app = getattr(self, 'charge_plan_app', None)
+        required = getattr(self, 'required_charge', None)
+        if app is None:
+            return True
+        value = exchange_amount if source == self.SOURCE_BACKUP_CHARGE else exchange_amount * 60
+        return required is not None and app.battery_charge + value >= required
 
+    def _record_refill(self):
+        if getattr(self, '_refill_inventory_recorded', False):
+            return
+        app = getattr(self, 'charge_plan_app', None)
+        if app is not None:
+            app.record_charge_refill(self._restore_source, self._restore_exchange_amount)
+        self._refill_inventory_recorded = True
+
+    def _should_reselect_source(self, source: str) -> bool:
+        return (source == self.SOURCE_BACKUP_CHARGE
+                and self.config.restore_charge == RestoreChargeEnum.BOTH.value.value)
 
     @node_from(from_name='关闭快捷使用', status='重新选择电量来源')
     @operation_node(name='打开恢复界面', is_start_node=True)
@@ -128,6 +143,7 @@ class RestoreCharge(ZOperation):
             offset=Point(0, -100)
         )
 
+    @node_from(from_name='关闭快捷使用', status=STATUS_CHARGE_NOT_ENOUGH)
     @node_from(from_name='选择电量来源', status=NO_SOURCE)
     @operation_node(name='关闭恢复界面')
     def close_restore_popup(self) -> OperationRoundResult:
@@ -175,7 +191,8 @@ class RestoreCharge(ZOperation):
 
         log.info(f'{source} 兑换数量 {exchange_amount}')
 
-        if not self._should_confirm_restore(current_amount, exchange_amount):
+        if (not self._should_confirm_restore(current_amount, exchange_amount)
+                or not self._refill_completes_battle(source, exchange_amount)):
             if self._should_reselect_source(source):
                 self.skip_backup_charge = True
                 return self.round_success(status='重新选择电量来源', data=exchange_amount, wait=0.5)
@@ -209,6 +226,8 @@ class RestoreCharge(ZOperation):
             return self.round_retry('恢复来源或数量发生变化，未确认', wait=.5)
         if not self._should_confirm_restore(quick[1], quick[2]):
             return self.round_fail('恢复数量无效，未消耗')
+        if not self._refill_completes_battle(quick[0], quick[2]):
+            return self.round_fail('补充后仍不足以进行一场战斗，未消耗')
         if getattr(self.ctx.controller, 'background_mode', False):
             pad(self.ctx, 'a')
             return self.round_success('确认恢复，等待实际结果', wait=.5)
@@ -222,33 +241,36 @@ class RestoreCharge(ZOperation):
         战斗后点“再来一次”触发恢复：“恢复电量”的确认->“快捷使用”的确认
         上个节点已处理“快捷使用”的确认，这个节点处理后续可能出现的确认层
         """
-        if getattr(self.ctx.controller, 'background_mode', False):
-            quick = quick_use(self)
-            if quick is not None:
-                if quick[0] != self._restore_source or quick[1] == self._restore_before_amount:
-                    return self.round_retry('等待快捷使用确认生效，未重复消耗', wait=.5)
-                return self.round_fail('快捷使用数量变化异常，停止重复补充')
-            result = self.round_by_find_area(self.last_screenshot, '恢复电量', '标题-获得')
-            if result.is_success:
-                self._restore_obtained_seen = True
+        quick = quick_use(self)
+        if quick is not None:
+            if quick[0] != self._restore_source or quick[1] == self._restore_before_amount:
+                return self.round_retry('等待快捷使用确认生效，未重复消耗', wait=.5)
+            return self.round_fail('快捷使用数量变化异常，停止重复补充')
+
+        background = getattr(self.ctx.controller, 'background_mode', False)
+        obtained = self.round_by_find_area(self.last_screenshot, '恢复电量', '标题-获得')
+        if obtained.is_success:
+            self._restore_obtained_seen = True
+            if background:
                 pad(self.ctx, 'a')
-                return self.round_wait('确认补充获得结果，等待返回', wait=.5)
-            if source_page(self) is not None:
+            else:
+                result = self.round_by_find_and_click_area(self.last_screenshot, '恢复电量', '确认')
+                if not result.is_success:
+                    return result
+            return self.round_wait('确认补充获得结果，等待返回', wait=.5)
+        if source_page(self) is not None:
+            if background:
                 pad(self.ctx, 'b')
-                return self.round_wait('关闭已补充电量来源页，等待返回', wait=.5)
-            if getattr(self, '_restore_obtained_seen', False) or (self.is_after_battle_retry
-                    and self.round_by_find_area(self.last_screenshot, '战斗画面', '战斗结果-再来一次').is_success):
-                return self.round_success(self.STATUS_RESTORE_SUCCESS)
-            return self.round_retry('未核验恢复结果或战斗结算画面，未报告成功', wait=.5)
-        for area_name in ('标题-获得', '标题-快捷使用'):
-            result = self.round_by_find_area(self.last_screenshot, '恢复电量', area_name)
-            if not result.is_success:
-                continue
-            result = self.round_by_find_and_click_area(self.last_screenshot, '恢复电量', '确认', success_wait=0.5, retry_wait=0.5)
-            if result.is_success:
-                return self.round_wait('等待恢复完成', wait=0.5)
-            return self.round_retry('恢复电量失败', wait=0.5)
-        return self.round_success(self.STATUS_RESTORE_SUCCESS, wait=0.5)
+            else:
+                result = self.round_by_find_and_click_area(self.last_screenshot, '恢复电量', '取消')
+                if not result.is_success:
+                    return result
+            return self.round_wait('关闭电量来源页，等待返回', wait=.5)
+        if getattr(self, '_restore_obtained_seen', False) or (self.is_after_battle_retry
+                and self.round_by_find_area(self.last_screenshot, '战斗画面', '战斗结果-再来一次').is_success):
+            self._record_refill()
+            return self.round_success(self.STATUS_RESTORE_SUCCESS)
+        return self.round_retry('未核验恢复结果或战斗结算画面，未报告成功', wait=.5)
 
 def __debug():
     ctx = ZContext()

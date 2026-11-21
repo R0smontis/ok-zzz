@@ -118,16 +118,15 @@ class GameRuntime:
                 return None
         if getattr(getattr(method, 'hwnd_window', None), 'hwnd', 0) != target['hwnd']:
             return None
-        image = method.get_frame()  # WGC/BitBlt serialize their native resources.
-        if image is None or self.target()['hwnd'] != target['hwnd']:
-            return None
-        from src.runtime.frozen_capture import FrozenCaptureWatch, handle_frozen_capture
-        watch = self.__dict__.get('_capture_watch')
-        if watch is None:
-            watch = self.__dict__['_capture_watch'] = FrozenCaptureWatch()
-        handle_frozen_capture(watch, image, method)
-        if self.target()['geometry'] != target['geometry']:
-            return None
+        from src.controls.capture_compat import _accept_captured_frame, _capture_frame_lock
+        with _capture_frame_lock(executor):
+            image = method.get_frame()  # WGC/BitBlt serialize their native resources.
+            if image is None or self.target()['hwnd'] != target['hwnd']:
+                return None
+            if self.target()['geometry'] != target['geometry']:
+                return None
+            if not _accept_captured_frame(executor, image, method):
+                return None
         now = time.time()
         from src.diagnostics.recorder import recorder
         recorder.observe(image, captured_at=now)

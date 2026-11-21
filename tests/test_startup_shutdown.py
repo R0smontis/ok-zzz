@@ -135,6 +135,31 @@ def test_launcher_managed_update_remains_available(monkeypatch):
         qt.processEvents()
 
 
+def test_launcher_shutdown_is_idempotent_after_confirmed_success(monkeypatch):
+    import pyappify
+    from src.runtime.startup import install_launcher_shutdown_compat
+    calls = []
+    monkeypatch.setattr(pyappify, 'kill_pyappify', lambda *args, **kwargs: calls.append((args, kwargs)) or True)
+    install_launcher_shutdown_compat()
+    pyappify.kill_pyappify()
+    pyappify.kill_pyappify()
+    assert len(calls) == 1
+
+
+def test_launcher_shutdown_retries_after_failure(monkeypatch):
+    import pyappify
+    from src.runtime.startup import install_launcher_shutdown_compat
+    calls = []
+    def kill(*args, **kwargs):
+        calls.append(1)
+        return len(calls) > 1
+    monkeypatch.setattr(pyappify, 'kill_pyappify', kill)
+    install_launcher_shutdown_compat()
+    assert pyappify.kill_pyappify() is False
+    assert pyappify.kill_pyappify() is True
+    assert len(calls) == 2
+
+
 def test_exit_callback_stops_existing_resources_once(monkeypatch):
     from ok import og
     from ok.util.handler import ExitEvent

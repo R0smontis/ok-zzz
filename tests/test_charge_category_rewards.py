@@ -126,23 +126,33 @@ def test_energy_hunt_finish_does_not_erase_weekly_reward_record(monkeypatch, suc
     assert op.run_record.left_times == 2
 
 
-def test_energy_plan_free_run_counts_into_the_plan_and_spends_a_free_reward(monkeypatch):
+@pytest.mark.parametrize('free_rewards', [1, 2])
+def test_energy_plan_free_run_counts_without_spending_energy(monkeypatch, free_rewards):
     op = category_op(NotoriousHunt)
     op.pursuit = False  # The plan found free rewards left, so this run used one of them.
-    op.can_run_times = 1
+    op.can_run_times = op.run_record.left_times = free_rewards
+    from test_charge_plan_empty_targets import plan_app
+    app = plan_app([op.plan])
+    app.battery_charge = 10
+    op.charge_plan_app = app
+    op._battle_charge_cost = 60
+    op.round_by_find_area = lambda _image, _screen, area: op.round_success(area) if area == '出战' else op.round_fail()
+    assert op.click_next().status == '出战'
     op.battle_entered = True
     op._previous_round_result = op.round_success('普通战斗-完成')
     assert op.after_battle().is_success
     assert op.plan.run_times == 1 and op.charge_plan_config.save.called
-    assert (op.can_run_times, op.run_record.left_times) == (0, 1)
+    assert (op.can_run_times, op.run_record.left_times) == (free_rewards - 1,) * 2
+    assert app.battery_charge == 10
     tried = []
     def chooser(ctx, try_next, **kwargs):
         tried.append(try_next)
-        return SimpleNamespace(execute=lambda: OperationResult(True, '战斗结果-完成'))
+        return SimpleNamespace(execute=lambda: OperationResult(
+            True, '战斗结果-再来一次' if try_next else '战斗结果-完成'))
     monkeypatch.setattr('zzz_od.operation.compendium.notorious_hunt.ChooseNextOrFinishAfterBattle', chooser)
     op.check_next()
     # Free rewards ran out with the plan unfinished: finish here, the plan's next pass uses 深度追猎.
-    assert tried == [False]
+    assert tried == [free_rewards > 1]
 
 
 def test_energy_plan_free_runs_continue_to_level_choice():

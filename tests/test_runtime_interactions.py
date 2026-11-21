@@ -133,6 +133,51 @@ def test_enemy_disappearance_is_ignored_until_ten_second_burst_expires(initializ
     ctx.auto_battle_context.init_auto_op.assert_called_once()
 
 
+def test_frozen_capture_stops_assistant_and_changed_frame_can_restart_it(initialized_assistant, monkeypatch):
+    from ok.task.TaskExecutor import TaskExecutor
+    from src.controls.capture_compat import install_executor_frozen_capture_guard
+    from src.runtime import frozen_capture
+
+    task, ctx, frames, presence = initialized_assistant()
+    task._watchdog_stop.set()
+    presence.return_value = '敌人血条'
+    task.run()
+    old_guard = task._make_input_guard()
+    assert old_guard() and task._actions_running
+
+    executor = task.executor
+    executor.trigger_tasks = [task]
+    executor.method = SimpleNamespace(name='Windows Graphics Capture', close=Mock())
+    ctx._auto_battle_context = ctx.auto_battle_context
+    ctx.controller.cancel_inputs = Mock()
+    monkeypatch.setattr(og, 'my_app', SimpleNamespace(context=ctx, context_if_ready=lambda: ctx))
+    clock = [100.0]
+    monkeypatch.setattr(frozen_capture, 'time', SimpleNamespace(time=lambda: clock[0]))
+
+    def base_next(executor, *args, **kwargs):
+        executor._frame = frames[0]
+        return frames[0]
+
+    monkeypatch.setattr(TaskExecutor, 'next_frame', base_next)
+    install_executor_frozen_capture_guard()
+    monkeypatch.setattr(BaseTask, 'frame', property(lambda self: self.executor._frame))
+    assert TaskExecutor.next_frame(executor) is frames[0]
+    clock[0] = 116
+    assert TaskExecutor.next_frame(executor) is None
+    assert not old_guard() and not task._actions_running and not task._engine_started
+    assert task.enabled
+    ctx.controller.cancel_inputs.assert_called_once()
+
+    clock[0] = 117
+    assert TaskExecutor.next_frame(executor) is None
+    frames[0] = np.full_like(frames[0], 81)
+    clock[0] = 118
+    assert TaskExecutor.next_frame(executor) is frames[0]
+    task.run()
+    assert task._input_allowed() and task._actions_running and not old_guard()
+    assert ctx.auto_battle_context.start_actions.call_count == 2
+
+
 def test_burst_rechecks_once_at_deadline_and_opens_another_ten_seconds(initialized_assistant, monkeypatch):
     import time
     task, ctx, _, presence = initialized_assistant()
@@ -867,6 +912,77 @@ def test_onetime_pause_resume_stop_bridges_to_game(task_factory):
     assert ctx.run_context.is_context_running
     task.disable()
     assert ctx.run_context.is_context_stop
+
+
+def test_stop_terminates_periodic_battle_input_while_screenshot_is_blocked(task_factory, monkeypatch):
+    import time
+    from zzz_od.auto_battle import auto_battle_operator as battle_module
+    from onedragon.base.operation.application.application_run_context import ApplicationRunContext
+
+    screenshot_started, release_screenshot = threading.Event(), threading.Event()
+    turned = threading.Event()
+    turns = []
+    def turn():
+        turns.append(time.monotonic())
+        turned.set()
+    monkeypatch.setattr(battle_module, 'AtomicBtnLock', lambda ctx: SimpleNamespace(execute=lambda: None))
+    monkeypatch.setattr(battle_module, 'AtomicTurn', lambda *args: SimpleNamespace(execute=turn))
+    engine = object.__new__(battle_module.AutoBattleOperator)
+    engine.ctx = SimpleNamespace(last_check_in_battle=True)
+    engine.is_running = True
+    engine._periodic_generation = engine._run_generation = 1
+    engine._stop_event = threading.Event()
+    engine._task_lock = threading.Lock()
+    engine.running_executor = None
+    engine.auto_lock_interval, engine.auto_turn_interval = 0, .01
+    engine.last_turn_time = 0
+    controller = SimpleNamespace(cancel_inputs=Mock())
+    ctx = SimpleNamespace(controller=controller,
+                          _auto_battle_context=SimpleNamespace(stop_auto_battle=engine.stop_running))
+    ctx.run_context = ApplicationRunContext(ctx)
+    ctx.run_context.start_running()
+    task = task_factory(OneDragonDailyTask, ctx)
+    task._enabled, task.running = True, True
+    def blocked_frame():
+        screenshot_started.set()
+        release_screenshot.wait(5)
+    capture_worker = threading.Thread(target=blocked_frame)
+    periodic_worker = threading.Thread(target=engine.operate_periodically, args=(1,), daemon=True)
+    capture_worker.start()
+    periodic_worker.start()
+    try:
+        assert screenshot_started.wait(1) and turned.wait(1)
+        task.disable()
+        periodic_worker.join(1)
+        assert not periodic_worker.is_alive()
+        assert capture_worker.is_alive()  # Stopping input did not wait for capture to return.
+        assert not engine.is_running and ctx.run_context.is_context_stop
+        assert not task.enabled
+        controller.cancel_inputs.assert_called_once()
+        assert turns
+    finally:
+        release_screenshot.set()
+        engine.stop_running()
+        capture_worker.join(1)
+        periodic_worker.join(1)
+
+
+def test_stop_releases_inputs_and_disables_task_even_if_battle_cleanup_raises(task_factory):
+    from onedragon.base.operation.application.application_run_context import ApplicationRunContext
+    controller = SimpleNamespace(cancel_inputs=Mock())
+    ctx = SimpleNamespace(controller=controller,
+                          _auto_battle_context=SimpleNamespace(
+                              stop_auto_battle=Mock(side_effect=RuntimeError('battle cleanup failed'))))
+    ctx.run_context = ApplicationRunContext(ctx)
+    ctx.run_context.start_running()
+    task = task_factory(OneDragonDailyTask, ctx)
+    task._enabled, task.running = True, True
+
+    with pytest.raises(RuntimeError, match='battle cleanup failed'):
+        task.disable()
+
+    assert not task.enabled and ctx.run_context.is_context_stop
+    controller.cancel_inputs.assert_called_once()
 
 
 @pytest.mark.parametrize('raise_after_stop', [False, True])

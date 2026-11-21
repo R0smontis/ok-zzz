@@ -14,6 +14,11 @@ def test_old_plan_preserves_single_count_and_identity():
     assert not restored.use_double_reward
 
 
+def test_charge_estimates_respect_selected_card_quantity():
+    assert ChargePlanItem(category_name='实战模拟室', card_num='1').estimated_charge_power == 20
+    assert ChargePlanItem(category_name='实战模拟室', card_num='5').estimated_charge_power == 100
+
+
 def test_double_then_single_and_loop_reset_have_correct_cost():
     plan = ChargePlanItem(category_name='专业挑战室', double_times=2, single_times=3)
     app = plan_app([plan])

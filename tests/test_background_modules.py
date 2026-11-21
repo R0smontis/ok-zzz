@@ -100,6 +100,24 @@ def test_controller_routes_every_menu_operation_to_messages(backend):
     assert posts and controller.keyboard_controller.mock_calls == []
 
 
+def test_controller_default_drag_and_scroll_use_cached_background_cursor(backend):
+    from onedragon.base.controller.pc_controller_base import PcControllerBase
+
+    device, posts, _ = backend
+    controller = PcControllerBase.__new__(PcControllerBase)
+    controller.background_mode, controller.message_mode = True, False
+    controller.window_input, controller.game_win = device, device.window
+    device.position = Point(20, 30)
+
+    assert controller.drag_to(end=Point(50, 60), duration=0)
+    assert (101, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, device.pack(40, 60)) in posts
+    assert posts[-1] == (101, win32con.WM_LBUTTONUP, 0, device.pack(100, 120))
+
+    assert controller.scroll(1) is True
+    assert posts[-1] == (101, win32con.WM_MOUSEWHEEL, ((-120) & 0xffff) << 16,
+                         device.pack(-200, 220))
+
+
 @pytest.mark.parametrize('background', [True, False])
 def test_application_inputs_follow_switch_never_activate_and_release_after_error(background):
     import src.controls.application_input as policy

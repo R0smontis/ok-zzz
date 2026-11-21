@@ -387,6 +387,24 @@ def test_ignored_region_confirm_recovers_only_after_a_fresh_focus_change():
     assert op._quick_nav_chosen is None
 
 
+@pytest.mark.parametrize('name', ['weekly-detail-real', 'weekly-claim-focus', 'weekly-grid-green-focus',
+                                'weekly-keyboard-mode'])
+def test_weekly_reward_grid_is_not_classified_as_map_or_quick_navigation(name):
+    from src.navigation.map import quick_nav_state
+    from zzz_od.operation.transport import Transport
+
+    op, screen = fixture(name, '澄辉坪', '随便观')
+    op.ctx.ocr = SimpleNamespace(run_ocr=lambda _: {})
+    op.round_by_find_area = lambda *args, **kwargs: SimpleNamespace(is_success=False)
+
+    assert quick_nav_state(op, screen) is None
+    assert map_state(op, screen) is None
+    assert not Transport.is_map_screen(op, screen)
+
+    nav_op, quick_nav = fixture('qn-open', '布亚斯特城区', '吼吼饼铺')
+    assert quick_nav_state(nav_op, quick_nav) is not None
+
+
 def test_unreadable_point_focus_is_bounded_without_reconfirming_a_point():
     from src.navigation.map import quick_nav
     op, screen = fixture('qn-open', '布亚斯特城区', '吼吼饼铺')

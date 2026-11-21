@@ -225,16 +225,16 @@ class ChargePlanApp(ZApplication):
     @operation_node(name='判断是否执行')
     def check_before_transport(self) -> OperationRoundResult:
 
+        # 免费奖励次数需到恶名狩猎入口确认；仅深度追猎消耗电量。
+        if self.current_plan.category_name == '恶名狩猎':
+            return self.round_success()
         # 未知类型会返回 0，交给副本内流程继续判断真实消耗
         need_battery_charge = self.current_plan.estimated_charge_power
         if self.current_plan.use_double_reward and self.current_plan.double_fallback != '停止':
             # Inspect the entry even with only one normal run's charge left;
             # an available double mode still checks its real cost before battle.
             need_battery_charge = 40
-        if need_battery_charge <= 0 or self.battery_charge >= need_battery_charge:
-            return self.round_success()
-
-        if self._can_restore_charge(need_battery_charge - self.battery_charge):
+        if need_battery_charge <= 0 or self.can_afford_battle(need_battery_charge):
             return self.round_success()
 
         note = (f'电量不足：{self.current_plan.category_name} {self.current_plan.mission_type_name}'
@@ -253,19 +253,39 @@ class ChargePlanApp(ZApplication):
             return False
 
         restore_charge = self.config.restore_charge
-        return (
-            restore_charge in (
-                RestoreChargeEnum.BACKUP_ONLY.value.value,
-                RestoreChargeEnum.BOTH.value.value,
-            )
-            and self.backup_battery_charge >= required_charge
-        ) or (
-            restore_charge in (
-                RestoreChargeEnum.ETHER_ONLY.value.value,
-                RestoreChargeEnum.BOTH.value.value,
-            )
-            and self.ether_battery * 60 >= required_charge
-        )
+        available_charge = 0
+        if restore_charge in (
+            RestoreChargeEnum.BACKUP_ONLY.value.value,
+            RestoreChargeEnum.BOTH.value.value,
+        ):
+            available_charge = max(available_charge, max(0, self.backup_battery_charge))
+        if restore_charge in (
+            RestoreChargeEnum.ETHER_ONLY.value.value,
+            RestoreChargeEnum.BOTH.value.value,
+        ):
+            available_charge = max(available_charge, max(0, self.ether_battery) * 60)
+        return available_charge >= required_charge
+
+    def can_afford_battle(self, required_charge: int) -> bool:
+        if required_charge <= 0 or self.battery_charge >= required_charge:
+            return True
+        return self._can_restore_charge(required_charge - self.battery_charge)
+
+    def record_battle_charge(self, charge: int) -> None:
+        self.battery_charge = max(0, self.battery_charge - max(0, charge))
+
+    def record_charge_refill(self, source: str, amount: int) -> None:
+        if amount <= 0:
+            return
+        if source == '储蓄电量':
+            self.battery_charge = min(ChargePlanRunRecord.MAX_CHARGE_POWER,
+                                      self.battery_charge + amount)
+            self.backup_battery_charge = max(0, self.backup_battery_charge - amount)
+        elif source == '以太电池':
+            self.battery_charge = min(ChargePlanRunRecord.MAX_CHARGE_POWER,
+                                      self.battery_charge + amount * 60)
+            self.ether_battery = max(0, self.ether_battery - amount)
+
 
     @node_from(from_name='判断是否执行')
     @operation_node(name='传送')
@@ -295,24 +315,28 @@ class ChargePlanApp(ZApplication):
     @operation_node(name='实战模拟室')
     def combat_simulation(self) -> OperationRoundResult:
         op = CombatSimulation(self.ctx, self.current_plan)
+        op.charge_plan_app = self
         return self.round_by_op_result(op.execute())
 
     @node_from(from_name='识别副本分类', status='区域巡防')
     @operation_node(name='区域巡防')
     def area_patrol(self) -> OperationRoundResult:
         op = AreaPatrol(self.ctx, self.current_plan)
+        op.charge_plan_app = self
         return self.round_by_op_result(op.execute())
 
     @node_from(from_name='识别副本分类', status='专业挑战室')
     @operation_node(name='专业挑战室')
     def expert_challenge(self) -> OperationRoundResult:
         op = ExpertChallenge(self.ctx, self.current_plan)
+        op.charge_plan_app = self
         return self.round_by_op_result(op.execute())
 
     @node_from(from_name='识别副本分类', status='恶名狩猎')
     @operation_node(name='恶名狩猎')
     def notorious_hunt(self) -> OperationRoundResult:
         op = NotoriousHunt(self.ctx, self.current_plan, use_charge_power=True)
+        op.charge_plan_app = self
         return self.round_by_op_result(op.execute())
 
     @node_from(from_name='实战模拟室', success=True)
