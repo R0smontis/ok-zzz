@@ -489,7 +489,7 @@ class LiveDebugService:
                 host = self.headers.get('Host', '')
                 if (self.headers.get('Origin') or self.headers.get('Sec-Fetch-Site') in ('cross-site', 'same-site')
                         or host != f'127.0.0.1:{service.server.server_port}'
-                        or not hmac.compare_digest(auth, 'Bearer '+service.token)):
+                        or not auth.isascii() or not hmac.compare_digest(auth, 'Bearer '+service.token)):
                     self.reply(403, {'error': '仅接受本机已认证调试客户端'})
                     return False
                 return True
