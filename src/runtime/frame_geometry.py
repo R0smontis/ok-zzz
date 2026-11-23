@@ -23,6 +23,19 @@ class FrameGeometry:
     def to_standard(self, x, y):
         return (x*self.standard_width/self.width, y*self.standard_height/self.height)
 
+    @property
+    def ui_scale(self):
+        """Scale of aspect-preserving UI within the stretched recognition frame."""
+        x = self.width / self.standard_width
+        y = self.height / self.standard_height
+        scale = min(x, y)
+        return scale / x, scale / y
+
+    def ui_point(self, x, y, *, anchor):
+        ax, ay = anchor
+        sx, sy = self.ui_scale
+        return ax + (x - ax) * sx, ay + (y - ay) * sy
+
     def snapshot(self):
         return {'source': [self.width, self.height],
                 'recognition': [self.standard_width, self.standard_height],

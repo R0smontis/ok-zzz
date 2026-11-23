@@ -29,6 +29,8 @@ from onedragon.base.geometry.point import Point
 from onedragon.base.geometry.rectangle import Rect
 from onedragon.base.screen import screen_utils
 from onedragon.utils import cv2_utils, str_utils
+from src.runtime.frame_geometry import FrameGeometry
+from zzz_od.auto_battle.battle_presence import align_combat_hud
 from zzz_od.operation.enter_game.game_startup import startup_word
 
 MODE_CLICK = '自动点击'
@@ -113,7 +115,7 @@ class StoryDialogue:
         return self._status
 
     def detect(self, screen, *, mode: str = MODE_SKIP, option: str = _OPTION_LAST,
-               click_interval: float = 0.5) -> StoryAction | None:
+               click_interval: float = 0.5, source_size=(1920, 1080)) -> StoryAction | None:
         """根据当前帧和自身记录返回一个动作；同一帧不会产生输入副作用。"""
         now = self._now()
         # 等待期内保留上一次的状态，避免父流程把「等待动画」清成「无对话」。
@@ -125,12 +127,13 @@ class StoryDialogue:
             return None
 
         self._mode = self._mode_value(mode)
+        self._geometry = FrameGeometry(*source_size)
         interval = self._interval(click_interval)
         # 同一帧内多个判定会请求相同 ROI，缓存一次避免重复 OCR 拖慢 0.5s 循环。
         self._ocr_cache = {}
 
         # 最便宜的排除先做：战斗 HUD 存在时连剧情 OCR 都不必跑。
-        if self._found(screen, '战斗画面', '按键-普通攻击'):
+        if self._found(align_combat_hud(screen, source_size), '战斗画面', '按键-普通攻击'):
             self._clear_session()
             self._status = '战斗画面，不处理剧情'
             return None
@@ -191,7 +194,7 @@ class StoryDialogue:
             return None
         if not controls and not speaker_present and body_texts and self._is_blackout_narration(screen):
             return self._publish(StoryAction(
-                'advance', self._area('对话框内容').rect.center, '继续对话', interval))
+                'advance', self._story_rect('对话框内容').center, '继续对话', interval))
 
         if self._mode == MODE_SKIP:
             action = self._detect_skip(screen, controls, has_dialogue, now, interval)
@@ -230,8 +233,9 @@ class StoryDialogue:
                 if self._option_note:
                     self._status = self._option_note
                     return None
+            advance_point = self._narration_arrow(screen) if centered_narration else None
             return self._publish(StoryAction(
-                'advance', self._area('对话框内容').rect.center, '继续对话', interval))
+                'advance', advance_point or self._story_rect('对话框内容').center, '继续对话', interval))
 
         if self._session_active:
             action = self._unknown_transition(screen, controls, now, interval)
@@ -304,13 +308,29 @@ class StoryDialogue:
     def _area(self, name):
         return self.ctx.screen_loader.get_area('委托助手', name)
 
+    def _story_rect(self, name):
+        rect = self._area(name).rect
+        if name in ('对话框标题', '对话框内容', '右侧选项区域'):
+            anchor = (1920 if name == '右侧选项区域' else 960, 1080)
+        elif name in ('文本-剧情右上角', '按钮-自动'):
+            # Cinematics place these buttons inside the centered letterbox.
+            anchor = (1920, 540)
+        else:
+            return rect
+        return self._ui_rect(rect, anchor)
+
+    def _ui_rect(self, rect, anchor):
+        x1, y1 = self._geometry.ui_point(rect.x1, rect.y1, anchor=anchor)
+        x2, y2 = self._geometry.ui_point(rect.x2, rect.y2, anchor=anchor)
+        return Rect(round(x1), round(y1), round(x2), round(y2))
+
     def _ocr(self, screen, name, white: bool = False):
         key = ('area', name, bool(white))
         cached = self._ocr_cache.get(key)
         if cached is not None:
             return cached
         rows = self.ctx.ocr_service.get_ocr_result_list(
-            image=screen, rect=self._area(name).rect,
+            image=screen, rect=self._story_rect(name),
             color_range=self.WHITE if white else None)
         rows = rows if isinstance(rows, (list, tuple)) else []
         self._ocr_cache[key] = rows
@@ -334,8 +354,7 @@ class StoryDialogue:
 
     def _dialogue_text(self, screen):
         """(本轮正文, 是否有说话人, 是否是省略号) — 旁白允许没有说话人。"""
-        area = self._area('对话框内容')
-        if not cv2_utils.is_in_gray_mask(screen, rect=area.rect):
+        if not cv2_utils.is_in_gray_mask(screen, rect=self._story_rect('对话框内容')):
             return [], False, False
 
         rows = self._ocr(screen, '对话框内容')
@@ -408,10 +427,10 @@ class StoryDialogue:
 
     def _detect_skip(self, screen, controls: dict, has_dialogue: bool,
                      now: float, interval: float) -> StoryAction | None:
-        # 跳过按钮优先；无台词的过场必须同时有剧情控件，不能只凭一个「跳过」标签。
-        if '跳过' in controls and (has_dialogue or '菜单' in controls or '自动' in controls):
-            return self._publish(StoryAction('skip', controls['跳过'].center,
-                                             '跳过剧情', interval))
+        skip = controls.get('跳过')
+        if skip is not None and (has_dialogue or '菜单' in controls or '自动' in controls
+                                 or self._has_skip_icon(screen, skip.center)):
+            return self._publish(StoryAction('skip', skip.center, '跳过剧情', interval))
 
         # 上游主线分支：跳过不可用时优先菜单，其次自动。
         if has_dialogue and not self._skip_menu_used and now >= self._skip_wait_until:
@@ -423,6 +442,18 @@ class StoryDialogue:
                     kind, record.center, '展开剧情菜单' if kind == 'menu' else '开启自动播放',
                     interval))
         return None
+
+    def _has_skip_icon(self, screen, text_center: Point) -> bool:
+        # The standalone replay button pairs its label with a round orange icon.
+        sx, sy = self._geometry.ui_scale
+        x1, x2 = round(text_center.x - 135 * sx), round(text_center.x - 65 * sx)
+        y1, y2 = round(text_center.y - 23 * sy), round(text_center.y + 23 * sy)
+        part = screen[y1:y2, x1:x2, :3]
+        mask = cv2.inRange(part, (205, 45, 0), (255, 182, 90))
+        count, _, stats, _ = cv2.connectedComponentsWithStats(mask)
+        return any(23 * sx <= w <= 39 * sx and 24 * sy <= h <= 39 * sy
+                   and .40 <= area / (w * h) <= .80
+                   for _, _, w, h, area in stats[1:count])
 
     def _detect_auto(self, screen, controls: dict, has_dialogue: bool,
                      now: float, interval: float) -> StoryAction | None:
@@ -582,15 +613,17 @@ class StoryDialogue:
             return None
         self._unknown_rounds += 1
         return self._publish(StoryAction(
-            'advance', self._area('对话框内容').rect.center,
+            'advance', self._story_rect('对话框内容').center,
             '继续对话', interval))
 
-    @staticmethod
-    def _has_dialogue_frame(screen) -> bool:
+    def _has_dialogue_frame(self, screen) -> bool:
         # A dark text area or horizontal separator alone isn't a dialogue box. Check the
         # top and both side borders of the textbox in the normalized 1920×1080 frame.
-        for edge in (screen[828:831, 460:1460:8, :3], screen[856:978:4, 400:403, :3],
-                     screen[856:978:4, 1518:1521, :3]):
+        for rect, step_x, step_y in ((Rect(460, 828, 1460, 831), 8, 1),
+                                     (Rect(400, 856, 403, 978), 1, 4),
+                                     (Rect(1518, 856, 1521, 978), 1, 4)):
+            rect = self._ui_rect(rect, (960, 1080))
+            edge = screen[rect.y1:rect.y2:step_y, rect.x1:rect.x2:step_x, :3]
             low, high = edge.min(axis=-1), edge.max(axis=-1)
             if ((low >= 25) & (high <= 58) & (high - low <= 8)).mean() < .85:
                 return False
@@ -599,7 +632,7 @@ class StoryDialogue:
     def _has_visual_ellipsis(self, screen) -> bool:
         # OCR can miss punctuation-only lines. Require one row of equally spaced white dots,
         # not merely bright pixels or a speaker over an empty box.
-        rect = self._area('对话框内容').rect
+        rect = self._story_rect('对话框内容')
         body = screen[rect.y1:rect.y2, rect.x1:rect.x2, :3]
         mask = cv2.inRange(body, (200, 200, 200), (255, 255, 255))
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -637,6 +670,30 @@ class StoryDialogue:
                         for text in texts)
                 and not any(self._text(row) in ('确认', '确定', '取消')
                             for row in self._ocr(screen, '对话框确认')))
+
+    def _narration_arrow(self, screen) -> Point | None:
+        # The on-screen continue marker consists of two right-facing chevrons.
+        rect = self._ui_rect(Rect(925, 552, 995, 612), (960, 540))
+        part = screen[rect.y1:rect.y2, rect.x1:rect.x2, :3]
+        mask = cv2.inRange(part, (55, 55, 55), (255, 255, 255))
+        _, labels, stats, _ = cv2.connectedComponentsWithStats(mask)
+        sx, sy = self._geometry.ui_scale
+        chevrons = []
+        for idx, (x, y, w, h, area) in enumerate(stats[1:], 1):
+            if not (12 * sx <= w <= 24 * sx and 18 * sy <= h <= 31 * sy
+                    and .43 <= area / (w * h) <= .83):
+                continue
+            icon = labels[y:y+h, x:x+w] == idx
+            if (icon[h//2].argmax() > icon[h//5].argmax()
+                    and icon[h//2].argmax() > icon[4*h//5].argmax()):
+                chevrons.append((x, y, w, h))
+        if len(chevrons) == 2:
+            left, right = sorted(chevrons)
+            x, y, w, h = left
+            rx, ry, rw, rh = right
+            if abs(ry - y) <= 3 and abs(rh - h) <= 3 and 0 <= rx - x - w <= 7 * sx:
+                return Point(rect.x1 + (x + rx + rw) // 2, rect.y1 + y + h // 2)
+        return None
 
     def _has_cinematic_dialogue(self, screen) -> bool:
         # Letterboxed scenes render dialogue within the artwork, not over the bottom dialogue mask.

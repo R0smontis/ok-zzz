@@ -10,6 +10,29 @@ import numpy as np
 from functools import lru_cache
 
 
+def align_combat_hud(screen, source_size):
+    """Restore reference geometry in the edge HUD crops used by battle recognizers."""
+    from src.runtime.frame_geometry import FrameGeometry
+
+    height, width = screen.shape[:2]
+    geometry = FrameGeometry(*source_size, width, height)
+    sx, sy = geometry.ui_scale
+    if sx == sy == 1 or (width, height) != (1920, 1080):
+        return screen
+
+    aligned = screen.copy()
+    # Party portraits and boss health are anchored to the top corners. Skill
+    # buttons and their gauges are anchored to the lower right corner.
+    for x, y, w, h, ax, ay in ((0, 0, 980, 135, 0, 0),
+                              (1048, 0, 872, 110, width - 1, 0),
+                              (1340, 755, 580, 325, width - 1, height - 1)):
+        source_x, source_y = geometry.ui_point(x, y, anchor=(ax, ay))
+        matrix = np.array([[sx, 0, source_x], [0, sy, source_y]], dtype=np.float32)
+        aligned[y:y+h, x:x+w] = cv2.warpAffine(
+            screen, matrix, (w, h), flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP)
+    return aligned
+
+
 @lru_cache(maxsize=1)
 def _health_shapes():
     """Color-free left edge of the L-shaped health/daze panel (no badge)."""
@@ -125,6 +148,12 @@ def find_enemy_health_bar(screen):
         panel = _find_world_panel(hsv, contours, seed_kind)
         if panel is not None:
             return panel
+    # Green scenery can enclose the health fill in the broad mask. Isolate
+    # the luminous fill and verify the same two-row outline around it.
+    bright_green = cv2.inRange(hsv, (35, 90, 140), (90, 255, 255))
+    panel = _find_world_panel(hsv, _world_panel_contours(bright_green, 7), 'health')
+    if panel is not None:
+        return panel
     # Preserve the previous robust wide-bar path. A separate small-fill pass
     # avoids connecting distant panels to nearby colored effects.
     panel = _find_world_panel(hsv, _world_panel_contours(health, 3), 'health', small_only=True)

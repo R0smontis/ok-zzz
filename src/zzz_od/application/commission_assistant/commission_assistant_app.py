@@ -287,8 +287,10 @@ class CommissionAssistantApp(ZApplication):
             self._story_settings = settings
         controller = self.ctx.controller
         hwnd = controller.game_win.get_hwnd()
+        geometry = getattr(controller, 'frame_geometry', None)
+        source_size = geometry['source'] if geometry else (1920, 1080)
         action = self._story.detect(self.last_screenshot, mode=settings[0], option=settings[1],
-                                    click_interval=settings[2])
+                                    click_interval=settings[2], source_size=source_size)
         if action is None:
             return self.round_success(self._story.status, wait=self.config.sleep_after_empty_screen)
 

@@ -8,7 +8,7 @@ import pytest
 import yaml
 
 from zzz_od.auto_battle.battle_presence import (
-    detect_battle_presence, has_enemy_health_bar, has_target_reticle,
+    align_combat_hud, detect_battle_presence, has_enemy_health_bar, has_target_reticle,
 )
 
 
@@ -44,6 +44,42 @@ def test_attack_hud_alone_is_not_a_fight():
     assert detect_battle_presence(frame(), battle) is None
     assert not has_enemy_health_bar(frame())
     assert not has_target_reticle(frame())
+
+
+@pytest.mark.parametrize('size', [(3024, 1898), (2560, 1080)])
+def test_native_combat_hud_matches_reference_without_moving_the_scene(size):
+    from onedragon.base.matcher.template_matcher import TemplateMatcher
+    from onedragon.base.screen.template_loader import TemplateLoader
+    from src.runtime.frame_geometry import FrameGeometry
+
+    recording = Path(__file__).parent / 'fixtures/combat_recording/battle_169.jpg'
+    reference = cv2.cvtColor(cv2.imread(str(recording)), cv2.COLOR_BGR2RGB)
+    sx, sy = FrameGeometry(*size).ui_scale
+    transform = np.float32([[sx, 0, 1919 * (1 - sx)], [0, sy, 1079 * (1 - sy)]])
+    stretched = cv2.warpAffine(reference, transform, (1920, 1080))
+    aligned = align_combat_hud(stretched, size)
+    matcher = TemplateMatcher(TemplateLoader())
+
+    def has_attack(screen):
+        return matcher.match_template(screen[916:1017, 1403:1505],
+                                      'battle', 'btn_normal_attack', threshold=.9).max is not None
+
+    assert has_attack(reference)
+    assert not has_attack(stretched)
+    assert has_attack(aligned)
+    np.testing.assert_array_equal(aligned[140:740], stretched[140:740])
+
+
+def test_bright_enemy_panel_survives_green_scenery():
+    root = Path(__file__).resolve().parents[1] / 'assets/template/target_state'
+    panel = cv2.cvtColor(cv2.imread(str(root / 'enemy_health_panel_shape/raw.png')), cv2.COLOR_BGR2RGB)
+    yellow = cv2.inRange(cv2.cvtColor(panel, cv2.COLOR_RGB2HSV), (10, 100, 100), (35, 255, 255))
+    panel[yellow > 0] = (72, 72, 72)
+    scene = np.full_like(frame(), (62, 117, 90))
+    scene[480:480 + panel.shape[0], 1180:1180 + panel.shape[1]] = panel
+    assert has_enemy_health_bar(scene)
+    scene[480:480 + panel.shape[0], 1180:1180 + panel.shape[1]] = (62, 117, 90)
+    assert not has_enemy_health_bar(scene)
 
 
 def test_enemy_bar_pair_detected_but_isolated_effect_is_not():

@@ -339,16 +339,17 @@ class GameRuntime:
     def analyze(self, image, command):
         from src.runtime.frame_geometry import normalize_bgr
         from src.diagnostics.recorder import private_frame
-        from zzz_od.auto_battle.battle_presence import (find_enemy_health_bar,
+        from zzz_od.auto_battle.battle_presence import (align_combat_hud, find_enemy_health_bar,
             find_enemy_direction_arrow, has_chain_timer)
         context = self.gui.call(lambda: self.app.context)
         context.auto_battle_context.init_screen_area()
         screen = normalize_bgr(private_frame(image))
+        hud_screen = align_combat_hud(screen, image.shape[1::-1])
         # Use the same HUD gate as the running assistant, not an independent heuristic.
-        hud = context.auto_battle_context.is_normal_attack_btn_available(screen)
+        hud = context.auto_battle_context.is_normal_attack_btn_available(hud_screen)
         result = {'attack_hud_visible': bool(hud), 'enemy_detection_skipped': not hud,
-                  'enemy_panel': find_enemy_health_bar(screen) if hud else None,
-                  'enemy_arrow': find_enemy_direction_arrow(screen) if hud else None,
+                  'enemy_panel': find_enemy_health_bar(hud_screen) if hud else None,
+                  'enemy_arrow': find_enemy_direction_arrow(hud_screen) if hud else None,
                   'chain_timer_visible': bool(has_chain_timer(screen))}
         from onedragon.base.screen import screen_utils
         result['normal_world'] = screen_utils.is_target_screen(context, screen, screen_name='大世界-普通')

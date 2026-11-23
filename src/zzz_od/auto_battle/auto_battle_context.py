@@ -610,12 +610,15 @@ class AutoBattleContext:
         passive: bool = False,
         attack_hud_visible: bool | None = None,
         chain_ui_visible: bool | None = None,
+        hud_screen: MatLike | None = None,
     ) -> bool:
         """
         识别战斗状态的总入口
         :return: 当前是否在战斗画面
         """
-        in_battle = (self.is_normal_attack_btn_available(screen) if attack_hud_visible is None
+        if hud_screen is None:
+            hud_screen = screen
+        in_battle = (self.is_normal_attack_btn_available(hud_screen) if attack_hud_visible is None
                      else attack_hud_visible)
         self.last_check_in_battle = in_battle
         # Dedicated role handlers must skip the entire ultimate branch when
@@ -655,14 +658,14 @@ class AutoBattleContext:
                 submit_check('flash', _battle_state_check_executor, self.dodge_context.check_dodge_flash, screen, screenshot_time, audio_future)
 
             # 角色状态
-            submit_check('agent', _battle_state_check_executor, self.agent_context.check_agent_related, screen, screenshot_time)
+            submit_check('agent', _battle_state_check_executor, self.agent_context.check_agent_related, hud_screen, screenshot_time)
 
             # 目标状态
             submit_check('target', _battle_state_check_executor, self.target_context.run_all_checks, screen, screenshot_time)
 
             # 快速支援
-            submit_check('quick_assist', _battle_state_check_executor, self.check_quick_assist, screen, screenshot_time)
-            submit_check('switch_backup', _battle_state_check_executor, self.check_switch_backup, screen, screenshot_time)
+            submit_check('quick_assist', _battle_state_check_executor, self.check_quick_assist, hud_screen, screenshot_time)
+            submit_check('switch_backup', _battle_state_check_executor, self.check_switch_backup, hud_screen, screenshot_time)
 
             # 距离
             if check_distance:

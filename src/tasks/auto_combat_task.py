@@ -439,7 +439,8 @@ class BattleTriggerTask(ZzzBaseTask, TriggerTask):
             return
         battle_ctx = self.ctx.auto_battle_context
         battle_ctx.auto_ultimate_enabled = bool(self.config.get('自动终结技', True))
-        frame = self.ctx.controller.normalize_frame(self.frame)
+        raw_frame = self.frame
+        frame = self.ctx.controller.normalize_frame(raw_frame)
         geometry = getattr(self.ctx.controller, 'frame_geometry', None)
         if geometry:
             self.info['窗口分辨率'] = '×'.join(map(str, geometry['source']))
@@ -454,7 +455,9 @@ class BattleTriggerTask(ZzzBaseTask, TriggerTask):
         self._last_frame_seen = now
         screen_time = time.time()
         battle_ctx.auto_ultimate_enabled = bool(self.config.get('自动终结技', True))
-        attack_hud = battle_ctx.is_normal_attack_btn_available(frame)
+        from zzz_od.auto_battle.battle_presence import align_combat_hud
+        hud_frame = align_combat_hud(frame, raw_frame.shape[1::-1])
+        attack_hud = battle_ctx.is_normal_attack_btn_available(hud_frame)
         with self._engine_lock:
             if not self.enabled or not self._engine_started:
                 return
@@ -481,7 +484,7 @@ class BattleTriggerTask(ZzzBaseTask, TriggerTask):
         evidence = None
         if scan_enemy:
             from zzz_od.auto_battle.battle_presence import detect_battle_presence
-            evidence = detect_battle_presence(frame, battle_ctx, attack_hud_visible=attack_hud)
+            evidence = detect_battle_presence(hud_frame, battle_ctx, attack_hud_visible=attack_hud)
         elif chain_ui:
             evidence = '连携技'
         with self._engine_lock:
@@ -533,6 +536,7 @@ class BattleTriggerTask(ZzzBaseTask, TriggerTask):
             check_battle_end_defense_result=stop_on_end,
             passive=self.config_sub_dir == 'dodge' or not self._actions_running,
             attack_hud_visible=attack_hud, chain_ui_visible=chain_ui,
+            hud_screen=hud_frame,
         )
         if stop_on_end and not in_battle and battle_ctx.last_check_end_result is not None:
             self.log_info(f'战斗结束（{battle_ctx.last_check_end_result}），已停用自动战斗', notify=True)

@@ -171,7 +171,8 @@ class AutoDialogueTriggerTask(ZzzBaseTask, TriggerTask):
                 story.reset()
                 self._story_settings = settings
         captured_at = time.monotonic()
-        frame = controller.normalize_frame(self.frame)
+        raw_frame = self.frame
+        frame = controller.normalize_frame(raw_frame)
         geometry = getattr(controller, 'frame_geometry', None)
         if geometry:
             self.info['窗口分辨率'] = '×'.join(map(str, geometry['source']))
@@ -180,7 +181,7 @@ class AutoDialogueTriggerTask(ZzzBaseTask, TriggerTask):
             self.info['助手状态'] = '等待有效画面'
             return
         action = story.detect(frame, mode=settings[0], option=settings[1],
-                              click_interval=float(settings[2]))
+                              click_interval=float(settings[2]), source_size=raw_frame.shape[1::-1])
         record_event('dialogue_detection', action=None if action is None else action.kind,
                      text=None if action is None else action.text, hwnd=hwnd)
 

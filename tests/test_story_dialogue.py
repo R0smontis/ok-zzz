@@ -258,6 +258,44 @@ def test_centered_intertitle_with_menu_tries_skip_then_advances(scene):
     assert action is not None and action.kind == 'skip'
 
 
+def test_native_centered_intertitle_clicks_its_visible_continue_marker(scene):
+    scene.texts['centered_narration'] = [word('新艾利都，雅努斯区十四分街。', 960, 512)]
+    for x in (942, 961):
+        vertices = np.array([[x, 561], [x+8, 561], [x+17, 572],
+                             [x+8, 582], [x, 582], [x+8, 572]], np.int32)
+        cv2.fillPoly(scene.frame, [vertices], (160, 160, 160))
+    action = scene.core.detect(scene.frame, mode=MODE_CLICK, source_size=(3024, 1898))
+    assert action is not None and action.kind == 'advance'
+    assert action.point.tuple() == (960, 572)
+
+
+def test_native_npc_name_below_reference_title_area_enables_dialogue(scene):
+    rows = [word('喵吉', 960, 843), word('祝你度过愉快的一天！', 962, 943)]
+    scene.ctx.ocr_service.get_ocr_result_list.side_effect = lambda image, rect, **_: [
+        row for row in rows if rect.x1 <= row.center.x < rect.x2 and rect.y1 <= row.center.y < rect.y2]
+    scene.frame[:850] = (125, 155, 185)  # Ordinary street scene above the dialogue box.
+    scene.frame[853:990, 415:1510] = (33, 33, 33)
+    action = scene.core.detect(scene.frame, source_size=(3024, 1898))
+    assert action is not None and action.kind == 'advance'
+    assert action.point.tuple() == (959, 923)
+
+
+@pytest.mark.parametrize('icon', [False, True])
+def test_native_skip_requires_story_evidence_for_a_lone_label(scene, icon):
+    rows = [word('跳过', 1762, 173)]
+    scene.ctx.ocr_service.get_ocr_result_list.side_effect = lambda image, rect, **_: [
+        row for row in rows if rect.x1 <= row.center.x < rect.x2 and rect.y1 <= row.center.y < rect.y2]
+    if icon:
+        cv2.ellipse(scene.frame, (1656, 174), (15, 13), 0, 0, 360, (255, 120, 0), -1)
+        cv2.rectangle(scene.frame, (1653, 167), (1659, 180), (0, 0, 0), -1)
+    action = scene.core.detect(scene.frame, source_size=(3024, 1898))
+    if icon:
+        assert action is not None and action.kind == 'skip'
+        assert action.point.tuple() == (1762, 173)
+    else:
+        assert action is None
+
+
 @pytest.mark.parametrize('obstruction', [None, 'no_bar', 'dialog', 'world', 'no_text', 'no_control'])
 def test_letterboxed_dialogue_enters_skip_flow(scene, obstruction):
     scene.frame[135:945] = (172, 102, 4)
