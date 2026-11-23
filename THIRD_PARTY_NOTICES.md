@@ -22,7 +22,7 @@
   本项目移植了其以下部分并继续以 GPL-3.0 分发：
   - `src/onedragon/` ← 原仓库 `src/one_dragon/` 的子集（条件战斗引擎 `conditional_operation`、
     画面/模板识别层 `screen`/`matcher`、CV 流水线 `cv_process`、YOLO 推理封装、工具函数）
-  - `src/zzz_od/` ← 原仓库 `src/zzz_od/` 的战斗引擎、代理人与目标状态识别、闪避音频识别、键位配置
+  - `src/zzz_od/` ← 原仓库 `src/zzz_od/` 的战斗引擎、代理人与目标状态识别、闪避音频识别、键位配置、委托助手剧情推进策略
   - `assets/` 与 `config/` ← 原仓库的画面定义 YAML、战斗 DSL 配置、模板图、闪避音频模板
   - 依据 GPL-3.0 第 5 条，本项目的整体许可为 **GPL-3.0**。
 

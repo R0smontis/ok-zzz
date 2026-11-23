@@ -575,7 +575,7 @@ def _release_mouse_button(primary=True):
         raise
 
 
-def win_click(pos: Point = None, press_time: float = 0.1, primary: bool = True):
+def win_click(pos: Point = None, press_time: float = 0.1, primary: bool = True, *, input_allowed=None):
     """点击鼠标。
 
     Args:
@@ -583,11 +583,19 @@ def win_click(pos: Point = None, press_time: float = 0.1, primary: bool = True):
         press_time: 按住时间
         primary: 是否点击鼠标主要按键（通常是左键）
     """
+    if input_allowed is not None and not input_allowed():
+        return False
     btn = pyautogui.PRIMARY if primary else pyautogui.SECONDARY
     if pos is None:
         pos = get_current_mouse_pos()
 
-    pyautogui.moveTo(pos.x, pos.y)
+    if input_allowed is None:
+        pyautogui.moveTo(pos.x, pos.y)
+    else:
+        # Do not leave PyAutoGUI's global pause between aiming and a guarded press.
+        pyautogui.moveTo(pos.x, pos.y, _pause=False)
+        if not input_allowed() or pyautogui.position() != pos.tuple():
+            return False
     pressed = False
     try:
         pyautogui.mouseDown(button=btn, _pause=False)
@@ -596,6 +604,7 @@ def win_click(pos: Point = None, press_time: float = 0.1, primary: bool = True):
     finally:
         if pressed:
             _release_mouse_button(primary)
+    return True
 
 
 def win_scroll(clicks: int, pos: Point = None):

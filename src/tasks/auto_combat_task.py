@@ -558,6 +558,14 @@ class AutoCombatTask(BattleTriggerTask):
             '战斗结束停止': '识别到结算画面后停用此助手；下一场需重新启用',
         })
 
+    @property
+    def combat_active(self) -> bool:
+        """Keep story detection suspended until the confirmed burst is rechecked."""
+        # The dodge listener starts bursts on another thread under _engine_lock.
+        with self._engine_lock:
+            return (self.enabled and self._engine_started
+                    and (self._actions_running or self._last_burst_end is not None))
+
 
 class DodgeAssistantTriggerTask(BattleTriggerTask):
     config_key = '闪避配置'

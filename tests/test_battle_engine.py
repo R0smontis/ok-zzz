@@ -66,3 +66,30 @@ def test_start_stop_engine(ctx, stubbed_controller):
         assert battle_ctx.auto_op.is_running
         battle_ctx.stop_auto_battle()
         assert not battle_ctx.auto_op.is_running
+
+
+def test_manato_teammate_support_yields_to_attack(ctx, stubbed_controller):
+    from onedragon.base.conditional_operation.state_recorder import StateRecord
+
+    _, recorder = stubbed_controller
+    battle_ctx = ctx.auto_battle_context
+    battle_ctx.clear_all_states()
+    battle_ctx.init_auto_op('全配队通用')
+    try:
+        service = battle_ctx.state_record_service
+        now = time.time()
+        service.batch_update_states([StateRecord(state, now) for state in (
+            '前台-真斗', '后台-1-特殊技可用', '按键可用-普通攻击')])
+        scene = battle_ctx.auto_op.normal_scene
+        support = scene.match_execution(now)
+        assert '队友速切支援' in support.expr_display
+        for operation in support.op_list:
+            operation.execute()
+        attack = scene.match_execution(time.time())
+        assert '擦火刀蓄能' in attack.expr_display
+        attack.op_list[0].execute()
+        attack.op_list[-1].execute()
+        key = ctx.game_config.get_action_keys('keyboard')['special_attack']
+        assert ('press', key) in recorder.events and ('release', key) in recorder.events
+    finally:
+        battle_ctx.clear_all_states()

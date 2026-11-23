@@ -416,40 +416,142 @@ def test_old_executor_completion_cannot_change_new_session_count():
 @pytest.fixture
 def dialogue_task(task_factory, monkeypatch):
     from src.tasks.dialogue_task import AutoDialogueTriggerTask
-    from zzz_od.application.commission_assistant.dialogue_detector import DialogueAction
+    from zzz_od.application.commission_assistant.story_dialogue import StoryAction
     from onedragon.base.geometry.point import Point
     ctx = SimpleNamespace(init=Mock(), controller=SimpleNamespace(
-        init_game_win=Mock(return_value=True), normalize_frame=lambda f: f,
+        init_game_win=Mock(return_value=True), normalize_frame=lambda f: f, background_mode=False,
         game_win=SimpleNamespace(is_win_active=True, is_win_valid=True,
                                  get_hwnd=Mock(return_value=101)),
         click_dialogue_event=Mock(return_value=True)))
     task = task_factory(AutoDialogueTriggerTask, ctx)
-    task._detector_ctx = ctx
-    task._detector = SimpleNamespace(detect=Mock(return_value=None))
     frame = [np.zeros((1080, 1920, 3), np.uint8)]
     monkeypatch.setattr(BaseTask, 'frame', property(lambda self: frame[0]))
     task.enable()
-    yield task, ctx, frame, DialogueAction('skip', Point(1750, 70), '跳过剧情')
+    task._story_ctx = ctx
+    task._story = SimpleNamespace(detect=Mock(return_value=None), reset=Mock(),
+                                   feedback=Mock(), status='等待对话')
+    yield task, ctx, frame, StoryAction('skip', Point(1750, 70), '跳过剧情')
     task.disable()
 
 
-def test_dialogue_trigger_is_idle_and_sends_one_click_per_current_event(dialogue_task):
+@pytest.fixture
+def combined_assistants(initialized_assistant, task_factory, monkeypatch):
+    from src.tasks.dialogue_task import AutoDialogueTriggerTask
+    from zzz_od.application.commission_assistant.story_dialogue import StoryAction
+    from onedragon.base.geometry.point import Point
+
+    battle, ctx, frames, presence = initialized_assistant()
+    battle._watchdog_stop.set()
+    ctx.init = Mock()
+    ctx.controller.click_dialogue_event = Mock(return_value=True)
+    ctx.controller.normalize_frame = Mock(side_effect=lambda frame: frame)
+    action = StoryAction('advance', Point(959, 905), '继续对话')
+    policies = Mock(side_effect=lambda _: SimpleNamespace(
+        detect=Mock(return_value=action), reset=Mock(), feedback=Mock(), status='等待对话'))
+    monkeypatch.setattr('src.tasks.dialogue_task.StoryDialogue', policies)
+    dialogue = task_factory(AutoDialogueTriggerTask, ctx)
+    dialogue.enable()
+    yield battle, dialogue, ctx, frames, presence, policies, action
+    dialogue.disable()
+
+
+@pytest.mark.parametrize('phase', ['normal', 'animation', 'chain', 'recheck'])
+def test_confirmed_combat_skips_story_capture_and_recognition(combined_assistants, monkeypatch, phase):
+    battle, dialogue, ctx, frames, presence, policies, _ = combined_assistants
+    # Merely enabling auto-combat without enemy evidence must leave dialogue working.
+    dialogue.run()
+    story = dialogue._story
+    presence.return_value = '敌人血条'
+    battle.run()
+    if phase in ('animation', 'chain'):
+        ctx.auto_battle_context.is_normal_attack_btn_available.return_value = False
+        if phase == 'chain':
+            from zzz_od.auto_battle import battle_presence
+            monkeypatch.setattr(battle_presence, 'has_chain_timer', lambda _: True)
+            monkeypatch.setattr(battle_presence, 'detect_chain_presence', lambda *a, **kw: '连携技')
+        battle.run()
+    elif phase == 'recheck':
+        battle._suspend_actions(preserve_states=True)
+
+    capture = Mock(return_value=frames[0])
+    monkeypatch.setattr(BaseTask, 'frame', property(lambda self: capture()))
+    ctx.controller.normalize_frame.reset_mock()
+    assert not dialogue.should_trigger()
+    dialogue.run()  # Also gate a task that was selected before combat started.
+    capture.assert_not_called()
+    ctx.controller.normalize_frame.assert_not_called()
+    policies.assert_called_once()
+    story.detect.assert_called_once()
+    ctx.controller.click_dialogue_event.assert_called_once()
+    assert dialogue._story is None
+
+
+@pytest.mark.parametrize('exit_reason', ['no_enemy', 'disabled'])
+def test_story_resumes_with_new_policy_after_combat_releases(combined_assistants, exit_reason):
+    battle, dialogue, ctx, _, presence, policies, _ = combined_assistants
+    dialogue.run()
+    old_story = dialogue._story
+    presence.return_value = '敌人血条'
+    battle.run()
+    dialogue.run()
+    if exit_reason == 'disabled':
+        battle.disable()
+    else:
+        battle._input_until = 0.
+        presence.return_value = None
+        battle.run()
+    dialogue.run()
+    assert dialogue._story is not old_story
+    assert policies.call_count == 2
+    old_story.detect.assert_called_once()
+    assert ctx.controller.click_dialogue_event.call_count == 2
+
+
+@pytest.mark.parametrize('stage', ['ocr', 'delivery'])
+def test_combat_start_discards_in_flight_story_action(combined_assistants, monkeypatch, stage):
+    import time
+    import src.navigation.dialogue as adapter
+
+    battle, dialogue, ctx, _, _, _, action = combined_assistants
+    dialogue.run()
+    story = dialogue._story
+    ctx.controller.click_dialogue_event.reset_mock()
+
+    def start_combat():
+        assert battle._on_dodge_event('闪避识别-黄光', time.time())
+
+    if stage == 'ocr':
+        def detect(*args, **kwargs):
+            start_combat()
+            return action
+        story.detect.side_effect = detect
+    else:
+        original = adapter.send_story_action
+        def deliver(*args, **kwargs):
+            start_combat()
+            return original(*args, **kwargs)
+        monkeypatch.setattr('src.tasks.dialogue_task.send_story_action', deliver)
+    dialogue.run()
+    ctx.controller.click_dialogue_event.assert_not_called()
+    assert dialogue._story is None
+
+
+def test_dialogue_trigger_only_acknowledges_delivered_input(dialogue_task):
     task, ctx, _, action = dialogue_task
     task.run()
     ctx.controller.click_dialogue_event.assert_not_called()
-    task._detector.detect.return_value = action
-    task._last_check = None
+    task._story.detect.return_value = action
     task.run()
-    ctx.controller.click_dialogue_event.assert_called_once_with(
-        action.point, expected_hwnd=101, allow_background=False)
-    task._last_check = None
+    call = ctx.controller.click_dialogue_event.call_args
+    assert call.args == (action.point,) and call.kwargs['expected_hwnd'] == 101
+    assert call.kwargs['input_allowed']()
+    task._story.feedback.assert_called_once_with(action, True)
+    ctx.controller.click_dialogue_event.return_value = False
     task.run()
-    assert ctx.controller.click_dialogue_event.call_count == 1  # Current event still obeys debounce.
-    task._detector.detect.return_value = None
-    task._last_click = None
-    task._last_check = None
+    task._story.feedback.assert_called_with(action, False)
+    task._story.detect.return_value = None
     task.run()
-    assert ctx.controller.click_dialogue_event.call_count == 1
+    assert ctx.controller.click_dialogue_event.call_count == 2
     assert task.info['助手状态'] == '等待对话'
 
 
@@ -459,7 +561,7 @@ def test_dialogue_trigger_discards_disabled_or_old_ocr_result(dialogue_task):
         task.disable()
         task.enable()
         return action
-    task._detector.detect.side_effect = detect
+    task._story.detect.side_effect = detect
     task.run()
     ctx.controller.click_dialogue_event.assert_not_called()
 
@@ -472,7 +574,7 @@ def test_dialogue_trigger_discards_slow_result(dialogue_task, monkeypatch):
     def detect(*args, **kwargs):
         clock[0] += 0.6
         return action
-    task._detector.detect.side_effect = detect
+    task._story.detect.side_effect = detect
     task.run()
     ctx.controller.click_dialogue_event.assert_not_called()
     assert '过期' in task.info['助手状态']
@@ -492,22 +594,21 @@ def test_dialogue_discards_result_when_input_target_changes(dialogue_task, chang
             ctx.controller = copy.copy(original)
         return action
 
-    task._detector.detect.side_effect = detect
-    task._menu_until = float('inf')
+    task._story.detect.side_effect = detect
     task.run()
     original.click_dialogue_event.assert_not_called()
-    assert task._menu_until == 0
 
 
-def test_dialogue_in_background_mode_without_virtual_pad_uses_window_messages(dialogue_task, monkeypatch):
+def test_dialogue_uses_mouse_even_with_background_selected_and_no_pad(dialogue_task, monkeypatch):
     import src.controls.interaction as interaction
     task, ctx, _, action = dialogue_task
     monkeypatch.setattr(interaction, 'background_mode_selected', lambda: True)
+    ctx.init_controller = Mock(side_effect=RuntimeError('虚拟手柄不可用'))
     ctx.controller.game_win.is_win_active = False
-    task._detector.detect.return_value = action
+    task._story.detect.return_value = action
     task.run()
-    ctx.controller.click_dialogue_event.assert_called_once_with(
-        action.point, expected_hwnd=101, allow_background=True)
+    ctx.controller.click_dialogue_event.assert_called_once()
+    ctx.init_controller.assert_not_called()
 
 
 def test_dialogue_result_age_includes_frame_capture(dialogue_task, monkeypatch):
@@ -519,25 +620,23 @@ def test_dialogue_result_age_includes_frame_capture(dialogue_task, monkeypatch):
         clock[0] += 0.6
         return frames[0]
     monkeypatch.setattr(BaseTask, 'frame', property(capture))
-    task._detector.detect.return_value = action
+    task._story.detect.return_value = action
     task.run()
     ctx.controller.click_dialogue_event.assert_not_called()
 
 
-@pytest.mark.parametrize('reason', ['capture', 'background', 'other_task'])
-def test_dialogue_trigger_never_clicks_without_usable_foreground_frame(dialogue_task, task_factory, reason):
+@pytest.mark.parametrize('reason', ['capture', 'other_task'])
+def test_dialogue_trigger_never_clicks_without_usable_frame_or_task_ownership(dialogue_task, task_factory, reason):
     task, ctx, frames, action = dialogue_task
-    task._detector.detect.return_value = action
+    task._story.detect.return_value = action
     if reason == 'capture':
         frames[0] = None
-    elif reason == 'background':
-        ctx.controller.game_win.is_win_active = False
     else:
         other = task_factory(OneDragonDailyTask)
         other.running = True
     task.run()
     ctx.controller.click_dialogue_event.assert_not_called()
-    task._detector.detect.assert_not_called()
+    task._story.detect.assert_not_called()
 
 
 def test_dialogue_trigger_discards_result_after_settings_change_or_pause(dialogue_task):
@@ -545,14 +644,13 @@ def test_dialogue_trigger_discards_result_after_settings_change_or_pause(dialogu
     def settings_change(*args, **kwargs):
         task.config['对话选项'] = '第一个'
         return action
-    task._detector.detect.side_effect = settings_change
+    task._story.detect.side_effect = settings_change
     task.run()
     ctx.controller.click_dialogue_event.assert_not_called()
-    task._last_check = None
     def pause(*args, **kwargs):
         task._on_executor_paused(True)
         return action
-    task._detector.detect.side_effect = pause
+    task._story.detect.side_effect = pause
     task.run()
     ctx.controller.click_dialogue_event.assert_not_called()
 
@@ -562,6 +660,102 @@ def test_dialogue_trigger_discards_result_after_settings_change_or_pause(dialogu
 def test_dialogue_trigger_rejects_invalid_intervals(dialogue_task, key, value):
     task, _, _, _ = dialogue_task
     assert task.validate_config(key, value)
+
+
+def test_combined_story_setting_migrates_without_losing_other_options(dialogue_task):
+    task, _, _, _ = dialogue_task
+    task.config.update({'剧情模式': '跳过剧情 + 自动点击', '对话选项': '第一个', '对话点击间隔秒': .8})
+    task.enable()
+    assert task.config['剧情模式'] == '跳过剧情'
+    assert task.config['对话选项'] == '第一个'
+    assert task.config['对话点击间隔秒'] == .8
+
+
+@pytest.mark.parametrize('blocked', ['paused', 'debug_control'])
+def test_dialogue_stops_before_input_on_pause_or_manual_control(dialogue_task, blocked):
+    from onedragon.base.controller.input_guard import debug_control_owned
+    task, ctx, _, action = dialogue_task
+    task._story.detect.return_value = action
+    if blocked == 'paused':
+        task.executor.paused = True
+    else:
+        debug_control_owned.set()
+    try:
+        task.run()
+        ctx.controller.click_dialogue_event.assert_not_called()
+    finally:
+        debug_control_owned.clear()
+
+
+def test_dialogue_rechecks_window_immediately_before_delivery(dialogue_task, monkeypatch):
+    import src.navigation.dialogue as module
+    task, ctx, _, action = dialogue_task
+    task._story.detect.return_value = action
+    original = module.send_story_action
+
+    def change_window(*args, **kwargs):
+        ctx.controller.game_win.get_hwnd.return_value = 202
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr('src.tasks.dialogue_task.send_story_action', change_window)
+    task.run()
+    ctx.controller.click_dialogue_event.assert_not_called()
+
+
+@pytest.mark.parametrize('entry', ['trigger', 'commission'])
+@pytest.mark.parametrize('background', [True, False])
+def test_story_entries_keep_advancing_visible_dialogue_without_signature_lock(dialogue_task, monkeypatch, entry, background):
+    import time
+    from onedragon.base.geometry.point import Point
+    from onedragon.base.geometry.rectangle import Rect
+    from onedragon.base.operation.operation_round_result import OperationRoundResult, OperationRoundResultEnum
+    from zzz_od.application.commission_assistant.commission_assistant_app import CommissionAssistantApp
+    from zzz_od.application.commission_assistant.story_dialogue import StoryDialogue
+    from pathlib import Path
+    import yaml
+
+    task, context, frames, _ = dialogue_task
+    data = yaml.safe_load((Path(__file__).resolve().parents[1] /
+                           'assets/game_data/screen_info/commission_assistant.yml').read_text(encoding='utf-8'))
+    areas = {item['area_name']: SimpleNamespace(rect=Rect(*item['pc_rect'])) for item in data['area_list']}
+    rows = [SimpleNamespace(data='妮可', center=Point(960, 800)),
+            SimpleNamespace(data='你好，绳匠。', center=Point(960, 900))]
+    context.screen_loader = SimpleNamespace(get_area=lambda screen, name: areas[name])
+    context.ocr_service = SimpleNamespace(get_ocr_result_list=lambda image, rect, **_: [
+        row for row in rows if rect.x1 <= row.center.x < rect.x2 and rect.y1 <= row.center.y < rect.y2])
+    context.controller.is_background_input = background
+    context.controller.background_mode = background
+    context.controller.game_win.is_win_active = False
+    monkeypatch.setattr(StoryDialogue, '_found', lambda *args: False)
+    clock = [1000.0]
+    monkeypatch.setattr(time, 'monotonic', lambda: clock[0])
+    policy = StoryDialogue(context)
+    if entry == 'trigger':
+        task._story = policy
+        run = task.run
+    else:
+        app = CommissionAssistantApp.__new__(CommissionAssistantApp)
+        app.ctx = context
+        app.run_mode = 0
+        app.config = SimpleNamespace(story_mode='跳过剧情', dialog_option='最后一个',
+                                     dialog_click_interval=.5, sleep_after_empty_screen=.5)
+        app._story = policy
+        app._story_settings = None
+        app.last_screenshot = frames[0]
+        app.last_screenshot_time = time.time()
+        context.run_context = SimpleNamespace(is_context_running=True)
+        app.check_knock_knock = lambda: OperationRoundResult(OperationRoundResultEnum.RETRY)
+        app.check_fishing = lambda: None
+        app._after_round_wait = lambda **_: None
+        run = app.story_mode
+    for _ in range(4):
+        run()
+        clock[0] += .6
+    assert context.controller.click_dialogue_event.call_count == 4
+    rows.clear()
+    frames[0][:] = (30, 120, 210)  # No dialogue and no black transition: stop, never blind-click world art.
+    run()
+    assert context.controller.click_dialogue_event.call_count == 4
 
 
 def test_daily_selection_names_and_single_save(task_factory, tmp_path, monkeypatch):
@@ -1002,20 +1196,6 @@ def test_user_stop_result_is_preserved(monkeypatch, raise_after_stop):
     assert run.run_application('test').finish_reason == RunFinishReason.STOPPED
 
 
-def test_dialogue_interval_is_left_to_the_framework_trigger(dialogue_task, monkeypatch):
-    """识别间隔由框架 should_trigger 统一节流；run() 不再用第二个时钟吞掉整拍。"""
-    import time as time_module
-    task, _, _, action = dialogue_task
-    task._detector.detect.return_value = action
-    clock = [1000.0]
-    monkeypatch.setattr(time_module, 'monotonic', lambda: clock[0])
-    task.run()
-    assert task._detector.detect.call_count == 1
-    task._last_click = None  # 只关掉点击去抖；时钟未前进
-    task.run()
-    assert task._detector.detect.call_count == 2
-
-
 def test_missing_config_name_falls_back_to_the_task_default(task_factory, monkeypatch):
     """闪避配置缺失时回退到本任务的默认值（曾经错误地回退成「全配队通用」）。"""
     from src.tasks.auto_combat_task import DodgeAssistantTriggerTask
@@ -1027,90 +1207,6 @@ def test_missing_config_name_falls_back_to_the_task_default(task_factory, monkey
     task._enabled = True
     task.run()
     assert started == ['闪避']
-
-
-@pytest.fixture
-def pad_dialogue(dialogue_task, monkeypatch):
-    """Background mode with a working virtual pad; OCR rows are served per region."""
-    import src.controls.interaction as interaction
-    import src.tasks.dialogue_task as module
-    task, ctx, frames, _ = dialogue_task
-    monkeypatch.setattr(interaction, 'background_mode_selected', lambda: True)
-    clock = [1000.0]
-    monkeypatch.setattr(module.time, 'monotonic', lambda: clock[0])
-    rows = []
-    ctx.ocr_service = SimpleNamespace(get_ocr_result_list=lambda image, rect, **_: [
-        r for r in rows if rect.x1 <= r.center.x < rect.x2 and rect.y1 <= r.center.y < rect.y2])
-    ctx.game_config = SimpleNamespace(background_gamepad_type='xbox')
-    ctx.controller.background_mode = True
-    ctx.controller.game_win.is_win_active = False
-    ctx.controller.btn_press = Mock()
-    return task, ctx, rows, clock
-
-
-def ocr_row(text, x, y):
-    from onedragon.base.geometry.point import Point
-    return SimpleNamespace(data=text, center=Point(x, y))
-
-
-def pad_presses(ctx):
-    return [c.args[0] for c in ctx.controller.btn_press.call_args_list]
-
-
-def test_background_dialogue_advances_with_controller_a_once_per_sentence(pad_dialogue):
-    from zzz_od.application.commission_assistant.dialogue_detector import DialogueAction
-    from onedragon.base.geometry.point import Point
-    task, ctx, rows, clock = pad_dialogue
-    rows.append(ocr_row('他俩再这么吵下去', 960, 930))
-    task._detector.detect.return_value = DialogueAction('advance', Point(960, 905), '继续对话')
-    for _ in range(4):  # Same sentence on screen: one press, then wait for it to change.
-        task.run()
-        clock[0] += 0.6
-    assert pad_presses(ctx) == ['xbox_a']
-    rows[:] = [ocr_row('事情就来不及了', 960, 930)]
-    task.run()
-    assert pad_presses(ctx) == ['xbox_a', 'xbox_a']
-    ctx.controller.click_dialogue_event.assert_not_called()
-
-
-def _story_frame(name):
-    import json
-    from pathlib import Path
-    import cv2
-    from onedragon.base.geometry.rectangle import Rect
-    folder = Path(__file__).parent / 'fixtures' / 'dialogue'
-    screen = cv2.cvtColor(cv2.imread(str(folder / f'{name}.png')), cv2.COLOR_BGR2RGB)
-    rows = []
-    for item in json.loads((folder / f'{name}.json').read_text(encoding='utf-8'))['result']['ocr']:
-        x, y, w, h = item['rect']
-        rows.append(SimpleNamespace(data=item['text'], center=Rect(x, y, x + w, y + h).center))
-    return screen, rows
-
-
-@pytest.mark.parametrize('name', ['story-skip-mouse-prompts', 'story-skip-pad-prompts'])
-def test_background_story_skip_presses_menu_button_with_or_without_pad_prompt(pad_dialogue, dialogue_task, name):
-    # 2026-11-04: 跳过 was "executed" by window message every 0.6 s for minutes and the game never
-    # reacted. 跳过 is the pad's menu button whatever prompt the frame shows, so no prompt is required
-    # and no window message is sent.
-    from zzz_od.application.commission_assistant.dialogue_detector import DialogueAction
-    from onedragon.base.geometry.point import Point
-    task, ctx, rows, clock = pad_dialogue
-    task._detector.detect.return_value = DialogueAction('skip', Point(1755, 61), '跳过剧情')
-    dialogue_task[2][0], rows[:] = _story_frame(name)
-    task.run()
-    assert pad_presses(ctx) == ['xbox_start']
-    ctx.controller.click_dialogue_event.assert_not_called()
-
-
-def test_background_dialogue_never_answers_a_purchase_option(pad_dialogue):
-    from zzz_od.application.commission_assistant.dialogue_detector import DialogueAction
-    from onedragon.base.geometry.point import Point
-    task, ctx, _, _ = pad_dialogue
-    task._detector.detect.return_value = DialogueAction('option', Point(1500, 600), '购买咖啡')
-    task.run()
-    assert not pad_presses(ctx)
-    ctx.controller.click_dialogue_event.assert_not_called()
-    assert '人工' in task.info['助手状态']
 
 
 def test_battle_demo_task_prepares_controller_and_screen_areas(task_factory, monkeypatch):

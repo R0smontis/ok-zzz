@@ -177,7 +177,11 @@ def install_launcher_shutdown_compat():
 
 def _started_window_min_size(controller):
     """Use the app's configured capture minimum, falling back to the framework's."""
+    from src.runtime.window_resolution import should_check_standard_resolution
+
     fallback = getattr(controller, 'STARTED_WINDOW_MIN_SIZE', (100, 100))
+    if not should_check_standard_resolution():
+        return fallback
     config = getattr(controller, 'config', None) or {}
     supported = config.get('supported_resolution') or {}
     configured = supported.get('min_size') if hasattr(supported, 'get') else None

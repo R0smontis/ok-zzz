@@ -71,6 +71,24 @@ def test_context_syncs_keys_before_creating_and_reusing_controller(monkeypatch):
     fake.sync_game_config.assert_called_with(game, activate=False)
 
 
+def test_story_controller_creation_does_not_require_or_switch_to_gamepad(monkeypatch):
+    from zzz_od.context import zzz_context as module
+    context = module.ZContext.__new__(module.ZContext)
+    window_provider = lambda: 101
+    context.__dict__.update(game_config=MemoryGameConfig(), env_config=SimpleNamespace(screenshot_method='auto'),
+                            controller=None, _frame_provider=None, _window_provider=window_provider,
+                            _game_config_sync=None)
+    controller = SimpleNamespace(game_win=SimpleNamespace(), sync_game_config=Mock())
+    constructor = Mock(return_value=controller)
+    monkeypatch.setattr(module, 'ZzzController', constructor)
+    context.init_controller(activate=False, sync_input=False)
+    assert context.controller is controller and controller.game_win.window_provider is window_provider
+    controller.sync_game_config.assert_not_called()
+    context.init_controller(activate=False)
+    constructor.assert_called_once()
+    controller.sync_game_config.assert_called_once_with(context.game_config, activate=False)
+
+
 def test_classifier_keeps_current_results_and_evicts_old_frames():
     from onedragon.yolo.yolov8_onnx_cls import Yolov8Classifier, ClassificationResult, RunContext
     model = Yolov8Classifier.__new__(Yolov8Classifier)
@@ -142,32 +160,3 @@ def test_download_utility_uses_repository_sources(tmp_path, monkeypatch):
     monkeypatch.setattr(download_models, 'model_dir', lambda category: str(tmp_path / category))
     assert download_models.download('flash_classifier', 'test-model', 'cnb')
     assert called == ['https://cnb.cool/OneDragon-Anything/OneDragon-YOLO/-/releases/download/zzz_model/test-model.zip']
-
-
-@pytest.mark.parametrize('active, allow_background, target, background', [
-    (False, True, 101, False), (False, False, 101, False), (True, True, 101, False),
-    (False, True, 202, False), (True, False, 101, True)])
-def test_dialogue_messages_never_activate_background_window(monkeypatch, active, allow_background, target, background):
-    from zzz_od.controller import zzz_controller as module
-    from onedragon.base.geometry.point import Point
-    controller = module.ZzzController.__new__(module.ZzzController)
-    controller.message_mode = background
-    controller.game_win = SimpleNamespace(get_hwnd=lambda: target, is_win_valid=True,
-                                          is_win_active=active,
-                                          get_scaled_game_pos=lambda point: Point(300, 70))
-    controller._foreground_click = Mock(return_value=True)
-    controller._ensure_mouse_mode = Mock(side_effect=AssertionError('input-mode switch'))
-    controller._set_cursor_to = Mock(side_effect=AssertionError('physical mouse movement'))
-    post = Mock()
-    monkeypatch.setattr(module.win32gui, 'PostMessage', post)
-    monkeypatch.setattr(module.win32gui, 'SetForegroundWindow', Mock(side_effect=AssertionError('focus')))
-    sent = controller.click_dialogue_event(Point(600, 140), expected_hwnd=101,
-                                          allow_background=allow_background)
-    assert sent == (target == 101 and (active or allow_background))
-    if target == 101 and (allow_background or active and background):
-        assert post.call_count == 3
-        assert all(call.args[0] == 101 and call.args[3] == (300 | 70 << 16)
-                   for call in post.call_args_list)
-        controller._foreground_click.assert_not_called()
-    else:
-        post.assert_not_called()

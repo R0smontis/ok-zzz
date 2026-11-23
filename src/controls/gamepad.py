@@ -19,7 +19,8 @@ def pad_key(ctx, button: str) -> str:
     return 'xbox_' + button
 
 
-def press(ctx, button: str, duration: float = .12) -> None:
+def press(ctx, button: str, duration: float = .12) -> bool:
+    """Press one pad key; return False when the controller refused delivery."""
     from src.runtime.logging_bridge import log_input
     log_input(f'手柄 {button.upper()}' + (f' 按住 {duration:g} 秒' if duration and duration >= .5 else ''))
-    ctx.controller.btn_press(pad_key(ctx, button), press_time=duration)
+    return ctx.controller.btn_press(pad_key(ctx, button), press_time=duration) is not False

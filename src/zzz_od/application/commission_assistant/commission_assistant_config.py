@@ -51,7 +51,9 @@ class CommissionAssistantConfig(ApplicationConfig):
 
     @property
     def story_mode(self):
-        return self.get('story_mode', StoryMode.CLICK.value.value)
+        mode = self.get('story_mode', StoryMode.CLICK.value.value)
+        # 旧版组合模式已并入上游「跳过剧情」，与常驻对话助手的迁移保持一致。
+        return StoryMode.SKIP.value.value if mode == '跳过剧情 + 自动点击' else mode
 
     @story_mode.setter
     def story_mode(self, new_value: str) -> None:

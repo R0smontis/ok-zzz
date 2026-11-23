@@ -233,8 +233,8 @@ class ZContext(ContextEventBus):
         """使用控制器绑定的截图窗口；后台窗口也可以就绪。"""
         return self.controller is not None and self.controller.is_game_window_ready
 
-    def init_controller(self, activate: bool = True) -> None:
-        """按当前实例配置创建控制器（幂等；切换输入方式时复用对象）。"""
+    def init_controller(self, activate: bool = True, *, sync_input: bool = True) -> None:
+        """创建控制器；剧情仅需窗口和截图，不初始化全局模式的虚拟手柄。"""
         if self._game_config_sync is not None:
             self._game_config_sync(self.game_config)
         if self.controller is None:
@@ -244,8 +244,7 @@ class ZContext(ContextEventBus):
                 frame_provider=self._frame_provider,
             )
             self.controller.game_win.window_provider = self._window_provider
-            self.controller.sync_game_config(self.game_config, activate=activate)
-        else:
+        if sync_input:
             self.controller.sync_game_config(self.game_config, activate=activate)
 
     def set_frame_provider(self, frame_provider) -> None:

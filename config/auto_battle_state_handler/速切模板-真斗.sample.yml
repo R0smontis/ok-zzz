@@ -61,7 +61,7 @@ handlers:
         debug_name: "队友速切支援"
         operations:
           - op_name: "设置状态"
-            state_list: ["自定义-合轴时间" , “自定义-真斗-观测队友”]
+            state_list: ["自定义-合轴时间", "自定义-真斗-观测队友"]
 
       # 特殊技不可用时通过擦火刀蓄能（仅队友强化特殊技都不可用时）
       - states: ""

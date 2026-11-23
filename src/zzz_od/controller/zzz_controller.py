@@ -7,13 +7,14 @@
 """
 import time
 
-import win32con
-import win32gui
+from pyautogui import FailSafeException
+
 from cv2.typing import MatLike
 
 from zzz_od.config.game_config import GameConfig
 from zzz_od.controller.zzz_pc_controller import ZPcController
 from onedragon.base.controller.input_guard import execution_input_allowed, execution_action
+from onedragon.base.controller.pc_controller_base import win_click
 from src.diagnostics.recorder import record_event
 from src.runtime.frame_geometry import FrameGeometry, normalize_bgr
 
@@ -57,8 +58,9 @@ class ZzzController(ZPcController):
         allowed = self._battle_input_allowed()
         record_event('input_call', action='press', key=key, duration=press_time, allowed=allowed,
                      background=getattr(self, 'background_mode', None))
-        if allowed:
-            super().btn_press(key, press_time)
+        if not allowed:
+            return False
+        return super().btn_press(key, press_time) is not False
 
     def btn_release(self, key):
         record_event('input_call', action='release', key=key, allowed=True,
@@ -83,37 +85,43 @@ class ZzzController(ZPcController):
             log_input(f'点击 {where}' + ('（后台消息）' if getattr(self, 'is_background_input', False) else ''))
         return super().click(pos, press_time, pc_alt, gamepad_key)
 
-    def click_dialogue_event(self, pos, *, expected_hwnd, allow_background=False):
-        """Deliver a current dialogue event without activating a background window."""
-        if not execution_input_allowed():
-            return False
-        record_event('dialogue_input_request', x=pos.x, y=pos.y, hwnd=expected_hwnd,
-                     allow_background=allow_background)
+    def click_dialogue_event(self, pos, *, expected_hwnd, input_allowed):
+        """Use physical mouse input for story only; leave every other controller mode intact."""
         window = self.game_win
-        if not expected_hwnd or window.get_hwnd() != expected_hwnd or not window.is_win_valid:
+
+        def ready():
+            return (execution_input_allowed() and input_allowed() and self.game_win is window
+                    and expected_hwnd and window.get_hwnd() == expected_hwnd
+                    and window.is_win_valid)
+
+        if not ready():
             return False
-        if window.is_win_active and not allow_background and not self.is_background_input:
-            return self._foreground_click(pos, press_time=0.001)
-        if not allow_background and not (window.is_win_active and self.is_background_input):
+        if not window.is_win_active:
+            window.active()
+            # Activation can change controller prompts/layout; recognize a fresh frame first.
             return False
-        scaled = window.get_scaled_game_pos(pos)
-        if scaled is None or window.get_hwnd() != expected_hwnd:
+        target = window.game2win_pos(pos)
+        if target is None:
             return False
-        coordinates = (int(scaled.x) & 0xffff) | ((int(scaled.y) & 0xffff) << 16)
+
+        def before_press():
+            if not ready() or not window.is_win_active:
+                return False
+            current = window.game2win_pos(pos)
+            return current is not None and current.x == target.x and current.y == target.y
+
+        record_event('dialogue_input_request', x=pos.x, y=pos.y, hwnd=expected_hwnd,
+                     input_mode='keyboard_mouse')
+        # Mouse movement may change the game's input prompts even if the later click is cancelled.
+        self.forget_game_input_mode()
         try:
-            # No SetCursorPos, input-mode switch or foreground activation here.
-            win32gui.PostMessage(expected_hwnd, win32con.WM_MOUSEMOVE, 0, coordinates)
-            win32gui.PostMessage(expected_hwnd, win32con.WM_LBUTTONDOWN,
-                                 win32con.MK_LBUTTON, coordinates)
-            win32gui.PostMessage(expected_hwnd, win32con.WM_LBUTTONUP, 0, coordinates)
-            return True
-        except Exception:
-            # Always try to release the original target if delivery was interrupted.
-            try:
-                win32gui.PostMessage(expected_hwnd, win32con.WM_LBUTTONUP, 0, coordinates)
-            except Exception:
-                pass
+            delivered = win_click(target, press_time=.001, input_allowed=before_press)
+        except FailSafeException:
+            # The safety corner cancels this click, not the story task. Mouse-up is guaranteed.
             return False
+        if delivered:
+            self._game_input_mode = 'keyboard_mouse'
+        return delivered
 
     def normalize_frame(self, frame: MatLike | None) -> MatLike | None:
         """将 ok-script 的 BGR 帧转换为一条龙使用的标准尺寸 RGB 帧。

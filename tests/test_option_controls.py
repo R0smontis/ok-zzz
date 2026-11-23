@@ -67,6 +67,40 @@ def ui_task(monkeypatch, tmp_path):
     _QT_APP.processEvents()
 
 
+def test_story_mode_migration_is_persisted_before_rendering(monkeypatch, tmp_path):
+    from src.tasks.dialogue_task import AutoDialogueTriggerTask
+    from ok.core.events import communicate
+    global _QT_APP
+    _QT_APP = QApplication.instance() or QApplication([])
+    app = SimpleNamespace(tr=lambda text: text)
+    monkeypatch.setattr(og, 'app', app)
+    monkeypatch.setattr(og, 'config', {'gui_title': 'ok-zzz'})
+    task = AutoDialogueTriggerTask(executor=SimpleNamespace(scene=None), app=app)
+    old = dict(task.default_config, **{'剧情模式': '跳过剧情 + 自动点击', '对话选项': '第一个',
+                                     '对话点击间隔秒': .8})
+    (tmp_path / 'AutoDialogueTriggerTask.json').write_text(json.dumps(old, ensure_ascii=False), encoding='utf-8')
+    task.config = Config(type(task).__name__, task.default_config, folder=str(tmp_path), validator=task.validate)
+    task.on_create()
+    card = ConfigCard(task, task.name, task.config, task.description, task.default_config,
+                      task.config_description, task.config_type, FluentIcon.INFO)
+    try:
+        card.show()
+        _QT_APP.processEvents()
+        box = card.config_widget_by_key['剧情模式'].combo_box
+        assert box.isVisible() and box.currentText() == '跳过剧情'
+        assert [box.itemText(i) for i in range(box.count())] == ['自动点击', '等待剧情自动播放', '跳过剧情']
+        box.setCurrentText('自动点击')
+        box.setCurrentText('跳过剧情')
+        saved = Config(type(task).__name__, task.default_config, folder=str(tmp_path))
+        assert saved['剧情模式'] == '跳过剧情'
+        assert saved['对话选项'] == '第一个' and saved['对话点击间隔秒'] == .8
+    finally:
+        communicate.executor_paused.disconnect(task._on_executor_paused)
+        card.close()
+        card.deleteLater()
+        _QT_APP.processEvents()
+
+
 def test_all_application_parameters_have_chinese_titles(ui_task):
     from src.tasks import app_tasks
     for metadata in APP_OPTIONS:

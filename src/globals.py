@@ -36,6 +36,8 @@ class Globals:
         install_update_compat()
         install_started_window_guard()
         install_launcher_shutdown_compat()
+        from src.runtime.window_resolution import install_window_resolution
+        install_window_resolution()
         from src.tasks.error_report_ui import install_error_reports
         install_error_reports()
         from src.runtime.game_discovery import install_game_discovery
@@ -101,7 +103,12 @@ class Globals:
                     context.controller.disconnect_virtual_gamepad_bus()
                 except Exception as error:
                     logger.warning(f'退出时移除虚拟手柄失败: {error}')
-        logger.info('程序退出清理完成：战斗输入、声音监听、调试录制与虚拟手柄已停止')
+        from src.runtime.window_resolution import restore_game_window
+        try:
+            restore_game_window()
+        except Exception as error:
+            logger.warning(f'退出时恢复游戏分辨率失败: {error}')
+        logger.info('程序退出清理完成：战斗输入、声音监听、调试录制、虚拟手柄与游戏分辨率已处理')
 
     # ------------------------------------------------------------------ #
     # ok-script 桥接

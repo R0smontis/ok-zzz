@@ -1,4 +1,4 @@
-"""Real recorded pixels and native coordinate mapping at 16:9 window sizes."""
+"""Real recorded pixels and native coordinate mapping at multiple window sizes."""
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -16,7 +16,7 @@ from zzz_od.auto_battle.battle_presence import has_enemy_health_bar, detect_chai
 from zzz_od.controller.zzz_controller import ZzzController
 from src.runtime.frame_geometry import FrameGeometry
 
-SIZES = [(1280,720),(1600,900),(1920,1080),(2560,1440),(3840,2160)]
+SIZES = [(1280,720),(1600,900),(1920,1080),(2560,1440),(3024,1898),(3840,2160)]
 FIXTURES = Path(__file__).parent/'fixtures/combat_recording'
 
 
@@ -78,21 +78,29 @@ def test_client_and_screen_clicks_use_current_size_and_window_origin(monkeypatch
 
 
 @pytest.mark.parametrize('size', SIZES)
-def test_background_dialogue_click_uses_scaled_client_pixels(monkeypatch,size):
-    import zzz_od.controller.zzz_controller as module
-    monkeypatch.setattr(PcGameWindow,'win_rect',property(lambda self:Rect(0,0,*size)))
+def test_story_mouse_click_uses_screen_pixels_and_window_origin(monkeypatch,size):
+    from onedragon.base.controller import pc_controller_base as inputs
+    origin = (-2600, 180)
+    monkeypatch.setattr(PcGameWindow,'win_rect',property(lambda self:Rect(
+        *origin, origin[0]+size[0], origin[1]+size[1])))
     monkeypatch.setattr(PcGameWindow,'get_win',lambda self:object())
     monkeypatch.setattr(PcGameWindow,'get_hwnd',lambda self:101)
     monkeypatch.setattr(PcGameWindow,'is_win_valid',property(lambda self:True))
-    monkeypatch.setattr(PcGameWindow,'is_win_active',property(lambda self:False))
-    post = Mock()
-    monkeypatch.setattr(module.win32gui,'PostMessage',post)
+    monkeypatch.setattr(PcGameWindow,'is_win_active',property(lambda self:True))
+    x,y = map(int,FrameGeometry(*size).to_client(1750,70))
+    cursor = origin[0]+x, origin[1]+y
+    move, down, up = Mock(), Mock(), Mock()
+    monkeypatch.setattr(inputs.pyautogui,'position',lambda:cursor)
+    monkeypatch.setattr(inputs.pyautogui,'moveTo',move)
+    monkeypatch.setattr(inputs.pyautogui,'mouseDown',down)
+    monkeypatch.setattr(inputs.pyautogui,'mouseUp',up)
+    monkeypatch.setattr(inputs.time,'sleep',lambda _:None)
     capture = controller()
     capture.game_win = PcGameWindow()
-    assert capture.click_dialogue_event(Point(1750,70),expected_hwnd=101,allow_background=True)
-    x,y = map(int,FrameGeometry(*size).to_client(1750,70))
-    assert post.call_count == 3
-    assert all(call.args[3] == (x|(y<<16)) for call in post.call_args_list)
+    assert capture.click_dialogue_event(Point(1750,70),expected_hwnd=101,input_allowed=lambda:True)
+    move.assert_called_once_with(*cursor, _pause=False)
+    down.assert_called_once()
+    up.assert_called_once()
 
 
 @pytest.mark.parametrize('size', [(1280,720),(2560,1440),(3840,2160)])

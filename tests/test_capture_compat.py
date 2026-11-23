@@ -111,6 +111,66 @@ def test_wgc_black_frames_are_rejected_before_task_and_live_observers(monkeypatc
     assert not method._zzz_capture_error
 
 
+def test_wgc_delivers_sparse_subtitles_but_rejects_opaque_black(monkeypatch):
+    from ok.device.capture_methods.windows_graphics import WindowsGraphicsCaptureMethod as WGC
+    from src.controls.capture_compat import install_wgc_blank_frame_guard
+
+    black = np.zeros((1440, 2560, 4), np.uint8)
+    black[:, :, 3] = 255
+    subtitle = black.copy()
+    subtitle[691:725, 900:1660, :3] = 250
+    # Sampled rows hit just two narrow strokes; most of the frame is black.
+    subtitle[::16, :, :3] = 0
+    source = Mock(side_effect=[black, subtitle])
+    monkeypatch.setattr(WGC, 'do_get_frame', source)
+    install_wgc_blank_frame_guard()
+    method = SimpleNamespace()
+    assert WGC.do_get_frame(method) is None
+    assert WGC.do_get_frame(method) is subtitle
+    assert not method._zzz_capture_error
+
+
+@pytest.mark.parametrize('missing', [None, np.zeros((32, 32, 3), np.uint8)], ids=['timeout', 'black'])
+def test_wgc_recovers_without_delivering_invalid_frames(monkeypatch, missing):
+    from threading import Event
+
+    from ok.device.capture_methods.windows_graphics import WindowsGraphicsCaptureMethod as WGC
+    from src.controls import capture_compat
+
+    clock = [0.0]
+    shown = [True]
+    valid = np.full((32, 32, 3), 80, np.uint8)
+    source = Mock(return_value=missing)
+    # A background window is not the foreground window but still renders and must recover.
+    method = SimpleNamespace(hwnd_window=SimpleNamespace(hwnd=7, visible=False), capture_hwnd=7,
+                             frame_pool=object(), exit_event=Event())
+    method.close = Mock(side_effect=lambda: setattr(source, 'return_value', valid))
+    monkeypatch.setattr(WGC, 'do_get_frame', source)
+    monkeypatch.setattr(capture_compat.time, 'monotonic', lambda: clock[0])
+    monkeypatch.setattr(capture_compat, '_window_shown', lambda hwnd: hwnd == 7 and shown[0])
+    capture_compat.install_wgc_blank_frame_guard()
+
+    assert WGC.do_get_frame(method) is None
+    assert ('未返回画面' if missing is None else '黑屏') in method._zzz_capture_error
+    clock[0] = 14
+    assert WGC.do_get_frame(method) is None
+    method.close.assert_not_called()
+    clock[0] = 15
+    assert WGC.do_get_frame(method) is None
+    method.close.assert_called_once()
+    assert WGC.do_get_frame(method) is valid
+    assert not method._zzz_capture_error
+
+    source.return_value = missing
+    clock[0] = 31
+    assert WGC.do_get_frame(method) is None
+    method.close.assert_called_once()  # A good frame starts a new outage timer.
+    shown[0] = False
+    clock[0] = 50
+    assert WGC.do_get_frame(method) is None
+    method.close.assert_called_once()  # Do not rebuild while the game is minimized or hidden.
+
+
 @pytest.fixture
 def position_check(monkeypatch):
     import win32gui

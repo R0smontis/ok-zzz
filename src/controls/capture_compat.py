@@ -12,7 +12,10 @@ def blank_frame(frame):
     if frame is None or frame.size == 0:
         return True
     pixels = frame[::16, ::16, :3]
-    return bool(np.mean(np.max(pixels, axis=2) > 3) < .005)
+    if np.mean(np.max(pixels, axis=2) > 3) >= .005:
+        return False
+    # Sparse subtitles can fall between sampled pixels. Confirm black on the full RGB image.
+    return bool(frame[:, :, :3].max() <= 3)
 
 
 _capture_lock_init = threading.Lock()
@@ -231,6 +234,16 @@ def install_windows_graphics_compat():
                 module.windows_graphics_available = available
 
 
+def _window_shown(hwnd):
+    """Visible and not minimized; a minimized window legitimately produces no frames."""
+    import win32gui
+    try:
+        return bool(win32gui.IsWindow(hwnd) and win32gui.IsWindowVisible(hwnd)
+                    and not win32gui.IsIconic(hwnd))
+    except Exception:
+        return False
+
+
 def install_wgc_blank_frame_guard():
     from ok.device.capture_methods.windows_graphics import WindowsGraphicsCaptureMethod
     original = WindowsGraphicsCaptureMethod.do_get_frame
@@ -240,11 +253,27 @@ def install_wgc_blank_frame_guard():
     @functools.wraps(original)
     def capture(method):
         frame = original(method)
-        if blank_frame(frame):
-            method._zzz_capture_error = 'WGC截图黑屏，等待有效画面；不会据此操作游戏'
-            return None
-        method._zzz_capture_error = ''
-        return frame
+        if frame is not None and not blank_frame(frame):
+            method._zzz_invalid_frame_since = None
+            method._zzz_capture_error = ''
+            return frame
+
+        method._zzz_capture_error = ('WGC未返回画面' if frame is None else 'WGC截图黑屏') + '，等待有效画面'
+        now = time.monotonic()
+        since = getattr(method, '_zzz_invalid_frame_since', None)
+        if since is None:
+            method._zzz_invalid_frame_since = now
+        elif now - since >= 15:
+            window = method.hwnd_window
+            # HwndWindow.visible means "foreground"; background capture must recover as well.
+            if (method.frame_pool is not None and window is not None and window.hwnd
+                    and method.capture_hwnd == window.hwnd and _window_shown(window.hwnd)
+                    and not method.exit_event.is_set()):
+                from ok import Logger
+                Logger.get_logger(__name__).warning('WGC 连续 15 秒无有效画面，重建截图会话')
+                method._zzz_invalid_frame_since = now
+                method.close()
+        return None
 
     capture._zzz_blank_guard = True
     WindowsGraphicsCaptureMethod.do_get_frame = capture
